@@ -396,8 +396,19 @@ class TestIntelligenceIntegration(IntegrationTestCase):
                     "The test must actually retain a stale REPEATABLE READ snapshot.",
                 )
                 message = "active run" if same_conversation else "daily Intelligence run limit"
-                with self.assertRaisesRegex(frappe.ValidationError, message):
+                # Either admission fails closed with the expected validation message,
+                # or MariaDB itself refuses the stale locking read (error 1020, surfaced
+                # as QueryDeadlockError): on REPEATABLE READ, a FOR UPDATE read that finds
+                # the row changed under its snapshot is aborted by the engine, which is an
+                # equally sound rejection of the losing request. Both leave exactly one run.
+                try:
                     api.send_message(target, "The losing stale-snapshot request")
+                except frappe.QueryDeadlockError:
+                    pass
+                except frappe.ValidationError as error:
+                    self.assertIn(message, str(error))
+                else:
+                    self.fail("The stale-snapshot request must not be admitted.")
                 reader.rollback()
                 self.assertEqual(reader.count("Intelligence Run", {"user": self.owner}), 1)
                 self.assertEqual(
