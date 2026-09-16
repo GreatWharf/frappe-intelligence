@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Intelligence — mock frontend preview</title>
+  <link rel="stylesheet" href="/assets/frappe_intelligence/css/intelligence.css">
+  <style>
+    :root{--bg-color:#f9f9f9;--fg-color:#fff;--subtle-fg:#f7f7f7;--control-bg:#f3f3f3;--modal-bg:#fff;--text-color:#171717;--heading-color:#171717;--text-muted:#737373;--border-color:#e8e8e8;--btn-primary:#171717;--neutral:#fff;--invert-neutral:#383838;--btn-default-bg:#f3f3f3;--btn-default-hover-bg:#e8e8e8;--border-radius-sm:6px;--border-radius:8px;--border-radius-md:12px;--input-height:32px;--text-base:14px;--text-sm:12px;--font-stack:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:light}
+    :root[data-theme=dark]{--bg-color:#171717;--fg-color:#202020;--subtle-fg:#262626;--control-bg:#2b2b2b;--modal-bg:#202020;--text-color:#f3f3f3;--heading-color:#f3f3f3;--text-muted:#a3a3a3;--border-color:#383838;--btn-primary:#f3f3f3;--neutral:#171717;--invert-neutral:#d4d4d4;--btn-default-bg:#2b2b2b;--btn-default-hover-bg:#383838;color-scheme:dark}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg-color);color:var(--text-color);font:13px var(--font-stack)}
+    .preview-label{padding:8px 22px;background:#edf3f6;color:#526473;font-size:10px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid #dce4e9}
+    .preview-label strong{font-weight:650}.preview-controls{display:flex;gap:12px;align-items:center}.preview-controls a,.preview-controls button{font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}
+    .mock-navbar{height:53px;background:var(--fg-color);border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;padding:0 34px}.mock-nav-left{display:flex;align-items:center;gap:17px}.mock-logo{font-size:15px;font-weight:700;letter-spacing:-.6px}.mock-breadcrumb{font-size:11px;color:var(--text-muted)}.mock-account{display:flex;align-items:center;gap:14px;color:var(--text-muted);font-size:11px}.mock-avatar{background:var(--subtle-fg);border:1px solid var(--border-color);height:26px;width:26px;display:grid;place-items:center;border-radius:50%;font-size:10px;font-weight:600}.preview-shell{padding:21px 32px 32px;max-width:1510px;margin:auto}.mock-page-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:17px}.mock-page-title h1{font-size:21px;font-weight:630;letter-spacing:-.65px;margin:0}.mock-page-title span{font-size:10px;color:var(--text-muted)}.fi-app:not(.fi-drawer-app){height:calc(100dvh - 185px);max-height:900px;min-height:460px}.mock-record{padding:24px;background:var(--fg-color);border:1px solid var(--border-color);border-radius:10px;max-width:850px}.mock-record h2{font-size:20px;margin:0 0 7px}.mock-record p{color:var(--text-muted);line-height:1.7}.mock-record-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:25px 0}.mock-record label{font-size:11px;color:var(--text-muted);display:flex;flex-direction:column;gap:10px}.mock-record input{font:inherit;color:var(--text-color);background:var(--subtle-fg);border:1px solid var(--border-color);padding:10px;border-radius:5px;max-width:100%}.mock-record-note{border-top:1px solid var(--border-color);padding-top:18px;font-size:12px}.mock-record button{background:var(--text-color);color:var(--fg-color);border:0;border-radius:6px;padding:10px 15px;cursor:pointer}.mock-crumb{padding-bottom:18px;font-size:11px;color:var(--text-muted)}
+    @media(max-width:760px){.preview-shell{padding:17px 16px 22px}.mock-navbar{padding:0 18px}.preview-label{padding:7px 16px;font-size:9px}.mock-account>span:first-child{display:none}.mock-page-title{margin-bottom:13px}.mock-page-title h1{font-size:18px}.fi-app:not(.fi-drawer-app){height:calc(100dvh - 180px);min-height:420px}.mock-record-grid{grid-template-columns:1fr}.mock-record{padding:18px}.mock-breadcrumb{font-size:10px}}
+  </style>
+</head>
+<body>
+  <div class="preview-label"><span><strong>MOCK PREVIEW</strong> · Fictional fixtures. No live Frappe, data access, or provider requests.</span><nav class="preview-controls" aria-label="Preview controls"><a href="/?scene=empty">Empty</a><a href="/?scene=approval">Approval</a><a href="/?scene=context">Drawer</a><button id="theme-toggle">Dark mode</button></nav></div>
+  <div class="mock-navbar"><div class="mock-nav-left"><span class="mock-logo">ERPNext</span><span class="mock-breadcrumb">Apps</span></div><div class="mock-account"><span>Development preview</span><span class="mock-avatar">JD</span></div></div>
+  <main class="preview-shell"><div class="mock-page-title"><h1>Intelligence</h1><span>Private workspace</span></div><div id="page"></div><section id="record" hidden><div class="mock-crumb">CRM / Customer / Northstar Components</div><div class="mock-record"><h2>Northstar Components</h2><p>Customer · Fictional preview record</p><div class="mock-record-grid"><label>Customer name<input value="Northstar Components" readonly></label><label>Customer group<input value="Commercial" readonly></label><label>Territory<input value="Europe" readonly></label><label>Account manager<input value="Jamie Davis" readonly></label></div><p class="mock-record-note">This page is deliberately not scraped. The drawer only receives the DocType and record name displayed in its removable context chip.</p><button id="open-context">Ask Intelligence about this record</button></div></section></main>
+  <script src="/preview.js"></script>
+  <script src="/assets/frappe_intelligence/js/intelligence.js"></script>
+  <script src="/page.js"></script>
+  <script>
+    const wrapper = document.querySelector('#page');
+    frappe.pages.intelligence.on_page_load(wrapper);
+    if (preview.scene === 'context') {
+      wrapper.hidden = true; document.querySelector('#record').hidden = false;
+      document.querySelector('.mock-page-title h1').textContent = 'Customer';
+      document.querySelector('#open-context').onclick = () => frappe.intelligence.toggle();
+      setTimeout(() => { frappe.set_route('Form', 'Customer', 'Northstar Components'); frappe.intelligence.toggle(); }, 350);
+    } else if (preview.scene === 'approval') {
+      const open = () => { const row = document.querySelector('[data-action="select"][data-name="chat-1"]'); if (row) row.click(); else setTimeout(open, 50); }; open();
+    }
+    document.querySelector('#theme-toggle').onclick = function () { const dark = document.documentElement.dataset.theme !== 'dark'; document.documentElement.dataset.theme = dark ? 'dark' : 'light'; this.textContent = dark ? 'Light mode' : 'Dark mode'; };
+  </script>
+</body>
+</html>

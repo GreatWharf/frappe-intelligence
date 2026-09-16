@@ -1,0 +1,110 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Settings",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 1,
+  "fields": [
+    {
+      "fieldname": "enabled",
+      "label": "Enabled",
+      "fieldtype": "Check",
+      "default": "1"
+    },
+    {
+      "fieldname": "allowed_read_doctypes",
+      "label": "Allowed Read Doctypes",
+      "fieldtype": "Small Text"
+    },
+    {
+      "fieldname": "allowed_reports",
+      "label": "Allowed Reports",
+      "fieldtype": "Small Text"
+    },
+    {
+      "fieldname": "enabled_tools",
+      "label": "Enabled Tools",
+      "fieldtype": "Small Text"
+    },
+    {
+      "fieldname": "allowed_custom_hosts",
+      "label": "Allowed Custom Hosts",
+      "fieldtype": "Small Text"
+    },
+    {
+      "fieldname": "max_steps",
+      "label": "Max Steps",
+      "fieldtype": "Int",
+      "default": "12"
+    },
+    {
+      "fieldname": "max_tokens",
+      "label": "Max Tokens",
+      "fieldtype": "Int",
+      "default": "4096"
+    },
+    {
+      "fieldname": "max_run_seconds",
+      "label": "Max Run Seconds",
+      "fieldtype": "Int",
+      "default": "600"
+    },
+    {
+      "fieldname": "approval_expiry_minutes",
+      "label": "Approval Expiry Minutes",
+      "fieldtype": "Int",
+      "default": "1440"
+    },
+    {
+      "fieldname": "max_upload_mb",
+      "label": "Max Upload Mb",
+      "fieldtype": "Int",
+      "default": "10"
+    },
+    {
+      "fieldname": "max_file_chars",
+      "label": "Max File Chars",
+      "fieldtype": "Int",
+      "default": "30000"
+    },
+    {
+      "fieldname": "daily_run_limit",
+      "label": "Daily Run Limit",
+      "fieldtype": "Int",
+      "default": "100"
+    }
+  ],
+  "field_order": [
+    "enabled",
+    "allowed_read_doctypes",
+    "allowed_reports",
+    "enabled_tools",
+    "allowed_custom_hosts",
+    "max_steps",
+    "max_tokens",
+    "max_run_seconds",
+    "approval_expiry_minutes",
+    "max_upload_mb",
+    "max_file_chars",
+    "daily_run_limit"
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1
+    },
+    {
+      "role": "Intelligence User",
+      "read": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

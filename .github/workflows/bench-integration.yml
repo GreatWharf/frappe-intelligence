@@ -1,0 +1,69 @@
+name: Real Frappe integration
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - frappe: version-15
+            python: '3.10'
+            node: '20'
+            mariadb: '10.6'
+          - frappe: version-16
+            python: '3.14'
+            node: '24'
+            mariadb: '11.8'
+    services:
+      mariadb:
+        image: mariadb:${{ matrix.mariadb }}
+        env:
+          MARIADB_ROOT_PASSWORD: test-root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+      redis-cache:
+        image: redis:7-alpine
+        ports: ['13000:6379']
+      redis-queue:
+        image: redis:7-alpine
+        ports: ['11000:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client libmariadb-dev pkg-config libcups2-dev
+          npm install -g yarn
+          python -m pip install frappe-bench
+      - name: Install and migrate isolated test site
+        working-directory: ${{ runner.temp }}
+        env:
+          FRAPPE_BRANCH: ${{ matrix.frappe }}
+        run: |
+          bench init --frappe-branch "$FRAPPE_BRANCH" --skip-redis-config-generation --skip-assets intelligence-bench
+          cd intelligence-bench
+          bench set-config -g redis_cache redis://127.0.0.1:13000
+          bench set-config -g redis_queue redis://127.0.0.1:11000
+          bench set-config -g redis_socketio redis://127.0.0.1:11000
+          bench get-app --branch "$FRAPPE_BRANCH" https://github.com/frappe/erpnext
+          bench get-app "$GITHUB_WORKSPACE"
+          bench new-site test.localhost --db-host 127.0.0.1 --db-root-username root --db-root-password test-root --admin-password test-admin
+          bench --site test.localhost install-app erpnext
+          bench --site test.localhost install-app frappe_intelligence
+          bench --site test.localhost set-config allow_tests true
+          bench --site test.localhost migrate
+      - name: Test native permissions, approvals and independent database connections
+        working-directory: ${{ runner.temp }}/intelligence-bench
+        run: bench --site test.localhost run-tests --app frappe_intelligence --module frappe_intelligence.tests.test_integration

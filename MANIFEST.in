@@ -1,0 +1,7 @@
+include README.md LICENSE pyproject.toml package.json package-lock.json
+recursive-include dev *.html *.js *.cjs
+recursive-include .github *.yml
+recursive-include frappe_intelligence *.json *.js *.css *.txt *.svg *.html
+recursive-include docs *.md
+recursive-include tests *.py *.js *.cjs *.json
+recursive-include scripts *.py

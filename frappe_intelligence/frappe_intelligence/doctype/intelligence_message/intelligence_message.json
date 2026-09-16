@@ -1,0 +1,92 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Message",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "conversation",
+      "label": "Conversation",
+      "fieldtype": "Link",
+      "options": "Intelligence Conversation",
+      "reqd": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "run",
+      "label": "Run",
+      "fieldtype": "Link",
+      "options": "Intelligence Run"
+    },
+    {
+      "fieldname": "role",
+      "label": "Role",
+      "fieldtype": "Select",
+      "options": "user\nassistant\ntool\nsystem",
+      "reqd": 1
+    },
+    {
+      "fieldname": "content",
+      "label": "Content",
+      "fieldtype": "Long Text"
+    },
+    {
+      "fieldname": "tool_calls",
+      "label": "Tool Calls",
+      "fieldtype": "Long Text"
+    },
+    {
+      "fieldname": "tool_call_id",
+      "label": "Tool Call Id",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "complete\nstreaming\ninterrupted",
+      "default": "complete"
+    },
+    {
+      "fieldname": "sequence",
+      "label": "Sequence",
+      "fieldtype": "Int",
+      "reqd": 1
+    }
+  ],
+  "field_order": [
+    "conversation",
+    "run",
+    "role",
+    "content",
+    "tool_calls",
+    "tool_call_id",
+    "status",
+    "sequence"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence User",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

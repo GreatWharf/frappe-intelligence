@@ -1,0 +1,65 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Memory",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "scope",
+      "label": "Scope",
+      "fieldtype": "Select",
+      "options": "personal\nconversation\nsite",
+      "reqd": 1,
+      "default": "personal"
+    },
+    {
+      "fieldname": "conversation",
+      "label": "Conversation",
+      "fieldtype": "Link",
+      "options": "Intelligence Conversation"
+    },
+    {
+      "fieldname": "content",
+      "label": "Content",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "enabled",
+      "label": "Enabled",
+      "fieldtype": "Check",
+      "default": "1"
+    }
+  ],
+  "field_order": [
+    "scope",
+    "conversation",
+    "content",
+    "enabled"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence User",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

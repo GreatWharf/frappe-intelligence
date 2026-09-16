@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frappe_intelligence"
+version = "0.1.0"
+description = "Permission-aware, multi-provider AI workspace and assistant for Frappe and ERPNext"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+license = "MIT"
+authors = [{name = "Merrick", email = "Merrick@greatwharf.com"}]
+dependencies = ["pypdf>=6,<7"]
+
+[project.optional-dependencies]
+test = ["pytest>=8.4,<10", "ruff>=0.14", "build>=1,<2", "tomli>=2,<3; python_version < '3.11'"]
+
+[tool.setuptools.packages.find]
+include = ["frappe_intelligence*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.js", "*.css", "*.txt", "*.svg", "*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0-dev,<17.0.0"

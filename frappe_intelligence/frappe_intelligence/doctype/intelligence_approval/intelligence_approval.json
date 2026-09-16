@@ -1,0 +1,122 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Approval",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "conversation",
+      "label": "Conversation",
+      "fieldtype": "Link",
+      "options": "Intelligence Conversation",
+      "reqd": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "run",
+      "label": "Run",
+      "fieldtype": "Link",
+      "options": "Intelligence Run",
+      "reqd": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "tool_name",
+      "label": "Tool Name",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "tool_version",
+      "label": "Tool Version",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "tool_call_id",
+      "label": "Tool Call Id",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "arguments_json",
+      "label": "Arguments Json",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "preview_json",
+      "label": "Preview Json",
+      "fieldtype": "Long Text"
+    },
+    {
+      "fieldname": "digest",
+      "label": "Digest",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "pending\napproved\ndenied\nexecuting\nsucceeded\nfailed\nexpired\nuncertain",
+      "default": "pending"
+    },
+    {
+      "fieldname": "expires_at",
+      "label": "Expires At",
+      "fieldtype": "Datetime",
+      "reqd": 1
+    },
+    {
+      "fieldname": "decided_by",
+      "label": "Decided By",
+      "fieldtype": "Link",
+      "options": "User"
+    },
+    {
+      "fieldname": "decided_at",
+      "label": "Decided At",
+      "fieldtype": "Datetime"
+    }
+  ],
+  "field_order": [
+    "conversation",
+    "run",
+    "tool_name",
+    "tool_version",
+    "tool_call_id",
+    "arguments_json",
+    "preview_json",
+    "digest",
+    "status",
+    "expires_at",
+    "decided_by",
+    "decided_at"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence User",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}

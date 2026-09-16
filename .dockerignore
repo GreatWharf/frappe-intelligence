@@ -1,0 +1,14 @@
+.git
+node_modules
+.pytest_cache
+.ruff_cache
+__pycache__
+**/__pycache__
+*.egg-info
+build
+dist
+dev/screenshots
+.env
+.env.*
+*.key
+*.pem

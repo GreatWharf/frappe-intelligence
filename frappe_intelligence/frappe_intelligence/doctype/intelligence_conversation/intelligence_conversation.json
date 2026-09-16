@@ -1,0 +1,74 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Conversation",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "title",
+      "label": "Title",
+      "fieldtype": "Data",
+      "default": "New chat",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "provider",
+      "label": "Provider",
+      "fieldtype": "Link",
+      "options": "Intelligence Provider",
+      "reqd": 1
+    },
+    {
+      "fieldname": "archived",
+      "label": "Archived",
+      "fieldtype": "Check",
+      "default": "0"
+    },
+    {
+      "fieldname": "active_run",
+      "label": "Active Run",
+      "fieldtype": "Link",
+      "options": "Intelligence Run"
+    },
+    {
+      "fieldname": "message_count",
+      "label": "Message Count",
+      "fieldtype": "Int",
+      "default": "0"
+    }
+  ],
+  "field_order": [
+    "title",
+    "provider",
+    "archived",
+    "active_run",
+    "message_count"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence User",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "title_field": "title"
+}

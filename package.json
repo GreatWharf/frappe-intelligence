@@ -1,0 +1,17 @@
+{
+  "name": "frappe-intelligence-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development-only DOM tests and explicitly mocked preview for the dependency-free Frappe Desk client",
+  "scripts": {
+    "test": "node --test tests/js/*.test.js",
+    "test:dom": "FI_REAL_DOM=1 node --test tests/js/*.test.js",
+    "test:browser": "node tests/js/browser.cjs && node tests/js/native-ui.cjs",
+    "preview": "node dev/preview-server.cjs",
+    "check": "node --check frappe_intelligence/public/js/intelligence.js && node --check frappe_intelligence/frappe_intelligence/page/intelligence/intelligence.js"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "playwright": "1.57.0"
+  }
+}

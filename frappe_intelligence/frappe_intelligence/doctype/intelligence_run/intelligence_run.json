@@ -1,0 +1,159 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Run",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "conversation",
+      "label": "Conversation",
+      "fieldtype": "Link",
+      "options": "Intelligence Conversation",
+      "reqd": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "provider",
+      "label": "Provider",
+      "fieldtype": "Link",
+      "options": "Intelligence Provider",
+      "reqd": 1
+    },
+    {
+      "fieldname": "user",
+      "label": "User",
+      "fieldtype": "Link",
+      "options": "User",
+      "reqd": 1
+    },
+    {
+      "fieldname": "site",
+      "label": "Site",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "state",
+      "label": "State",
+      "fieldtype": "Select",
+      "options": "queued\nrunning\nawaiting_approval\ncompleted\nfailed\ncancelled\nneeds_reconciliation",
+      "default": "queued",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "error",
+      "label": "Error",
+      "fieldtype": "Long Text"
+    },
+    {
+      "fieldname": "step_count",
+      "label": "Step Count",
+      "fieldtype": "Int",
+      "default": "0"
+    },
+    {
+      "fieldname": "active_seconds",
+      "label": "Active Seconds",
+      "fieldtype": "Float",
+      "default": "0"
+    },
+    {
+      "fieldname": "lease_token",
+      "label": "Lease Token",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "lease_expires",
+      "label": "Lease Expires",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "cancel_requested",
+      "label": "Cancel Requested",
+      "fieldtype": "Check",
+      "default": "0"
+    },
+    {
+      "fieldname": "started_at",
+      "label": "Started At",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "finished_at",
+      "label": "Finished At",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "heartbeat_at",
+      "label": "Heartbeat At",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "context_json",
+      "label": "Context Json",
+      "fieldtype": "Long Text"
+    },
+    {
+      "fieldname": "attachments_json",
+      "label": "Attachments Json",
+      "fieldtype": "Long Text"
+    },
+    {
+      "fieldname": "input_tokens",
+      "label": "Input Tokens",
+      "fieldtype": "Int",
+      "default": "0"
+    },
+    {
+      "fieldname": "output_tokens",
+      "label": "Output Tokens",
+      "fieldtype": "Int",
+      "default": "0"
+    }
+  ],
+  "field_order": [
+    "conversation",
+    "provider",
+    "user",
+    "site",
+    "state",
+    "error",
+    "step_count",
+    "active_seconds",
+    "lease_token",
+    "lease_expires",
+    "cancel_requested",
+    "started_at",
+    "finished_at",
+    "heartbeat_at",
+    "context_json",
+    "attachments_json",
+    "input_tokens",
+    "output_tokens"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence User",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}
