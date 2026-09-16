@@ -61,28 +61,19 @@ COPY --chown=frappe:frappe frappe_intelligence/ /opt/frappe_intelligence_src/fra
 
 # -----------------------------------------------------------------------------
 # 2. Register the app with this bench as an EDITABLE install rooted at
-#    apps/frappe_intelligence, using bench's own local-path support -- the
-#    same command already documented in docs/operations.md for local dev
-#    benches -- rather than a hand-run `pip install -e` or a
-#    `bench get-app <git-url>` that would need network/SSH access during the
-#    image build itself.
-#
-#    --soft-link makes apps/frappe_intelligence a symlink to the copied
-#    source above, which is what makes the install editable in place.
-#    --skip-assets defers asset compilation to step 4 below (and again at
-#    runtime): the "sites" volume mounted in every real deployment hides
-#    whatever bench writes into sites/assets during this image build, so
-#    building here is only a build-time correctness check, never the
-#    deployed copy.
-#
-#    This is a plain `bench get-app`, never `bench execute` / a get_attr
-#    lookup on frappe_intelligence: bench's `execute` command refuses to
-#    resolve a dotted path belonging to an app that is not yet installed on
-#    the target site, and no site exists at image-build time regardless.
-#    Site-level installation happens later, natively, via
-#    `bench install-app` in docker/site-init.sh.
+#    apps/frappe_intelligence. `bench get-app --soft-link` assumes the source
+#    is a git checkout and fails against the plain copied tree above, so the
+#    registration is done directly instead: link the source into apps/,
+#    editable-install it into the bench's own virtualenv, and record the app
+#    in sites/apps.txt. This is exactly what get-app --soft-link would leave
+#    behind, minus the git machinery that cannot work without a .git dir.
+#    Asset compilation is deferred to step 4 (and again at runtime): the
+#    "sites" volume mounted in every real deployment hides whatever bench
+#    writes into sites/assets during this image build.
 # -----------------------------------------------------------------------------
-RUN bench get-app --skip-assets --soft-link /opt/frappe_intelligence_src frappe_intelligence
+RUN ln -s /opt/frappe_intelligence_src apps/frappe_intelligence \
+    && ./env/bin/pip install --quiet --editable apps/frappe_intelligence \
+    && printf 'frappe\nerpnext\nfrappe_intelligence\n' > sites/apps.txt
 
 # -----------------------------------------------------------------------------
 # 3. The runtime Python dependency (pypdf) is pulled in automatically by the

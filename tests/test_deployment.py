@@ -99,21 +99,23 @@ def test_erpnext_version_is_an_arg_defaulting_to_a_v16_tag(dockerfile_text):
 
 
 def test_no_fake_or_hardcoded_get_app_repo_url_in_build_commands(dockerfile_code):
-    get_app_lines = [line for line in dockerfile_code.splitlines() if "bench get-app" in line]
-    assert get_app_lines, "expected an actual `bench get-app` instruction, not just a mention in comments"
-    for line in get_app_lines:
-        # The real app source is the local build context, not a git fetch.
-        assert "http://" not in line
-        assert "https://" not in line
-        assert "git@" not in line
-        assert "example.com" not in line
-        assert "--soft-link" in line
-        assert "/opt/frappe_intelligence_src" in line
+    run_lines = [line for line in dockerfile_code.splitlines() if line.strip().startswith("RUN")]
+    assert run_lines, "expected RUN instructions registering the app"
+    body = "\n".join(run_lines)
+    # The real app source is the local build context, not a git fetch:
+    # no remote URL is ever fetched or executed during the image build.
+    for forbidden in ("http://", "https://", "git@", "example.com"):
+        assert forbidden not in body
+    # `bench get-app --soft-link` requires a git checkout and fails against
+    # the plain copied tree; registration must be direct instead.
+    assert "bench get-app" not in body
 
 
 def test_app_is_installed_editable_under_apps_directory(dockerfile_text):
     assert "/opt/frappe_intelligence_src" in dockerfile_text
-    assert "--soft-link" in dockerfile_text, "editable install must use bench's local soft-link support"
+    assert "ln -s /opt/frappe_intelligence_src apps/frappe_intelligence" in dockerfile_text
+    assert "pip install --quiet --editable apps/frappe_intelligence" in dockerfile_text
+    assert "sites/apps.txt" in dockerfile_text
 
 
 def test_dockerfile_is_single_stage_inheriting_the_base_images_python(dockerfile_text):
