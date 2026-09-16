@@ -23,7 +23,7 @@
   <script src="/page.js"></script>
   <script>
     const wrapper = document.querySelector('#page');
-    frappe.pages.intelligence.on_page_load(wrapper);
+    frappe.pages['intelligence-chat'].on_page_load(wrapper);
     if (preview.scene === 'context') {
       wrapper.hidden = true; document.querySelector('#record').hidden = false;
       document.querySelector('.mock-page-title h1').textContent = 'Customer';

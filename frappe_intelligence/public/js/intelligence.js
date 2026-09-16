@@ -466,11 +466,11 @@
 	}
 	let singleton, installed = false, drawer, pageHost, toggle, drawerFocus;
 	function getApp() {
-		if (!singleton) { singleton = new App(); singleton.onClose = closeDrawer; singleton.onExpand = () => { closeDrawer(); global.frappe.set_route("intelligence"); }; singleton.onBackground = (name, message) => { if (toggle) { toggle.classList.add("has-update"); toggle.title = message; toggle.setAttribute("aria-label", "Open Intelligence. " + message); } }; }
+		if (!singleton) { singleton = new App(); singleton.onClose = closeDrawer; singleton.onExpand = () => { closeDrawer(); global.frappe.set_route("intelligence-chat"); }; singleton.onBackground = (name, message) => { if (toggle) { toggle.classList.add("has-update"); toggle.title = message; toggle.setAttribute("aria-label", "Open Intelligence. " + message); } }; }
 		return singleton;
 	}
 	function deskReady() { return !!(global.document && global.frappe && global.frappe.boot && global.frappe.session && global.frappe.session.user && global.frappe.session.user !== "Guest" && global.frappe.get_route); }
-	function routeIsPage() { const route = global.frappe.get_route(); return route && route[0] === "intelligence"; }
+	function routeIsPage() { const route = global.frappe.get_route(); return route && route[0] === "intelligence-chat"; }
 	function openDrawer() {
 		if (!deskReady()) return; const app = getApp(); if (drawer && !drawer.hidden) { closeDrawer(); return; }
 		if (!drawer) { drawer = global.document.createElement("div"); drawer.className = "fi-drawer-shell"; drawer.hidden = true; drawer.setAttribute("role", "dialog"); drawer.setAttribute("aria-modal", "true"); drawer.setAttribute("aria-label", "Intelligence contextual drawer"); drawer.tabIndex = -1; drawer.addEventListener("keydown", (event) => { if (event.key === "Tab") trapFocus(event, drawer); if (event.key === "Escape" && !app.modal) { event.preventDefault(); closeDrawer(); } }); global.document.body.appendChild(drawer); }

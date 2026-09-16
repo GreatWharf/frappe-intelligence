@@ -1,7 +1,7 @@
 {
   "doctype": "Page",
-  "name": "intelligence",
-  "page_name": "intelligence",
+  "name": "intelligence-chat",
+  "page_name": "intelligence-chat",
   "title": "Intelligence",
   "module": "Frappe Intelligence",
   "standard": "Yes",

@@ -98,7 +98,7 @@ def _navigation():
             "is_hidden": 0,
             "icon": "message",
             "roles": [{"role": role} for role in USER_ROLES],
-            "shortcuts": [{"label": "Open Intelligence", "type": "Page", "link_to": "intelligence"}],
+            "shortcuts": [{"label": "Open Intelligence", "type": "Page", "link_to": "intelligence-chat"}],
             "content": json.dumps(
                 [
                     {

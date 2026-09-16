@@ -23,7 +23,7 @@
   }
   const memories = [{ name: 'memory-1', scope: 'personal', content: 'Use a Monday-to-Sunday week when reviewing delivery schedules.' }];
   const handlers = {};
-  let sequence = 10, route = ['intelligence'];
+  let sequence = 10, route = ['intelligence-chat'];
   const preview = window.preview = { scene, calls: [], offline: false, providers, conversations, snapshots, memories, emit: (event) => (handlers.intelligence_update || []).forEach((callback) => callback(event)) };
   function changed(snapshot) { preview.emit({ conversation: snapshot.conversation.name, run: snapshot.run && snapshot.run.name, state: snapshot.run && snapshot.run.state }); }
   function finish(snapshot, state, text) {
@@ -84,8 +84,8 @@
   window.__ = (text) => text;
   window.frappe = {
     boot: {}, session: { user: 'jamie@example.invalid' }, csrf_token: 'mock-not-a-real-token',
-    pages: { intelligence: {} }, get_route: () => route,
-    set_route: (...parts) => { route = parts; (handlers.route || []).forEach((callback) => callback()); if (parts[0] === 'intelligence') { document.querySelector('#page').hidden = false; document.querySelector('#record').hidden = true; frappe.pages.intelligence.on_page_show(document.querySelector('#page')); } },
+    pages: { 'intelligence-chat': {} }, get_route: () => route,
+    set_route: (...parts) => { route = parts; (handlers.route || []).forEach((callback) => callback()); if (parts[0] === 'intelligence-chat') { document.querySelector('#page').hidden = false; document.querySelector('#record').hidden = true; frappe.pages['intelligence-chat'].on_page_show(document.querySelector('#page')); } },
     router: { on: (_event, callback) => { (handlers.route ||= []).push(callback); } },
     realtime: { on: (event, callback) => { (handlers[event] ||= []).push(callback); } },
     ui: { make_app_page: ({ parent }) => ({ main: [parent] }) },
