@@ -231,19 +231,34 @@ fi
 
 # ---------------------------------------------------------------------------
 # 6. Assets. The persistent "sites" volume mounted at deploy time hides
-#    whatever the image build baked into sites/assets, so restore this app's
-#    bundle from the image-side cache first (fast path, no toolchain needed)
-#    if it is missing, then always run a real `bench build --app
-#    frappe_intelligence` -- both to refresh sites/assets/assets.json for
-#    this app and to self-heal if the image-side cache is absent for any
-#    reason (e.g. a base image that predates it).
+#    whatever the image build baked into sites/assets, so sites/assets/<app>
+#    has to be re-established at runtime. Point it straight at the app's own
+#    public/ directory under apps/ -- the same target Frappe uses natively,
+#    and a path that lives in the image rather than in the mounted volume, so
+#    it is always present. Force the link (`-sfn`): a bare `ln -s` is a silent
+#    no-op whenever anything, including a stale or dangling entry, already
+#    occupies the target, which is exactly how the Desk ends up 404ing on its
+#    own bundle. Link before the build so esbuild writes dist/ through it,
+#    then re-assert and verify afterwards.
 # ---------------------------------------------------------------------------
-ASSET_CACHE="/home/frappe/.intelligence-assets-cache/$APP_NAME"
+APP_PUBLIC="$BENCH_DIR/apps/$APP_NAME/$APP_NAME/public"
 ASSET_TARGET="$BENCH_DIR/sites/assets/$APP_NAME"
-if [ ! -e "$ASSET_TARGET" ] && [ -d "$ASSET_CACHE" ]; then
-    log "sites/assets/$APP_NAME missing from the mounted sites volume; linking from the image-side cache."
+
+link_app_assets() {
+    [ -d "$APP_PUBLIC" ] || return 1
     mkdir -p "$BENCH_DIR/sites/assets"
-    ln -s "$ASSET_CACHE" "$ASSET_TARGET" || log "warning: could not symlink cached assets, continuing to bench build."
+    # A real directory at the target would make `ln -sfn` nest the link
+    # inside it instead of replacing it, so clear that case explicitly.
+    if [ -d "$ASSET_TARGET" ] && [ ! -L "$ASSET_TARGET" ]; then
+        rm -rf "$ASSET_TARGET"
+    fi
+    ln -sfn "$APP_PUBLIC" "$ASSET_TARGET"
+}
+
+if link_app_assets; then
+    log "linked sites/assets/$APP_NAME -> apps/$APP_NAME/$APP_NAME/public."
+else
+    log "warning: $APP_PUBLIC is missing; cannot link the app's public assets."
 fi
 
 log "building $APP_NAME assets..."
@@ -252,6 +267,23 @@ if run_bench build --app "$APP_NAME"; then
     assets_built=1
 else
     log "warning: bench build --app $APP_NAME failed; the app's JS/CSS bundle may be stale or missing."
+fi
+
+# `bench build` exiting 0 is not evidence that /assets/<app>/... can be
+# served: it may rewrite or drop the link it built through. Re-assert the
+# link, then prove that every file hooks.py advertises actually resolves.
+# Anything still unreadable here means a Desk that cannot load its client,
+# which is a failed init, not a warning.
+link_app_assets || true
+assets_verified=1
+for asset in js/intelligence.js css/intelligence.css images/intelligence.svg; do
+    if [ ! -r "$ASSET_TARGET/$asset" ]; then
+        log "ERROR: sites/assets/$APP_NAME/$asset does not resolve; the Desk would 404 on it."
+        assets_verified=0
+    fi
+done
+if [ "$assets_verified" -eq 1 ]; then
+    log "verified all hooks.py assets resolve under sites/assets/$APP_NAME."
 fi
 
 # ---------------------------------------------------------------------------
@@ -279,6 +311,7 @@ INTELLIGENCE_RESULT_TESTS_RAN="$tests_ran" \
 INTELLIGENCE_RESULT_TESTS_EXIT_CODE="$tests_exit_code" \
 INTELLIGENCE_RESULT_TESTS_STATUS="$tests_status" \
 INTELLIGENCE_RESULT_ASSETS_BUILT="$assets_built" \
+INTELLIGENCE_RESULT_ASSETS_VERIFIED="$assets_verified" \
 "$BENCH_DIR/env/bin/python" - "$result_tmp" <<'PYEOF'
 import json
 import os
@@ -312,6 +345,7 @@ data = {
         "status": os.environ.get("INTELLIGENCE_RESULT_TESTS_STATUS", "skipped"),
     },
     "assets_built": flag("INTELLIGENCE_RESULT_ASSETS_BUILT"),
+    "assets_verified": flag("INTELLIGENCE_RESULT_ASSETS_VERIFIED"),
 }
 with open(path, "w") as fh:
     json.dump(data, fh, indent=2, sort_keys=True)
@@ -333,6 +367,9 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$assets_built" -ne 1 ]; then
     fail "asset build failed; see the bench build output above."
+fi
+if [ "$assets_verified" -ne 1 ]; then
+    fail "the app's public assets do not resolve under sites/assets/$APP_NAME; the Desk would load without its client."
 fi
 if [ "$tests_requested" -eq 1 ] && [ "$tests_status" != "passed" ]; then
     fail "requested integration tests did not pass (status: $tests_status)."

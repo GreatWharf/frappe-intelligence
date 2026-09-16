@@ -18,6 +18,7 @@ use docker.io, never quay.io"), which would trip a naive whole-text search.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,11 @@ def site_init_text():
 @pytest.fixture(scope="module")
 def site_init_code(site_init_text):
     return _code_only(site_init_text)
+
+
+@pytest.fixture(scope="module")
+def hooks_text():
+    return HOOKS.read_text()
 
 
 @pytest.fixture(scope="module")
@@ -150,12 +156,16 @@ def test_pypdf_dependency_is_verified_at_build_time(dockerfile_text):
     assert "import frappe_intelligence, pypdf" in dockerfile_text
 
 
-def test_asset_build_step_present_and_stashed_outside_sites_volume(dockerfile_text):
+def test_asset_build_step_present_and_lands_outside_the_sites_volume(dockerfile_text):
     assert "bench build --app frappe_intelligence" in dockerfile_text
-    # Must be copied somewhere other than under sites/, since sites/ is a
-    # volume mount at runtime that would hide it.
-    assert "/home/frappe/.intelligence-assets-cache" in dockerfile_text
-    assert "sites/assets/frappe_intelligence" in dockerfile_text
+    # The built bundle has to survive into runtime, and sites/ is a volume
+    # mount that hides anything written under it. esbuild writes through the
+    # sites/assets link into apps/<app>/<app>/public, which is baked into the
+    # image, so assert the build really produced a file on that path.
+    assert "test -r apps/frappe_intelligence/frappe_intelligence/public/js/intelligence.js" in dockerfile_text
+    # Nothing may depend on an image-side copy under sites/, which would be
+    # shadowed, nor on the retired assets cache.
+    assert ".intelligence-assets-cache" not in dockerfile_text
 
 
 def test_dockerfile_never_performs_site_lifecycle_operations(dockerfile_code):
@@ -277,10 +287,86 @@ def test_result_file_is_safe_and_configurable(site_init_text, site_init_code):
     assert "mv -f" in site_init_code
 
 
-def test_asset_step_prefers_symlink_then_always_rebuilds(site_init_code):
-    assert "ln -s" in site_init_code
+def test_asset_step_force_links_app_public_and_rebuilds(site_init_code):
+    # The mounted "sites" volume shadows whatever the image baked into
+    # sites/assets, and a bare `ln -s` is a silent no-op whenever any entry
+    # is already sitting at the target. Force the link instead, and point it
+    # at the app's own public directory (the path Frappe itself uses) rather
+    # than at an image-side cache, so the served files come from apps/.
+    assert "ln -sfn" in site_init_code
+    assert 'ln -s "' not in site_init_code, "a non-forcing ln -s can no-op against a stale entry"
+    assert "$BENCH_DIR/apps/$APP_NAME/$APP_NAME/public" in site_init_code
     assert 'run_bench build --app "$APP_NAME"' in site_init_code
     assert "assets_built" in site_init_code
+
+
+def test_asset_step_verifies_every_hooks_asset_after_build(site_init_code, hooks_text):
+    # bench build reporting success is not evidence that /assets/<app>/... can
+    # actually be served: the Desk 404s on exactly these three URLs if the
+    # link is missing. Assert each file hooks.py advertises really resolves,
+    # after the build, and fail the init rather than ship an unloadable Desk.
+    verify_at = site_init_code.index("assets_verified")
+    build_at = site_init_code.index('run_bench build --app "$APP_NAME"')
+    assert verify_at > build_at, "asset verification must run after bench build"
+    for asset in re.findall(r"/assets/frappe_intelligence/(\S+?)\"", hooks_text):
+        assert asset in site_init_code, (
+            f"hooks.py serves {asset!r} but site-init.sh never verifies it resolves"
+        )
+    assert "assets_verified" in site_init_code
+
+
+@pytest.mark.parametrize(
+    "occupant",
+    [
+        "nothing",
+        "dangling-symlink",
+        "symlink-to-elsewhere",
+        "real-directory",
+    ],
+)
+def test_link_app_assets_establishes_a_working_link_whatever_occupies_the_target(
+    tmp_path, site_init_text, occupant
+):
+    # Runs the real link_app_assets() out of site-init.sh against a throwaway
+    # bench tree. The shipped bug was the "dangling-symlink" case: `ln -s`
+    # no-ops when anything already sits at the target, so bench build reported
+    # success while /assets/frappe_intelligence/... stayed unservable.
+    match = re.search(r"^link_app_assets\(\)\s*\{.*?^\}", site_init_text, re.S | re.M)
+    assert match, "site-init.sh must define link_app_assets()"
+
+    bench = tmp_path / "frappe-bench"
+    public = bench / "apps" / "frappe_intelligence" / "frappe_intelligence" / "public"
+    (public / "js").mkdir(parents=True)
+    (public / "js" / "intelligence.js").write_text("// real bundle\n")
+    target = bench / "sites" / "assets" / "frappe_intelligence"
+    target.parent.mkdir(parents=True)
+
+    if occupant == "dangling-symlink":
+        target.symlink_to(tmp_path / "gone")
+    elif occupant == "symlink-to-elsewhere":
+        stale = tmp_path / "stale"
+        stale.mkdir()
+        target.symlink_to(stale)
+    elif occupant == "real-directory":
+        target.mkdir()
+        (target / "leftover.txt").write_text("stale\n")
+
+    script = (
+        "set -u\n"
+        f'BENCH_DIR="{bench}"\n'
+        'APP_NAME="frappe_intelligence"\n'
+        'APP_PUBLIC="$BENCH_DIR/apps/$APP_NAME/$APP_NAME/public"\n'
+        'ASSET_TARGET="$BENCH_DIR/sites/assets/$APP_NAME"\n'
+        f"{match.group(0)}\n"
+        "link_app_assets\n"
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+
+    served = target / "js" / "intelligence.js"
+    assert served.is_file(), f"{occupant}: sites/assets/<app> still does not resolve"
+    assert served.read_text() == "// real bundle\n"
+    assert not (target / "leftover.txt").exists(), "stale contents must not survive"
 
 
 def test_script_exits_nonzero_when_requested_tests_fail(site_init_text, site_init_code):

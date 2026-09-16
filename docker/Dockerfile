@@ -88,18 +88,16 @@ assert frappe_intelligence.__version__; \
 print('frappe_intelligence', frappe_intelligence.__version__, '/ pypdf', pypdf.__version__)"
 
 # -----------------------------------------------------------------------------
-# 4. Best-effort asset build + stash. `bench build` needs a target app but no
-#    site, so it is safe here, and it lets a broken frontend bundle fail this
-#    image build rather than a live deployment. The output is also copied to
-#    a path OUTSIDE `sites/` -- which is a bind/named volume at runtime and
-#    will hide whatever this step writes into sites/assets -- so
-#    docker/site-init.sh can restore it with a symlink instead of forcing a
-#    full Yarn/esbuild rebuild on every container start of every environment.
+# 4. Asset build. `bench build` needs a target app but no site, so it is safe
+#    here, and it lets a broken frontend bundle fail this image build rather
+#    than a live deployment. esbuild writes dist/ through sites/assets/<app>
+#    into apps/frappe_intelligence/frappe_intelligence/public, and `apps/` is
+#    part of the image rather than a volume mount, so the built bundle is
+#    still there at runtime. Only the sites/assets/<app> link itself is lost
+#    to the mounted volume; docker/site-init.sh re-creates it on start.
 # -----------------------------------------------------------------------------
 RUN bench build --app frappe_intelligence \
-    && mkdir -p /home/frappe/.intelligence-assets-cache \
-    && rm -rf /home/frappe/.intelligence-assets-cache/frappe_intelligence \
-    && cp -a sites/assets/frappe_intelligence /home/frappe/.intelligence-assets-cache/frappe_intelligence
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/intelligence.js
 
 # Site creation, `install-app` and `migrate` are intentionally NOT done here.
 # Run docker/site-init.sh once per environment, with an explicit SITE_NAME,
