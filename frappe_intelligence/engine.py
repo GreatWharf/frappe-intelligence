@@ -782,13 +782,29 @@ def _provider_turn(run_name, token):
     calls = _normal_calls(reply)
     available = get_tools(context)
     proposals = []
+    rejections = []
     for call in calls:
-        if call["name"] not in available:
-            frappe.throw("The model proposed an unavailable tool.", frappe.ValidationError)
-        spec = available[call["name"]]
-        preview = prepare(context, call["name"], call["arguments"])
-        proposals.append((call, spec, preview))
+        try:
+            if call["name"] not in available:
+                raise ValueError("The model proposed an unavailable tool.")
+            preview = prepare(context, call["name"], call["arguments"])
+        except (frappe.PermissionError, frappe.ValidationError, ValueError) as exc:
+            # Input problems the model can correct (unknown fields, bad filter
+            # shapes, gated fields) fail closed: nothing executes and no
+            # approval is offered, but the error returns as a tool result so
+            # the next turn can adapt instead of the whole run dying.
+            rejections.append((call, exc))
+        else:
+            proposals.append((call, available[call["name"]], preview))
     append_message(run.conversation, "assistant", reply.text or "", run=run.name, tool_calls=calls or None)
+    for call, exc in rejections:
+        append_message(
+            run.conversation,
+            "tool",
+            _json({"error": str(exc)[:500]}, MAX_RESULT_CHARS),
+            run=run.name,
+            tool_call_id=call["id"],
+        )
     usage = reply.usage or {}
     _save(
         run,
@@ -809,8 +825,12 @@ def _provider_turn(run_name, token):
             expires_at=expires,
         )
         _insert(APPROVAL, **proposal, digest=_digest(run, proposal))
-    if calls:
+    if proposals:
         _release(run, "awaiting_approval")
+    elif calls:
+        # Every proposed call was rejected at the prepare step; the tool error
+        # results are already in history, so requeue for the model to adapt.
+        _release(run)
     else:
         _finish(run, "completed")
     frappe.db.commit()

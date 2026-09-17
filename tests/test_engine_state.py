@@ -380,6 +380,56 @@ def test_denial_returns_a_tool_result_without_execution(env):
     assert any(row.role == "tool" and "denied" in row.content.lower() for row in messages)
 
 
+def test_prepare_rejection_returns_a_tool_error_and_the_run_recovers(env, monkeypatch):
+    toolmod = sys.modules["frappe_intelligence.tools"]
+    name = submit(env)
+    env.replies.append(reply(("read", {"fields": ["password"]}), text="Checking."))
+
+    def rejecting_prepare(context, tool_name, args):
+        if args.get("fields"):
+            raise PermissionError("Not permitted to use this Intelligence tool or resource.")
+        return {"tool": tool_name, "arguments": args}
+
+    monkeypatch.setattr(toolmod, "prepare", rejecting_prepare)
+    env.engine.process_run(name)
+    run = env.engine.get_run(name)
+    assert run["state"] != "failed"
+    assert not approvals(env), "a rejected prepare must never create an approval row"
+    assert not env.executions
+    messages = env.frappe.get_all("Intelligence Message")
+    assert any(
+        row.role == "tool" and row.tool_call_id == "call-0" and "not permitted" in row.content.lower()
+        for row in messages
+    )
+    env.replies.append(reply(text="That field is off limits; here is what I can show instead."))
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "completed"
+
+
+def test_prepare_rejection_alongside_a_valid_call_still_offers_the_approval(env, monkeypatch):
+    toolmod = sys.modules["frappe_intelligence.tools"]
+    name = submit(env)
+    env.replies.append(
+        reply(("read", {"fields": ["password"]}), ("read", {"doctype": "Customer"}), text="Two lookups.")
+    )
+
+    def selective_prepare(context, tool_name, args):
+        if args.get("fields"):
+            raise ValueError("Unsupported field selection.")
+        return {"tool": tool_name, "arguments": args}
+
+    monkeypatch.setattr(toolmod, "prepare", selective_prepare)
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "awaiting_approval"
+    pending = approvals(env)
+    assert len(pending) == 1 and pending[0].tool_call_id == "call-1"
+    messages = env.frappe.get_all("Intelligence Message")
+    assert any(
+        row.role == "tool" and row.tool_call_id == "call-0" and "unsupported field" in row.content.lower()
+        for row in messages
+    )
+
+
 def test_digest_tampering_and_expiry_cannot_authorize(env):
     name = submit(env)
     env.replies.append(reply(("read", {})))
