@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const client = require('../../frappe_intelligence/public/js/intelligence.js');
-const { skillsHTML, queueHTML, scopeState, scopeProblem, scopeHTML, stamp } = client.utils;
+const { skillsHTML, learnedSkillsHTML, effortOptions, queueHTML, scopeState, scopeProblem, scopeHTML, stamp } = client.utils;
 const source = fs.readFileSync(path.resolve(__dirname, '../../frappe_intelligence/public/js/intelligence.js'), 'utf8');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -243,4 +243,171 @@ test('skillsHTML marks disabled tools with an Off badge and keeps enabled ones c
   assert.ok(row.includes('Off'));
   const clean = html.split('fi-skill-row').find((chunk) => chunk.includes('search_records'));
   assert.ok(!clean.includes('Off'));
+});
+
+const learnedFixture = [
+  { name: 'skill-month-end', title: 'Month-end close', description: 'Walk through the month-end checklist.', instructions: 'Summarize open ToDos first.', origin: 'Seeded', enabled: 1, shared: 1, version: '3', owner: 'Administrator', scope_read: 'ToDo', scope_write: 'ToDo' },
+  { name: 'skill-follow-up', title: 'Supplier follow-up', description: 'Draft follow-up notes for late suppliers.', instructions: 'Draft only, never send.', origin: 'Learned', enabled: 0, shared: 0, version: '1', owner: 'jamie@example.test', scope_read: 'Supplier', scope_write: '' },
+];
+const skillsWithLearned = Object.assign({}, skillsFixture, { learned_skills: learnedFixture });
+
+test('learnedSkillsHTML renders titles, code names, origin badges, Off state and versions', () => {
+  const html = learnedSkillsHTML(learnedFixture, { isManager: true, user: 'jamie@example.test' });
+  assert.ok(html.includes('Learned skills'));
+  assert.ok(html.includes('Month-end close'));
+  assert.ok(html.includes('<code>skill-month-end</code>'));
+  assert.ok(html.includes('>Seeded</span>'));
+  assert.ok(html.includes('>Learned</span>'));
+  assert.ok(html.includes('v3'));
+  assert.equal(html.match(/fi-badge">Off</g).length, 1);
+  const off = html.split('fi-learned-row').find((chunk) => chunk.includes('skill-follow-up'));
+  assert.ok(off.includes('Off'));
+  const on = html.split('fi-learned-row').find((chunk) => chunk.includes('skill-month-end'));
+  assert.ok(!on.includes('Off'));
+});
+test('learnedSkillsHTML escapes hostile content and tolerates malformed payloads', () => {
+  const hostile = learnedSkillsHTML([{ name: '<img src=x>', title: '<script>alert(1)</script>', description: '<b>bad</b>', origin: '<i>', enabled: 0, version: '<v>' }], { isManager: true });
+  assert.ok(!hostile.includes('<img'));
+  assert.ok(!hostile.includes('<script>'));
+  assert.ok(!hostile.includes('<v>'));
+  assert.ok(hostile.includes('&lt;img'));
+  assert.equal(learnedSkillsHTML(null), '');
+  assert.equal(learnedSkillsHTML('nope'), '');
+  assert.equal(learnedSkillsHTML([]), '');
+});
+test('learnedSkillsHTML gates edit controls to managers and owners', () => {
+  const manager = learnedSkillsHTML(learnedFixture, { isManager: true, user: 'jamie@example.test' });
+  assert.equal(manager.match(/data-action="skill-edit"/g).length, 2);
+  const owner = learnedSkillsHTML(learnedFixture, { isManager: false, user: 'jamie@example.test' });
+  assert.equal(owner.match(/data-action="skill-edit"/g).length, 1);
+  assert.ok(owner.split('fi-learned-row').find((chunk) => chunk.includes('skill-follow-up')).includes('skill-edit'));
+  const flagged = learnedSkillsHTML([{ name: 'skill-flagged', title: 'Flagged', description: '', origin: 'Learned', enabled: 1, shared: 0, version: '1', can_edit: 1 }], { isManager: false, user: 'stranger@example.test' });
+  assert.equal(flagged.match(/data-action="skill-edit"/g).length, 1);
+  const stranger = learnedSkillsHTML(learnedFixture, { isManager: false, user: 'stranger@example.test' });
+  assert.ok(!stranger.includes('skill-edit'));
+  assert.ok(!stranger.includes('data-input="skill-enabled"'));
+});
+test('skillsHTML places the learned skills section between the tools list and the scopes', () => {
+  const html = skillsHTML(skillsWithLearned, { isManager: true, user: 'jamie@example.test' });
+  assert.ok(html.includes('Learned skills'));
+  assert.ok(html.indexOf('search_records') < html.indexOf('Learned skills'));
+  assert.ok(html.indexOf('Learned skills') < html.indexOf('Readable doctypes'));
+  assert.ok(!skillsHTML(skillsFixture).includes('Learned skills'));
+});
+test('effortOptions lists every effort level with Auto as the fallback default', () => {
+  const html = effortOptions();
+  for (const effort of ['Auto', 'Low', 'Medium', 'High', 'Max']) assert.ok(html.includes('>' + effort + '</option>'), effort);
+  assert.ok(html.includes('<option selected>Auto</option>'));
+  const high = effortOptions('High');
+  assert.ok(high.includes('<option selected>High</option>'));
+  assert.ok(!high.includes('<option selected>Auto</option>'));
+  assert.ok(effortOptions('Bogus').includes('<option selected>Auto</option>'));
+});
+test('skills dialog renders the learned skills section with badges and rows', async (t) => {
+  const { app, document } = harness(t, { skills: () => copy(skillsWithLearned) });
+  app.boot.user = 'jamie@example.test';
+  app.skillsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  assert.ok(modal.textContent.includes('Learned skills'));
+  assert.ok(modal.textContent.includes('Month-end close'));
+  assert.equal(modal.querySelectorAll('.fi-learned-row').length, 2);
+  assert.deepEqual(Array.from(modal.querySelectorAll('.fi-badge-origin')).map((node) => node.textContent), ['Seeded', 'Learned']);
+});
+test('learned skill toggle saves enabled through the Frappe client single-value API', async (t) => {
+  const { app, window, document, calls } = harness(t, { skills: () => copy(skillsWithLearned), 'frappe.client.set_value': () => ({}) });
+  app.boot.user = 'jamie@example.test';
+  app.skillsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  const toggle = Array.from(modal.querySelectorAll('[data-input="skill-enabled"]')).find((node) => node.dataset.name === 'skill-follow-up');
+  assert.ok(toggle);
+  assert.equal(toggle.checked, false);
+  toggle.checked = true; toggle.dispatchEvent(new window.Event('change', { bubbles: true })); await tick();
+  const save = calls.find((call) => call.method === 'frappe.client.set_value');
+  assert.equal(save.args.doctype, 'Intelligence Skill');
+  assert.equal(save.args.name, 'skill-follow-up');
+  assert.deepEqual(copy(save.args.fieldname), { enabled: 1 });
+  assert.equal(modal.querySelector('[data-input="skill-enabled"][data-name="skill-follow-up"]').checked, true);
+});
+test('learned skill toggle reverts optimistic state and shows the server error verbatim on failure', async (t) => {
+  const { app, window, document } = harness(t, { skills: () => copy(skillsWithLearned), 'frappe.client.set_value': () => { throw { userMessage: 'Skill validation failed verbatim.' }; } });
+  app.boot.user = 'jamie@example.test';
+  app.skillsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  const toggle = Array.from(modal.querySelectorAll('[data-input="skill-enabled"]')).find((node) => node.dataset.name === 'skill-follow-up');
+  toggle.checked = true; toggle.dispatchEvent(new window.Event('change', { bubbles: true })); await tick();
+  assert.equal(modal.querySelector('.fi-modal-error').textContent, 'Skill validation failed verbatim.');
+  assert.equal(modal.querySelector('[data-input="skill-enabled"][data-name="skill-follow-up"]').checked, false);
+});
+test('learned skill edit saves title, description, instructions and newline scope lists, then re-renders', async (t) => {
+  const { app, window, document, calls } = harness(t, { skills: () => copy(skillsWithLearned), 'frappe.client.set_value': () => ({}) });
+  app.boot.user = 'jamie@example.test';
+  app.skillsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  Array.from(modal.querySelectorAll('[data-action="skill-edit"]')).find((node) => node.dataset.name === 'skill-month-end').click(); await tick();
+  const form = modal.querySelector('form[data-form="skill-edit"]');
+  assert.ok(form);
+  assert.equal(form.elements.title.value, 'Month-end close');
+  assert.equal(form.elements.scope_read.value, 'ToDo');
+  form.elements.title.value = 'Month-end close v2';
+  form.elements.description.value = 'Updated description.';
+  form.elements.instructions.value = 'First summarize.\nThen list.';
+  form.elements.scope_read.value = 'ToDo\nCustomer';
+  form.elements.scope_write.value = 'ToDo';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
+  const save = calls.find((call) => call.method === 'frappe.client.set_value');
+  assert.equal(save.args.doctype, 'Intelligence Skill');
+  assert.equal(save.args.name, 'skill-month-end');
+  assert.deepEqual(copy(save.args.fieldname), { title: 'Month-end close v2', description: 'Updated description.', instructions: 'First summarize.\nThen list.', scope_read: 'ToDo\nCustomer', scope_write: 'ToDo' });
+  assert.equal(calls.filter((call) => call.method === 'skills').length, 2);
+  assert.equal(modal.querySelector('form[data-form="skill-edit"]'), null);
+  assert.ok(modal.textContent.includes('Learned skills'));
+});
+test('learned skill edit shows the seeded hint only for seeded playbooks', async (t) => {
+  const { app, document } = harness(t, { skills: () => copy(skillsWithLearned), 'frappe.client.set_value': () => ({}) });
+  app.boot.user = 'jamie@example.test';
+  app.skillsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  Array.from(modal.querySelectorAll('[data-action="skill-edit"]')).find((node) => node.dataset.name === 'skill-month-end').click(); await tick();
+  assert.ok(modal.textContent.includes('Seeded playbook; edits are allowed'));
+  modal.querySelector('[data-action="skill-edit-cancel"]').click(); await tick();
+  Array.from(modal.querySelectorAll('[data-action="skill-edit"]')).find((node) => node.dataset.name === 'skill-follow-up').click(); await tick();
+  assert.ok(!modal.textContent.includes('Seeded playbook'));
+});
+test('learned skill rows give owners edit controls on their own skills only', async (t) => {
+  const { app, document } = harness(t, { skills: () => copy(skillsWithLearned) });
+  app.boot.is_manager = false; app.boot.user = 'jamie@example.test';
+  app.skillsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  assert.deepEqual(Array.from(modal.querySelectorAll('[data-action="skill-edit"]')).map((node) => node.dataset.name), ['skill-follow-up']);
+});
+test('learned skill rows hide every edit control from non-manager non-owners', async (t) => {
+  const { app, document } = harness(t, { skills: () => copy(skillsWithLearned) });
+  app.boot.is_manager = false; app.boot.user = 'stranger@example.test';
+  app.skillsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  assert.ok(modal.textContent.includes('Month-end close'));
+  assert.equal(modal.querySelector('[data-action="skill-edit"]'), null);
+  assert.equal(modal.querySelector('[data-input="skill-enabled"]'), null);
+});
+test('provider dialog includes thinking_effort in the save payload', async (t) => {
+  const { app, window, document, calls } = harness(t, { save_provider: () => ({}), bootstrap: () => copy(boot) });
+  app.providerDialog();
+  const modal = document.querySelector('.fi-modal-overlay');
+  const form = modal.querySelector('form');
+  assert.ok(form.elements.thinking_effort);
+  assert.equal(form.elements.thinking_effort.value, 'Auto');
+  form.elements.title.value = 'Effort provider';
+  form.elements.model.value = 'configured-model';
+  form.elements.thinking_effort.value = 'High';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
+  assert.equal(calls.find((call) => call.method === 'save_provider').args.thinking_effort, 'High');
+});
+test('provider dialog restores a saved thinking effort when editing', async (t) => {
+  const provider = { name: 'effortful', title: 'Effort provider', kind: 'OpenAI', model: 'configured-model', enabled: 1, is_shared: 0, thinking_effort: 'Max', can_edit: true };
+  const { app, window, document, calls } = harness(t, { provider_details: () => copy(provider), save_provider: () => ({}), bootstrap: () => copy(boot) });
+  app.boot.managed_providers = [provider]; app.providerDialog();
+  const modal = document.querySelector('.fi-modal-overlay'); modal.querySelector('[data-provider="effortful"]').click(); await tick();
+  const form = modal.querySelector('form'); assert.equal(form.elements.thinking_effort.value, 'Max');
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
+  assert.equal(calls.find((call) => call.method === 'save_provider').args.thinking_effort, 'Max');
 });

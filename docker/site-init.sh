@@ -49,6 +49,13 @@
 #                                 run the real integration suite via
 #                                 `bench run-tests`. Optional; skipped by
 #                                 default.
+#   INSTALL_WIKI                  Only the exact value "1" (the default)
+#                                 installs the wiki app
+#                                 (github.com/frappe/wiki) when it is present
+#                                 under apps/ but not yet installed on the
+#                                 site. Any other value skips it. A wiki
+#                                 install failure is logged and never fails
+#                                 this script.
 #   INTELLIGENCE_INIT_RESULT_PATH
 #                                 Where to write the safe JSON result file.
 #                                 Default:
@@ -73,6 +80,7 @@ set -o pipefail
 BENCH_DIR="${BENCH_DIR:-/home/frappe/frappe-bench}"
 RESULT_PATH="${INTELLIGENCE_INIT_RESULT_PATH:-${BENCH_DIR}/sites/intelligence-staging-result.json}"
 APP_NAME="frappe_intelligence"
+WIKI_APP_NAME="wiki"
 INTEGRATION_MODULE="frappe_intelligence.tests.test_integration"
 
 log() { printf '[site-init] %s\n' "$*" >&2; }
@@ -230,7 +238,51 @@ if ! run_bench --site "$SITE_NAME" migrate; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. allow_tests is enabled ONLY on an explicit opt-in. It is never disabled
+# 4. Optional wiki install. When the image was built with WIKI_VERSION set
+#    (docker/Dockerfile step 5), the wiki app (github.com/frappe/wiki) sits
+#    under apps/; installing it onto the site here lets the assistant's
+#    adaptive meta-tools cover Wiki Page/Wiki Space like any other allowed
+#    DocType. Wiki is strictly additive: a failure is logged and NEVER fails
+#    site-init, so the core app stays green without wiki. Gated by
+#    INSTALL_WIKI (default "1"; any other value skips), and a no-op when the
+#    app is absent from apps/ or already installed on the site.
+# ---------------------------------------------------------------------------
+maybe_install_wiki() {
+    # Sets the wiki_present/wiki_install_attempted/wiki_installed globals for
+    # the result file below. Always returns 0 by contract (see above).
+    local install_wiki="${INSTALL_WIKI:-1}"
+    wiki_present=0
+    wiki_install_attempted=0
+    wiki_installed=0
+    if [ ! -d "$BENCH_DIR/apps/$WIKI_APP_NAME" ]; then
+        log "$WIKI_APP_NAME app not present under apps/ (image built without WIKI_VERSION); skipping."
+        return 0
+    fi
+    wiki_present=1
+    if printf '%s\n' "$list_apps_output" | awk '{print $1}' | grep -qx "$WIKI_APP_NAME"; then
+        wiki_installed=1
+        log "$WIKI_APP_NAME already installed on $SITE_NAME; skipping install-app."
+        return 0
+    fi
+    if [ "$install_wiki" != "1" ]; then
+        log "INSTALL_WIKI=$install_wiki: $WIKI_APP_NAME is present under apps/ but will not be installed (set INSTALL_WIKI=1 to enable)."
+        return 0
+    fi
+    wiki_install_attempted=1
+    log "installing $WIKI_APP_NAME on $SITE_NAME..."
+    if run_bench --site "$SITE_NAME" install-app "$WIKI_APP_NAME"; then
+        wiki_installed=1
+        log "$WIKI_APP_NAME installed on $SITE_NAME."
+    else
+        log "warning: bench install-app $WIKI_APP_NAME failed for site '$SITE_NAME'; continuing without wiki. $APP_NAME is unaffected."
+    fi
+    return 0
+}
+
+maybe_install_wiki
+
+# ---------------------------------------------------------------------------
+# 5. allow_tests is enabled ONLY on an explicit opt-in. It is never disabled
 #    by this script either, so an operator's own choice is never overridden
 #    in either direction when the variable is simply absent.
 # ---------------------------------------------------------------------------
@@ -247,7 +299,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Optional real integration tests. Requires the explicit allow_tests
+# 6. Optional real integration tests. Requires the explicit allow_tests
 #    opt-in above as well -- this app's own integration suite refuses to run
 #    against a site where allow_tests is not enabled (see
 #    frappe_intelligence/tests/test_integration.py), so both flags are
@@ -277,7 +329,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Assets. The persistent "sites" volume mounted at deploy time hides
+# 7. Assets. The persistent "sites" volume mounted at deploy time hides
 #    whatever the image build baked into sites/assets, so sites/assets/<app>
 #    has to be re-established at runtime. Point it straight at the app's own
 #    public/ directory under apps/ -- the same target Frappe uses natively,
@@ -334,7 +386,7 @@ if [ "$assets_verified" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 7. Safe result file. No credentials, no site/db config, no record or
+# 8. Safe result file. No credentials, no site/db config, no record or
 #    customer content -- only operational status fields, written atomically.
 # ---------------------------------------------------------------------------
 fi_version="$("$BENCH_DIR/env/bin/python" -c "import frappe_intelligence; print(frappe_intelligence.__version__)" 2>/dev/null || true)"
@@ -359,6 +411,9 @@ INTELLIGENCE_RESULT_TESTS_EXIT_CODE="$tests_exit_code" \
 INTELLIGENCE_RESULT_TESTS_STATUS="$tests_status" \
 INTELLIGENCE_RESULT_ASSETS_BUILT="$assets_built" \
 INTELLIGENCE_RESULT_ASSETS_VERIFIED="$assets_verified" \
+INTELLIGENCE_RESULT_WIKI_PRESENT="$wiki_present" \
+INTELLIGENCE_RESULT_WIKI_INSTALL_ATTEMPTED="$wiki_install_attempted" \
+INTELLIGENCE_RESULT_WIKI_INSTALLED="$wiki_installed" \
 "$BENCH_DIR/env/bin/python" - "$result_tmp" <<'PYEOF'
 import json
 import os
@@ -393,6 +448,11 @@ data = {
     },
     "assets_built": flag("INTELLIGENCE_RESULT_ASSETS_BUILT"),
     "assets_verified": flag("INTELLIGENCE_RESULT_ASSETS_VERIFIED"),
+    "wiki": {
+        "present": flag("INTELLIGENCE_RESULT_WIKI_PRESENT"),
+        "install_attempted": flag("INTELLIGENCE_RESULT_WIKI_INSTALL_ATTEMPTED"),
+        "installed": flag("INTELLIGENCE_RESULT_WIKI_INSTALLED"),
+    },
 }
 with open(path, "w") as fh:
     json.dump(data, fh, indent=2, sort_keys=True)
@@ -407,7 +467,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Exit status: fail the job if install/migrate/version-check failed
+# 9. Exit status: fail the job if install/migrate/version-check failed
 #    (those already `fail`-ed above and exited), if the asset build failed,
 #    or if explicitly-requested tests failed. A skipped/not-requested test
 #    run is success, not failure.

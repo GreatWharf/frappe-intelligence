@@ -27,6 +27,13 @@
       "reqd": 1
     },
     {
+      "fieldname": "thinking_effort",
+      "label": "Thinking Effort",
+      "fieldtype": "Select",
+      "options": "Auto\nLow\nMedium\nHigh\nMax",
+      "default": "Auto"
+    },
+    {
       "fieldname": "api_key",
       "label": "Api Key",
       "fieldtype": "Password",
@@ -71,6 +78,7 @@
     "title",
     "kind",
     "model",
+    "thinking_effort",
     "api_key",
     "base_url",
     "is_shared",

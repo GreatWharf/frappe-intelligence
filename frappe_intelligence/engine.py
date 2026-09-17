@@ -12,6 +12,7 @@ and get_provider_config must NEVER be exposed as RPC endpoints.
 import hashlib
 import hmac
 import json
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
@@ -33,12 +34,36 @@ CONVERSATION = "Intelligence Conversation"
 MESSAGE = "Intelligence Message"
 APPROVAL = "Intelligence Approval"
 EXECUTION = "Intelligence Tool Execution"
+SKILL = "Intelligence Skill"
 TERMINAL = frozenset({"completed", "failed", "cancelled", "needs_reconciliation"})
 ACTIVE = ("queued", "running", "awaiting_approval")
 MAX_CALLS_PER_TURN = 8
 MAX_MESSAGE_CHARS = 30000
 MAX_HISTORY_CHARS = 250000
 MAX_RESULT_CHARS = 60000
+MAX_SKILLS_PROMPT_CHARS = 4000
+
+_GROUND_RULES = (
+    "You are Intelligence, an assistant embedded in ERPNext Desk. "
+    "You act only through the provided tools; you have no other way to read or change anything.\n"
+    "- Never invent record names, totals or dates; if a value is not in the conversation or a "
+    "tool result, read it with a tool or say you do not know.\n"
+    "- Read before you write: fetch the current record before proposing any change to it.\n"
+    "- Mutations need the user's explicit approval; present previews faithfully and never claim "
+    "an action is done before it is approved and executed.\n"
+    "- Never retry a denied action unless the user asks.\n"
+    "- Financial posting, document submission, workflow changes and ledger or stock writes are "
+    "always off-limits; propose drafts instead.\n"
+    "- Cite records as DocType plus name, for example Customer C-0001."
+)
+_MEMORY_GUIDANCE = (
+    "Use recall_memory at the start of a task to respect the user's saved preferences, "
+    "and save_memory when the user states a durable preference."
+)
+_ADAPTIVE_GUIDANCE = (
+    "When a task needs a repeatable procedure you lack, say so and use propose_skill to draft "
+    "one; it starts disabled until the user reviews and enables it."
+)
 
 
 class LostLease(Exception):
@@ -194,6 +219,7 @@ def get_provider_config(provider_name, user=None):
     kind = doc.kind.lower() if isinstance(doc.kind, str) else ""
     if kind not in KINDS:
         frappe.throw("This provider configuration is not supported.", frappe.ValidationError)
+    effort = doc.get("thinking_effort") or ""
     return ProviderConfig(
         kind=kind,
         model=doc.model,
@@ -202,6 +228,7 @@ def get_provider_config(provider_name, user=None):
         max_tokens=min(_number(doc.max_tokens, 4096, 1, 32768), _number(settings.max_tokens, 4096, 1, 32768)),
         timeout=_number(doc.timeout, 60, 5, 120),
         allowed_hosts=allowed,
+        effort="" if effort == "Auto" else effort,
     )
 
 
@@ -542,6 +569,88 @@ def _history(run):
     return messages
 
 
+def visible_skills(user, enabled_only=False):
+    """Intelligence Skill rows a user may see: their own records plus shared ones.
+
+    The owner/shared check is the authorization rule for skill content; rows are
+    fetched permission-free and filtered here so the rule has exactly one home.
+    """
+    rows = frappe.get_all(
+        SKILL,
+        fields=[
+            "name",
+            "title",
+            "description",
+            "instructions",
+            "origin",
+            "enabled",
+            "shared",
+            "version",
+            "scope_read",
+            "scope_write",
+            "owner",
+            "modified",
+        ],
+        order_by="modified desc",
+        limit_page_length=1000,
+    )
+    return [
+        row
+        for row in rows
+        if (row.get("owner") == user or row.get("shared")) and (not enabled_only or row.get("enabled"))
+    ]
+
+
+def _skills_block(run):
+    """Enabled skills visible to the run user, newest changes first, hard-capped.
+
+    Skill text is prompt content only; it is never executed as code. When the
+    cap is exceeded, least-recently-modified skills are dropped and the omission
+    is stated, never silently truncated.
+    """
+    entries = []
+    for row in visible_skills(run.user, enabled_only=True):
+        title = (row.get("title") or "").strip()
+        description = (row.get("description") or "").strip()
+        head = f"- {row.name}:"
+        if title:
+            head += f" {title}."
+        if description:
+            head += f" {description}"
+        lines = [head]
+        instructions = (row.get("instructions") or "").strip()
+        lines.extend(f"  {line}" for line in instructions.splitlines() if line.strip())
+        entries.append("\n".join(lines))
+    if not entries:
+        return ""
+    header = "## Skills"
+    kept, total = [], len(header)
+    for index, entry in enumerate(entries):
+        remaining = len(entries) - index - 1
+        reserve = len(f"\n[{remaining} more enabled skills not shown]") if remaining else 0
+        if total + 1 + len(entry) + reserve > MAX_SKILLS_PROMPT_CHARS:
+            break
+        kept.append(entry)
+        total += 1 + len(entry)
+    while True:
+        dropped = len(entries) - len(kept)
+        block = header + "".join("\n" + entry for entry in kept)
+        if dropped:
+            block += f"\n[{dropped} more enabled skills not shown]"
+        if len(block) <= MAX_SKILLS_PROMPT_CHARS or not kept:
+            return block
+        kept.pop()
+
+
+def _system_prompt(run, context):
+    """Transient per-turn system prompt; rebuilt each turn so skill edits apply at once."""
+    parts = [_GROUND_RULES, _MEMORY_GUIDANCE, _ADAPTIVE_GUIDANCE]
+    block = _skills_block(run)
+    if block:
+        parts.append(block)
+    return "\n\n".join(parts)
+
+
 def _normal_calls(reply):
     calls = []
     seen = set()
@@ -564,8 +673,32 @@ def _normal_calls(reply):
     return calls
 
 
+_TRANSIENT_PROVIDER_CODES = frozenset(
+    {"rate_limited", "provider_unavailable", "timeout", "connection_failed"}
+)
+
+
+def _complete_with_retry(config, messages, tool_schemas):
+    """One provider turn with bounded backoff for transient failures only.
+
+    The transport is single-attempt by design; here the semantics are known
+    (a chat completion, not a money-moving POST), so a gateway hiccup gets up
+    to three attempts with 2s/4s backoff. Authentication and contract errors
+    raise immediately. No database state changes between attempts: the run
+    row was committed before the first call and the history is unchanged.
+    """
+    from frappe_intelligence.providers import ProviderError, complete
+
+    for attempt in range(1, 4):
+        try:
+            return complete(config, messages, tool_schemas)
+        except ProviderError as exc:
+            if exc.code not in _TRANSIENT_PROVIDER_CODES or attempt == 3:
+                raise
+            time.sleep(min(2**attempt, 8))
+
+
 def _provider_turn(run_name, token):
-    from frappe_intelligence.providers import complete
     from frappe_intelligence.tools import get_tools, prepare, schemas
 
     run = _locked_run(run_name)
@@ -573,10 +706,12 @@ def _provider_turn(run_name, token):
     config = get_provider_config(run.provider)
     history = _history(run)
     context = _tool_context(run)
+    prompt = _system_prompt(run, context)
     tool_schemas = schemas(context)
     _save(run, step_count=int(run.step_count or 0) + 1)
     frappe.db.commit()  # no write OR read transaction is held across network I/O
-    reply = complete(config, history, tool_schemas)
+    # The system message is prepended transiently and never persisted as a Message row.
+    reply = _complete_with_retry(config, [{"role": "system", "content": prompt}] + history, tool_schemas)
     run = _locked_run(run_name)
     _fence(run, token)
     # Reauthorize after HTTP; roles/provider ownership may have changed meanwhile.

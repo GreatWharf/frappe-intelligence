@@ -60,6 +60,12 @@ class Document(Row):
     def set(self, key, value):
         self[key] = value
 
+    def append(self, field, values):
+        child = Document(_fake=self._fake)
+        child.update(values)
+        self.setdefault(field, []).append(child)
+        return child
+
     def save(self, **kwargs):
         assert not kwargs, "Normal Document save must not bypass permissions"
         self.check_permission("write")
@@ -170,12 +176,19 @@ class FakeFrappe(types.ModuleType):
         self.meta["Event"].get_field("subject").reqd = 1
         self.add_meta(
             "Sales Invoice",
-            {"customer": "Link", "posting_date": "Date", "grand_total": "Currency"},
+            {"customer": "Link", "posting_date": "Date", "grand_total": "Currency", "items": "Table"},
             module="Accounts",
             is_submittable=True,
         )
         self.meta["Sales Invoice"].get_field("customer").options = "Customer"
         self.meta["Sales Invoice"].get_field("posting_date").reqd = 1
+        self.meta["Sales Invoice"].get_field("items").options = "Sales Invoice Item"
+        self.add_meta(
+            "Sales Invoice Item",
+            {"item_code": "Data", "qty": "Float", "rate": "Currency", "secret_note": "Data"},
+            module="Accounts",
+            istable=True,
+        )
         self.add_meta("GL Entry", {"account": "Data"}, module="Accounts")
         self.add_meta("Workflow", {"workflow_name": "Data"}, module="Workflow")
         self.add_meta("User", {"email": "Data"}, module="Core")
@@ -199,6 +212,7 @@ class FakeFrappe(types.ModuleType):
         self.seed("ToDo", "T-1", description="Old", status="Open", priority="Medium", allocated_to="alice")
         self.seed("Event", "E-1", subject="Meeting", description="Old", status="Open")
         self.seed("Sales Invoice", "SI-1", customer="Acme", posting_date="2026-09-16")
+        self.seed("Sales Invoice", "SI-2", customer="Acme", posting_date="2026-09-16", docstatus=1)
 
     def add_meta(self, doctype, fields, **kwargs):
         self.meta[doctype] = Meta(doctype, fields, **kwargs)
@@ -411,8 +425,8 @@ def test_describe_doctype_marks_writable_per_write_scope(stack):
     tools, context, fake, _, _ = stack
     assert tools.execute(context, "describe_doctype", {"doctype": "ToDo"})["writable"] is True
     fake.settings.allowed_write_doctypes += "\nSales Invoice"
-    # Submittable doctypes are never writable, even when configured.
-    assert tools.execute(context, "describe_doctype", {"doctype": "Sales Invoice"})["writable"] is False
+    # Submittable doctypes are writable as drafts when configured; submission stays impossible.
+    assert tools.execute(context, "describe_doctype", {"doctype": "Sales Invoice"})["writable"] is True
     fake.settings.allowed_write_doctypes += "\nGL Entry"
     fake.settings.allowed_read_doctypes += "\nGL Entry"
     # Never-allow types are never writable, even when configured for read and write.
@@ -518,15 +532,9 @@ def test_create_document_rejects_never_allow_even_when_configured(stack):
     assert fake.saved == []
 
 
-def test_create_document_rejects_submittable_and_unlisted_types(stack):
+def test_create_document_rejects_unlisted_and_never_allow_types(stack):
     tools, context, fake, _, _ = stack
     fake.settings.allowed_write_doctypes += "\nSales Invoice"
-    with pytest.raises(PermissionError):
-        tools.execute(
-            context,
-            "create_document",
-            {"doctype": "Sales Invoice", "fields": [{"field": "customer", "value": "Acme"}]},
-        )
     with pytest.raises(PermissionError):
         tools.execute(
             context,
@@ -538,6 +546,133 @@ def test_create_document_rejects_submittable_and_unlisted_types(stack):
             context,
             "create_document",
             {"doctype": "GL Entry", "fields": [{"field": "account", "value": "x"}]},
+        )
+    assert fake.saved == []
+
+
+def test_create_document_drafts_submittable_in_write_scope(stack):
+    """Submittable DocTypes in the write scope may be drafted, never submitted."""
+    tools, context, fake, _, _ = stack
+    fake.settings.allowed_write_doctypes += "\nSales Invoice"
+    args = {
+        "doctype": "Sales Invoice",
+        "fields": [
+            {"field": "customer", "value": "Acme"},
+            {"field": "posting_date", "value": "2026-09-17"},
+        ],
+    }
+    preview = tools.prepare(context, "create_document", args)
+    assert preview["details"]["missing_required"] == []
+    assert fake.saved == []
+    result = tools.execute(context, "create_document", args)
+    assert result["created"] is True
+    doc = fake.rows[("Sales Invoice", result["name"])]
+    assert doc.customer == "Acme"
+    assert doc.get("docstatus", 0) == 0
+    # docstatus is outside the writable meta fields even on a submittable draft.
+    with pytest.raises(PermissionError):
+        tools.execute(
+            context,
+            "create_document",
+            {"doctype": "Sales Invoice", "fields": [{"field": "docstatus", "value": 1}]},
+        )
+
+
+def test_create_document_appends_validated_child_rows(stack):
+    tools, context, fake, _, _ = stack
+    fake.settings.allowed_write_doctypes += "\nSales Invoice"
+    args = {
+        "doctype": "Sales Invoice",
+        "fields": [{"field": "customer", "value": "Acme"}],
+        "children": [
+            {
+                "field": "items",
+                "rows": [
+                    [
+                        {"field": "item_code", "value": "WID"},
+                        {"field": "qty", "value": 5},
+                        {"field": "rate", "value": 89},
+                    ],
+                    [{"field": "item_code", "value": "SHP"}, {"field": "qty", "value": 1}],
+                ],
+            }
+        ],
+    }
+    preview = tools.prepare(context, "create_document", args)
+    children = preview["details"]["children"]
+    assert children == [{"field": "items", "child_doctype": "Sales Invoice Item", "rows": 2}]
+    assert fake.saved == []
+    result = tools.execute(context, "create_document", args)
+    doc = fake.rows[("Sales Invoice", result["name"])]
+    assert len(doc["items"]) == 2
+    first = doc["items"][0]
+    assert first.item_code == "WID"
+    assert first.qty == 5
+    assert doc.get("docstatus", 0) == 0
+
+
+@pytest.mark.parametrize(
+    "children",
+    [
+        [{"field": "items", "rows": []}],
+        [{"field": "items"}],
+        [{"field": "customer", "rows": [[{"field": "x", "value": 1}]]}],
+        [{"field": "items", "rows": [[{"field": "item_code", "value": "x"}]], "extra": 1}],
+        [{"field": "items", "rows": [[{"field": "item_code", "value": "x"}]]}] * 11,
+        [{"field": "items", "rows": [[{"field": "item_code", "value": "x"}]] * 51}],
+    ],
+)
+def test_create_document_children_schema_is_closed_and_bounded(stack, children):
+    tools, context, _, _, _ = stack
+    with pytest.raises(ValueError):
+        tools.execute(
+            context,
+            "create_document",
+            {
+                "doctype": "Sales Invoice",
+                "fields": [{"field": "customer", "value": "Acme"}],
+                "children": children,
+            },
+        )
+
+
+def test_create_document_rejects_bad_child_tables_and_fields(stack):
+    tools, context, fake, _, _ = stack
+    fake.settings.allowed_write_doctypes += "\nSales Invoice\nCustomer"
+    base = {"doctype": "Sales Invoice", "fields": [{"field": "customer", "value": "Acme"}]}
+    # Sensitive child fields stay unwritable even inside an allowed table.
+    with pytest.raises(PermissionError):
+        tools.execute(
+            context,
+            "create_document",
+            {**base, "children": [{"field": "items", "rows": [[{"field": "secret_note", "value": "x"}]]}]},
+        )
+    # Unknown child field.
+    with pytest.raises(PermissionError):
+        tools.execute(
+            context,
+            "create_document",
+            {**base, "children": [{"field": "items", "rows": [[{"field": "nope", "value": "x"}]]}]},
+        )
+    # The same table field twice is a duplicate, not a merge.
+    with pytest.raises(ValueError):
+        tools.execute(
+            context,
+            "create_document",
+            {
+                **base,
+                "children": [
+                    {"field": "items", "rows": [[{"field": "item_code", "value": "x"}]]},
+                    {"field": "items", "rows": [[{"field": "item_code", "value": "y"}]]},
+                ],
+            },
+        )
+    # A Table field on a non-table doctype never passes as a scalar either.
+    with pytest.raises(PermissionError):
+        tools.execute(
+            context,
+            "create_document",
+            {"doctype": "Customer", "fields": [{"field": "items", "value": "x"}]},
         )
     assert fake.saved == []
 
@@ -632,7 +767,7 @@ def test_update_document_rejects_duplicate_fields_and_bad_input(stack):
     assert fake.saved == []
 
 
-def test_update_document_rejects_never_allow_submittable_and_unlisted(stack):
+def test_update_document_rejects_never_allow_and_unlisted(stack):
     tools, context, fake, _, _ = stack
     fake.settings.allowed_read_doctypes += "\nGL Entry"
     fake.settings.allowed_write_doctypes += "\nGL Entry\nSales Invoice"
@@ -649,23 +784,42 @@ def test_update_document_rejects_never_allow_submittable_and_unlisted(stack):
             "update_document",
             {
                 **base,
-                "doctype": "Sales Invoice",
-                "name": "SI-1",
-                "changes": [{"field": "customer", "value": "Acme"}],
-            },
-        )
-    with pytest.raises(PermissionError):
-        tools.execute(
-            context,
-            "update_document",
-            {
-                **base,
                 "doctype": "Customer",
                 "name": "C-1",
                 "changes": [{"field": "customer_name", "value": "Beta"}],
             },
         )
     assert fake.saved == []
+
+
+def test_update_document_allows_submittable_draft_but_never_submitted(stack):
+    """Drafts of submittable DocTypes stay editable; submitted documents are frozen."""
+    tools, context, fake, _, _ = stack
+    fake.settings.allowed_write_doctypes += "\nSales Invoice"
+    base = {"expected_modified": "2026-09-16 12:00:00.000000"}
+    result = tools.execute(
+        context,
+        "update_document",
+        {
+            **base,
+            "doctype": "Sales Invoice",
+            "name": "SI-1",
+            "changes": [{"field": "customer", "value": "Beta"}],
+        },
+    )
+    assert result["updated_fields"] == ["customer"]
+    assert fake.rows[("Sales Invoice", "SI-1")].customer == "Beta"
+    with pytest.raises(PermissionError):
+        tools.execute(
+            context,
+            "update_document",
+            {
+                **base,
+                "doctype": "Sales Invoice",
+                "name": "SI-2",
+                "changes": [{"field": "customer", "value": "Beta"}],
+            },
+        )
 
 
 def test_update_document_rechecks_company_scope(stack):
@@ -689,7 +843,8 @@ def test_update_document_rechecks_company_scope(stack):
 def test_skills_returns_the_pinned_contract(stack):
     tools, context, fake, api, _ = stack
     result = api.skills()
-    assert set(result) == {"tools", "scopes", "never_allow"}
+    assert set(result) == {"tools", "scopes", "never_allow", "learned_skills"}
+    assert isinstance(result["learned_skills"], list)
     registered = tools.get_tools(context)
     assembled = tools._assemble(context).tools
     by_name = {tool["name"]: tool for tool in result["tools"]}
@@ -747,6 +902,7 @@ def test_skills_reflects_enabled_tools_policy(stack):
     tools, context, fake, api, _ = stack
     fake.settings.enabled_tools = "describe_doctype"
     result = api.skills()
+    assert set(result) == {"tools", "scopes", "never_allow", "learned_skills"}
     names = [tool["name"] for tool in result["tools"]]
     assert len(names) > 1
     assert [tool["name"] for tool in result["tools"] if tool["enabled"]] == ["describe_doctype"]

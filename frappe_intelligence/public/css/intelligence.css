@@ -286,6 +286,7 @@
 .fi-field input::placeholder, .fi-field textarea::placeholder { color: var(--fi-muted); opacity: .85; font-size: 11px; }
 .fi-field > span:last-child:not(:first-child), .fi-field-help { font-size: 10px; font-weight: 400; color: var(--fi-muted); line-height: 1.6; margin: 0; }
 .fi-field-row { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--margin-md, 16px); }
+.fi-field-row-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .fi-checkbox-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; font-size: 11px; }
 .fi-checkbox-row label { display: flex; align-items: center; gap: 6px; font-weight: 400; }
 .fi-checkbox-row input { accent-color: var(--fi-accent); }
@@ -316,6 +317,14 @@
 .fi-skill-head code { font: 600 11px/1.6 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--fi-text); overflow-wrap: anywhere; }
 .fi-skill-version { color: var(--fi-muted); font-size: 9px; }
 .fi-skill-desc { margin: 6px 0 0; color: var(--fi-muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.fi-skill-title { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.fi-badge-origin { color: var(--fi-accent-text); background: var(--fi-accent-soft); border-color: transparent; }
+.fi-skill-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--fi-border); }
+.fi-skill-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--fi-muted); cursor: pointer; }
+.fi-skill-toggle input { accent-color: var(--fi-accent); }
+.fi-skill-edit > .fi-section-title:first-child { margin-top: 0; }
+.fi-skill-seeded-hint { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--fi-border); border-radius: 8px; background: var(--fi-soft); color: var(--fi-muted); font-size: 10px; line-height: 1.6; }
+.fi-skill-seeded-hint .fi-icon { width: 13px; height: 13px; flex-shrink: 0; margin-top: 1px; }
 .fi-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .fi-chip { border: 1px solid var(--fi-border); background: var(--fi-soft); border-radius: 6px; padding: 4px 9px; font-size: 11px; color: var(--fi-text); overflow-wrap: anywhere; }
 .fi-never-note { display: flex; align-items: flex-start; gap: 8px; margin: 24px 0 0; padding: 11px 13px; border: 1px solid var(--fi-border); border-radius: 8px; background: var(--fi-soft); color: var(--fi-muted); font-size: 10px; line-height: 1.7; }

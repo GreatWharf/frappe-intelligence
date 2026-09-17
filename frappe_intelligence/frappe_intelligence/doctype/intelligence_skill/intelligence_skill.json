@@ -1,0 +1,103 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Skill",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "title",
+      "label": "Title",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "description",
+      "label": "Description",
+      "fieldtype": "Small Text"
+    },
+    {
+      "fieldname": "instructions",
+      "label": "Instructions",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "scope_read",
+      "label": "Scope Read",
+      "fieldtype": "Small Text",
+      "description": "DocTypes this skill may read, one per line. Must stay inside the site's Allowed Read Doctypes."
+    },
+    {
+      "fieldname": "scope_write",
+      "label": "Scope Write",
+      "fieldtype": "Small Text",
+      "description": "Subset of Scope Read that the skill may draft through the approval-gated write tools."
+    },
+    {
+      "fieldname": "enabled",
+      "label": "Enabled",
+      "fieldtype": "Check",
+      "default": "0"
+    },
+    {
+      "fieldname": "shared",
+      "label": "Shared",
+      "fieldtype": "Check",
+      "default": "0"
+    },
+    {
+      "fieldname": "origin",
+      "label": "Origin",
+      "fieldtype": "Select",
+      "options": "Seeded\nLearned",
+      "reqd": 1,
+      "default": "Learned"
+    },
+    {
+      "fieldname": "version",
+      "label": "Version",
+      "fieldtype": "Int",
+      "default": "1"
+    }
+  ],
+  "field_order": [
+    "title",
+    "description",
+    "instructions",
+    "scope_read",
+    "scope_write",
+    "enabled",
+    "shared",
+    "origin",
+    "version"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence User",
+      "read": 1,
+      "create": 1,
+      "write": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1,
+      "delete": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1,
+      "delete": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "title_field": "title"
+}

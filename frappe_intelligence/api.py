@@ -1,5 +1,6 @@
 """Authenticated UI facade. Execution identity and provider secrets are never client inputs."""
 
+import importlib
 import json
 from functools import wraps
 
@@ -275,9 +276,21 @@ def save_provider(
     allowed_roles=None,
     max_tokens=None,
     timeout=None,
+    thinking_effort=None,
 ):
     return provider_service.save_provider(
-        name, title, kind, model, api_key, base_url, is_shared, enabled, allowed_roles, max_tokens, timeout
+        name,
+        title,
+        kind,
+        model,
+        api_key,
+        base_url,
+        is_shared,
+        enabled,
+        allowed_roles,
+        max_tokens,
+        timeout,
+        thinking_effort,
     )
 
 
@@ -296,9 +309,36 @@ def provider_details(name):
 @frappe.whitelist()
 @_safe
 def skills():
-    """Read-only catalog of enabled tools and DocType scopes; no secrets or record data."""
+    """Read-only catalog of enabled tools, DocType scopes and visible skills; no secrets."""
     user = require_user()
     settings = get_settings()
+    from . import engine
     from .tools import skill_scopes
 
-    return skill_scopes(user, settings)
+    result = skill_scopes(user, settings)
+    # Feeds the skill editor: every visible record with full instructions and
+    # scopes, sorted by title. can_edit mirrors the doctype's write rule so the
+    # client can gate its controls; owner identity never leaves the server.
+    # importlib (not a from-import) so a stale package attribute can never bind
+    # a previously loaded copy of the controller in long-lived processes.
+    skill_controller = importlib.import_module(
+        "frappe_intelligence.frappe_intelligence.doctype.intelligence_skill.intelligence_skill"
+    )
+
+    result["learned_skills"] = [
+        {
+            "name": row.name,
+            "title": row.get("title") or "",
+            "description": row.get("description") or "",
+            "instructions": row.get("instructions") or "",
+            "origin": row.get("origin") or "",
+            "enabled": int(row.get("enabled") or 0),
+            "shared": int(row.get("shared") or 0),
+            "version": int(row.get("version") or 0),
+            "can_edit": int(bool(skill_controller.has_permission(row, user=user, ptype="write"))),
+            "scope_read": row.get("scope_read") or "",
+            "scope_write": row.get("scope_write") or "",
+        }
+        for row in sorted(engine.visible_skills(user), key=lambda row: (row.get("title") or "", row.name))
+    ]
+    return result

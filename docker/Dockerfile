@@ -22,6 +22,12 @@
 # Runtime site install/migrate/asset-repair is done separately, once per
 # environment, by docker/site-init.sh. This image never creates, drops or
 # migrates any site by itself, and never touches site credentials.
+#
+# Optionally, and only on explicit operator request (--build-arg
+# WIKI_VERSION=<ref>, step 5 below), the upstream wiki app
+# (github.com/frappe/wiki) is layered in as well, so the assistant's
+# adaptive meta-tools can cover Wiki Page/Wiki Space like any other allowed
+# DocType. The default build stays fully network-free either way.
 # =============================================================================
 
 # Generic rolling v16 tag by default, matching this project's only tested
@@ -98,6 +104,34 @@ print('frappe_intelligence', frappe_intelligence.__version__, '/ pypdf', pypdf._
 # -----------------------------------------------------------------------------
 RUN bench build --app frappe_intelligence \
     && test -r apps/frappe_intelligence/frappe_intelligence/public/js/intelligence.js
+
+# -----------------------------------------------------------------------------
+# 5. OPTIONAL: Wiki app (https://github.com/frappe/wiki) -- off by default.
+#    Everything above keeps this build hermetic: no network fetch of any
+#    kind. Wiki is the one sanctioned exception, and only on explicit
+#    operator request:
+#      docker build --build-arg WIKI_VERSION=<ref> ...
+#    where <ref> is a tag/branch of the upstream repo verified against
+#    https://github.com/frappe/wiki/branches BEFORE the build. The
+#    version-16 line is the candidate matching this image's ERPNext v16
+#    target, but no ref is hardcoded here as an unverified guess. Unlike the
+#    copied frappe_intelligence tree in step 2, this is a real git fetch, so
+#    `bench get-app` -- the tool that cannot work there without a .git dir --
+#    is exactly right here: it clones, pip-installs and records the app in
+#    sites/apps.txt in one native step. --skip-assets defers to the explicit
+#    `bench build --app wiki`, mirroring step 4, so a broken wiki bundle
+#    fails this (opted-in) image build rather than a live deployment. At
+#    deploy time docker/site-init.sh installs wiki onto the site behind its
+#    INSTALL_WIKI gate. Default (unset): a pure log line; the image is
+#    unchanged.
+# -----------------------------------------------------------------------------
+ARG WIKI_VERSION=""
+RUN if [ -n "$WIKI_VERSION" ]; then \
+        bench get-app --branch "$WIKI_VERSION" --skip-assets https://github.com/frappe/wiki.git \
+        && bench build --app wiki; \
+    else \
+        echo "WIKI_VERSION unset: building without the wiki app (pass --build-arg WIKI_VERSION=<verified-v16-ref> to include github.com/frappe/wiki)."; \
+    fi
 
 # Site creation, `install-app` and `migrate` are intentionally NOT done here.
 # Run docker/site-init.sh once per environment, with an explicit SITE_NAME,

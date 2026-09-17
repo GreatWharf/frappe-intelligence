@@ -4,7 +4,7 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const scene = new URLSearchParams(location.search).get('scene') || 'empty';
   const timestamp = '2026-09-16 10:24:00';
-  const providers = [{ name: 'provider-1', title: 'Work account', kind: 'OpenAI', model: 'gpt-4.1', enabled: 1, is_shared: 0, has_api_key: true, can_edit: true }];
+  const providers = [{ name: 'provider-1', title: 'Work account', kind: 'OpenAI', model: 'gpt-4.1', enabled: 1, is_shared: 0, thinking_effort: 'Medium', has_api_key: true, can_edit: true }];
   const conversations = [
     { name: 'chat-1', title: 'Review outstanding sales orders', provider: 'provider-1', modified: timestamp, active_run: scene === 'approval' ? 'run-1' : null, archived: 0 },
     { name: 'chat-2', title: 'A clearer month-end checklist', provider: 'provider-1', modified: '2026-09-15 15:12:00', archived: 0 },
@@ -69,10 +69,22 @@
       }
       case 'rename_conversation': snapshot.conversation.title = args.title; return snapshot.conversation;
       case 'archive_conversation': snapshot.conversation.archived = args.archived; return snapshot.conversation;
+      case 'skills': return {
+        tools: [
+          { name: 'search_records', description: 'Find records you can access.', mutates: false, external: false, version: '1', enabled: 1 },
+          { name: 'create_todo', description: 'Create a private ToDo for yourself.', mutates: true, external: false, version: '2', enabled: 1 }
+        ],
+        scopes: { read: ['Customer', 'ToDo'], write: ['ToDo'] },
+        never_allow: ['User', 'DocType'],
+        learned_skills: [
+          { name: 'skill-month-end-close', title: 'Month-end close helper', description: 'Guides the assistant through the fictional month-end checklist.', instructions: 'Summarize open ToDos before listing overdue invoices.', origin: 'Seeded', enabled: 1, shared: 1, version: 3, can_edit: 1, scope_read: 'ToDo\nSales Invoice', scope_write: 'ToDo' },
+          { name: 'skill-supplier-follow-up', title: 'Supplier follow-up drafts', description: 'Drafts follow-up notes for late suppliers. Nothing is sent.', instructions: 'Draft a short note. Never send anything.', origin: 'Learned', enabled: 0, shared: 0, version: 1, can_edit: 1, scope_read: 'Supplier', scope_write: '' }
+        ]
+      };
       case 'provider_details': return providers.find((row) => row.name === args.name);
       case 'save_provider': {
         let provider = providers.find((row) => row.name === args.name); if (!provider) { provider = { name: 'provider-' + (++sequence) }; providers.push(provider); }
-        Object.assign(provider, { title: args.title, kind: args.kind, model: args.model, base_url: args.base_url, enabled: args.enabled, is_shared: args.is_shared, has_api_key: true, can_edit: true }); return provider;
+        Object.assign(provider, { title: args.title, kind: args.kind, model: args.model, base_url: args.base_url, enabled: args.enabled, is_shared: args.is_shared, thinking_effort: args.thinking_effort || 'Auto', has_api_key: true, can_edit: true }); return provider;
       }
       case 'delete_provider': { const index = providers.findIndex((row) => row.name === args.name); providers.splice(index, 1); return { deleted: true }; }
       case 'list_memories': return memories.filter((row) => row.scope === args.scope && (args.scope !== 'conversation' || row.conversation === args.conversation));

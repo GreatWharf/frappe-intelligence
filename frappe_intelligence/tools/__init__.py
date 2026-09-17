@@ -94,10 +94,10 @@ def _context_settings(context):
 def _assemble(context):
     import frappe
 
-    from . import adaptive, attachments, memory, records, reports
+    from . import adaptive, attachments, memory, records, reports, skills
 
     builtins = {}
-    for module in (records, reports, attachments, memory, adaptive):
+    for module in (records, reports, attachments, memory, adaptive, skills):
         for spec in module.specs(context):
             builtins[spec.name] = spec
     registry = Registry(builtins, frappe.get_roles(context.user))

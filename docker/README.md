@@ -71,6 +71,32 @@ correctly (see the `env/bin/python -c "import frappe_intelligence, pypdf"`
 verification step) or if `bench build --app frappe_intelligence` fails, so a
 broken dependency or frontend bundle is caught at `docker build` time.
 
+### Optional: the wiki app
+
+The image can additionally ship the upstream
+[wiki](https://github.com/frappe/wiki) app, so the assistant's adaptive
+meta-tools cover Wiki Page/Wiki Space like any other allowed DocType on
+sites where it is installed. This is opt-in because it is the one build
+step that fetches over the network:
+
+```sh
+docker build -f docker/Dockerfile \
+  --build-arg ERPNEXT_VERSION=v16.34.2 \
+  --build-arg WIKI_VERSION=<ref> \
+  -t frappe-intelligence:v16.34.2 .
+```
+
+`<ref>` must be a tag/branch of the upstream repo verified against
+<https://github.com/frappe/wiki/branches> **before** the build -- the
+`version-16` line is the candidate matching this image's ERPNext v16
+target, but no ref is hardcoded in the Dockerfile as an unverified guess.
+When `WIKI_VERSION` is unset (the default) the build is byte-for-byte the
+hermetic, network-free image described above; the gate is a pure log line
+and no layer changes. When it is set, a wiki fetch, install or asset-build
+failure fails the image build, because opting in is explicit. At deploy
+time `site-init.sh` installs wiki onto the site behind its `INSTALL_WIKI`
+gate (table below).
+
 ## Runtime site initialization
 
 Run once per environment, against **one** site, after the `sites` volume and
@@ -125,6 +151,9 @@ services:
       # Optional, off by default:
       # INTELLIGENCE_ALLOW_TESTS: "1"
       # INTELLIGENCE_RUN_TESTS: "1"
+      # Set to "0" to skip installing the wiki app onto the site when the
+      # image was built with WIKI_VERSION (default installs it):
+      # INSTALL_WIKI: "0"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
     depends_on:
@@ -146,6 +175,7 @@ services:
 | `SITE_NAME` | Yes | Exactly one site. Never `"all"`; the script refuses that value, and fails (after a bounded wait) if the site's `sites/<site>/site_config.json` never appears. |
 | `INTELLIGENCE_ALLOW_TESTS` | No | Only the exact value `"1"` turns the site's `allow_tests` config flag **on**. Any other value (including unset) leaves the site's existing `allow_tests` setting untouched in both directions. |
 | `INTELLIGENCE_RUN_TESTS` | No | Only the exact value `"1"`, together with `INTELLIGENCE_ALLOW_TESTS=1`, runs `bench run-tests --app frappe_intelligence --module frappe_intelligence.tests.test_integration` (the same real-Frappe suite documented in [`docs/verification.md`](../docs/verification.md)). Requesting this without also enabling `allow_tests` fails fast. |
+| `INSTALL_WIKI` | No | Default `"1"`. When the image ships the wiki app (built with `WIKI_VERSION`, see above) and the site does not have it yet, the script runs `bench --site $SITE_NAME install-app wiki`. Any value other than `"1"` skips the install. A wiki install failure is logged and **never** fails the run. |
 | `INTELLIGENCE_INIT_RESULT_PATH` | No | Default `<bench>/sites/intelligence-staging-result.json`. Overwritten atomically on every run. |
 | `INTELLIGENCE_SITE_WAIT_TIMEOUT` | No | Bound in seconds on the wait-for-site poll (default `780`, i.e. 13 minutes). On timeout the run logs a clear error and exits non-zero; the site is never created by this script. |
 | `INTELLIGENCE_SITE_WAIT_INTERVAL` | No | Seconds between readiness polls (default `5`). |
@@ -165,19 +195,25 @@ services:
    fails closed otherwise. This deployment only tests ERPNext v16.
 4. Installs `frappe_intelligence` with `bench install-app` only if it is not
    already present, then runs `bench migrate`. Both are safe to repeat.
-5. Enables `allow_tests` only when explicitly requested (see table above).
-6. Optionally runs the real integration suite, only when explicitly
+5. Installs the **wiki** app with `bench install-app wiki` only when all of
+   these hold: the image ships it under `apps/` (built with `WIKI_VERSION`),
+   the site does not have it yet, and `INSTALL_WIKI` is exactly `"1"` (the
+   default). A wiki install failure is logged and never fails the run --
+   frappe_intelligence stays green without wiki.
+6. Enables `allow_tests` only when explicitly requested (see table above).
+7. Optionally runs the real integration suite, only when explicitly
    requested, and only if `allow_tests` was actually turned on this run.
-7. Writes a **safe** JSON result file: timestamp, site name, app name/
-   version, detected Frappe/ERPNext major versions, whether the app was
-   already installed, migration/asset-build status, and the tests'
-   requested/ran/exit-code/status fields. It never contains a credential,
-   database config, or any record/customer content.
 8. Restores `sites/assets/frappe_intelligence` if the mounted `sites` volume
    hides it (symlinking from an image-side cache baked in step 4 of the
    Dockerfile when present), then always runs a real
    `bench build --app frappe_intelligence` to refresh the asset manifest,
    and exits non-zero if that build fails.
+9. Writes a **safe** JSON result file: timestamp, site name, app name/
+   version, detected Frappe/ERPNext major versions, whether the app was
+   already installed, migration/asset-build status, the wiki
+   present/install-attempted/installed fields, and the tests'
+   requested/ran/exit-code/status fields. It never contains a credential,
+   database config, or any record/customer content.
 
 ### Caveats
 

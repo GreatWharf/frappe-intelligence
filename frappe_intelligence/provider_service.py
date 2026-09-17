@@ -7,11 +7,13 @@ import frappe
 from .access import can_use_provider, get_settings, internal_write, require_manager, require_user
 
 KINDS = frozenset({"OpenAI", "Anthropic", "Gemini", "OpenRouter", "xAI", "Custom"})
+EFFORTS = ("Auto", "Low", "Medium", "High", "Max")
 PUBLIC_FIELDS = (
     "name",
     "title",
     "kind",
     "model",
+    "thinking_effort",
     "base_url",
     "is_shared",
     "enabled",
@@ -85,6 +87,7 @@ def save_provider(
     allowed_roles=None,
     max_tokens=None,
     timeout=None,
+    thinking_effort=None,
 ):
     user = require_user()
     doc = (
@@ -106,6 +109,12 @@ def save_provider(
         max_tokens = (doc.get("max_tokens") or 4096) if name else 4096
     if timeout is None:
         timeout = (doc.get("timeout") or 60) if name else 60
+    if thinking_effort is None:
+        thinking_effort = (doc.get("thinking_effort") or "Auto") if name else "Auto"
+    if thinking_effort == "":
+        thinking_effort = "Auto"
+    if thinking_effort not in EFFORTS:
+        frappe.throw("Select a supported thinking effort.")
     title = _text(title, "provider title", 140)
     model = _text(model, "model ID", 140)
     if kind not in KINDS:
@@ -159,6 +168,7 @@ def save_provider(
         "title": title,
         "kind": kind,
         "model": model,
+        "thinking_effort": thinking_effort,
         "base_url": base_url,
         "is_shared": shared,
         "enabled": enabled,

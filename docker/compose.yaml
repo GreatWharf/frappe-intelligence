@@ -16,6 +16,9 @@
 #     apps/frappe_intelligence/frappe_intelligence/public -- the same target
 #     Frappe uses natively, resolvable identically in every container --
 #     before handing off to the stock nginx-entrypoint.sh.
+#   * Wiki is opt-in: images built with --build-arg WIKI_VERSION=<ref> ship
+#     the wiki app under apps/, and intelligence-init then installs it onto
+#     the site unless INSTALL_WIKI is set to "0" (see docker/site-init.sh).
 #
 # Required environment (compose .env or Dokploy env):
 #   SITE_NAME          the one site this stack serves (and creates, when
@@ -26,6 +29,8 @@
 #                      anything else makes create-site a fast no-op success
 #   ADMIN_PASSWORD     initial Administrator password (CREATE_SITE=1 only)
 #   INTELLIGENCE_IMAGE image reference; default frappe-intelligence:v16.34.2
+#   INSTALL_WIKI       "0" skips installing the wiki app when the image ships
+#                      it; unset (default) installs it
 #
 # `required: false` on depends_on needs docker compose v2.20.2 or newer.
 # =============================================================================
@@ -143,6 +148,9 @@ services:
       # Optional, off by default:
       # INTELLIGENCE_ALLOW_TESTS: "1"
       # INTELLIGENCE_RUN_TESTS: "1"
+      # Set to "0" to skip installing the wiki app onto the site when the
+      # image was built with WIKI_VERSION (default installs it):
+      # INSTALL_WIKI: "0"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs

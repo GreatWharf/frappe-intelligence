@@ -16,6 +16,8 @@ _ENDPOINTS = {
 }
 # The wire contract is lowercase; the DocType Select labels normalize to these at the engine boundary.
 KINDS = frozenset({*_ENDPOINTS, "custom"})
+# Thinking-effort mapping for the OpenAI-compatible wires; Max degrades to high.
+_EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high"}
 _NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _CALL_ID = re.compile(r"[A-Za-z0-9_.:-]{1,256}\Z")
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}\Z")
@@ -65,6 +67,7 @@ def _configuration(config):
         or type(config.timeout) is not int
         or not 1 <= config.timeout <= MAX_TIMEOUT
         or not isinstance(config.base_url, str)
+        or not isinstance(config.effort, str)
     ):
         raise _config_error()
     if config.kind == "custom":
@@ -203,6 +206,12 @@ def _openai_request(config, messages, tools):
         sent.append(item)
     token_parameter = "max_completion_tokens" if config.kind == "openai" else "max_tokens"
     payload = {"model": config.model, "messages": sent, "stream": False, token_parameter: config.max_tokens}
+    # Reasoning effort rides only the OpenAI-compatible wires; Anthropic, Gemini,
+    # OpenRouter and xAI requests ignore thinking effort for now.
+    if config.kind in ("openai", "custom"):
+        effort = _EFFORT.get(config.effort.lower())
+        if effort:
+            payload["reasoning_effort"] = effort
     if tools:
         payload["tools"] = [{"type": "function", "function": function} for function in tools]
     return {"Authorization": f"Bearer {config.api_key}"}, payload

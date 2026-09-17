@@ -335,7 +335,9 @@ def post_json(*, url, headers, payload, timeout, allowed_hosts):
     response = None
     expired = threading.Event()
     try:
-        # A single attempt avoids replaying a request whose server-side result is unknown.
+        # One attempt per transport call avoids replaying a request whose
+        # server-side result is unknown; bounded retries of transient failures
+        # are the caller's decision (see engine._complete_with_retry).
         connection = _PinnedHTTPSConnection(endpoint.host, endpoint.port, addresses[0], deadline)
         connection.connect()
         active_socket = connection.sock

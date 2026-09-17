@@ -43,6 +43,27 @@ def _code_only(text):
     return "\n".join(line for line in text.splitlines() if not line.strip().startswith("#"))
 
 
+def _dockerfile_run_instructions(dockerfile_code):
+    """Return each RUN instruction as one string, continuations included.
+
+    Expects comment-stripped text; a RUN continues while the previous line
+    ends with a backslash.
+    """
+    instructions = []
+    current = None
+    for line in dockerfile_code.splitlines():
+        if line.strip().startswith("RUN "):
+            assert current is None, "RUN line inside an unterminated RUN continuation"
+            current = line
+        elif current is not None:
+            current += "\n" + line
+        if current is not None and not line.rstrip().endswith("\\"):
+            instructions.append(current)
+            current = None
+    assert current is None, "unterminated RUN continuation"
+    return instructions
+
+
 @pytest.fixture(scope="module")
 def dockerfile_text():
     return DOCKERFILE.read_text()
@@ -147,9 +168,14 @@ def test_erpnext_version_is_an_arg_defaulting_to_a_v16_tag(dockerfile_text):
 
 
 def test_no_fake_or_hardcoded_get_app_repo_url_in_build_commands(dockerfile_code):
-    run_lines = [line for line in dockerfile_code.splitlines() if line.strip().startswith("RUN")]
-    assert run_lines, "expected RUN instructions registering the app"
-    body = "\n".join(run_lines)
+    instructions = _dockerfile_run_instructions(dockerfile_code)
+    assert instructions, "expected RUN instructions registering the app"
+    # The WIKI_VERSION gate is the single sanctioned exception: an explicit,
+    # operator-opted-in fetch of the upstream frappe/wiki app pinned to a
+    # caller-supplied ref (see the wiki tests below). Everything outside that
+    # gate still performs no network fetch of any kind -- and continuations
+    # are checked too, so a URL cannot hide on a wrapped line.
+    body = "\n".join(i for i in instructions if "WIKI_VERSION" not in i)
     # The real app source is the local build context, not a git fetch:
     # no remote URL is ever fetched or executed during the image build.
     for forbidden in ("http://", "https://", "git@", "example.com"):
@@ -157,6 +183,9 @@ def test_no_fake_or_hardcoded_get_app_repo_url_in_build_commands(dockerfile_code
     # `bench get-app --soft-link` requires a git checkout and fails against
     # the plain copied tree; registration must be direct instead.
     assert "bench get-app" not in body
+    # frappe_intelligence itself is still registered straight from the build
+    # context, editable, never fetched.
+    assert "pip install --quiet --editable apps/frappe_intelligence" in body
 
 
 def test_app_is_installed_editable_under_apps_directory(dockerfile_text):
@@ -231,6 +260,45 @@ def test_dockerfile_has_no_secret_looking_flags(dockerfile_code):
 def test_site_init_script_is_copied_into_the_image(dockerfile_text):
     assert "site-init.sh" in dockerfile_text
     assert "chmod" in dockerfile_text
+
+
+def test_wiki_app_is_opt_in_via_build_arg_and_off_by_default(dockerfile_text, dockerfile_code):
+    # Default builds stay byte-for-byte the hermetic, network-free image
+    # documented at the top of the Dockerfile: the wiki gate only fires when
+    # the operator explicitly passes --build-arg WIKI_VERSION=<ref>.
+    match = re.search(r"^ARG\s+WIKI_VERSION=(\S*)$", dockerfile_text, re.MULTILINE)
+    assert match, "WIKI_VERSION must be a build ARG"
+    assert match.group(1) in ('""', "''"), "WIKI_VERSION must default to empty (wiki off)"
+    assert 'if [ -n "$WIKI_VERSION" ]' in dockerfile_code
+    gate = dockerfile_code.split('if [ -n "$WIKI_VERSION" ]', 1)[1]
+    # Both branches exist: a fetch+install when set, a pure log no-op when
+    # not, so an unset WIKI_VERSION changes nothing about the image.
+    assert "else" in gate
+    assert "fi" in gate
+    else_branch = gate.split("else", 1)[1].split("fi", 1)[0]
+    assert "echo" in else_branch
+    assert "bench" not in else_branch
+
+
+def test_wiki_fetch_targets_the_real_upstream_repo_pinned_to_the_arg(dockerfile_text, dockerfile_code):
+    instructions = _dockerfile_run_instructions(dockerfile_code)
+    wiki = [i for i in instructions if "WIKI_VERSION" in i]
+    assert len(wiki) == 1, "expected exactly one WIKI_VERSION-gated RUN step"
+    body = wiki[0]
+    # A real clone (with .git) is exactly what `bench get-app` exists for --
+    # unlike the copied frappe_intelligence tree, which has no git metadata.
+    assert "bench get-app" in body
+    assert "--branch" in body
+    assert '"$WIKI_VERSION"' in body
+    # The only remote URL anywhere in the build is the genuine upstream one.
+    assert body.count("https://") == 1
+    assert "https://github.com/frappe/wiki.git" in body
+    # Wiki's assets are built too, so a broken wiki bundle fails the opted-in
+    # image build rather than a live deployment (same rule as step 4).
+    assert "bench build --app wiki" in body
+    # The pin is operator-supplied; the Dockerfile must point maintainers at
+    # verifying the ref against upstream, not hardcode a guessed one.
+    assert "github.com/frappe/wiki" in dockerfile_text
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +569,153 @@ def test_link_app_assets_establishes_a_working_link_whatever_occupies_the_target
     assert not (target / "leftover.txt").exists(), "stale contents must not survive"
 
 
+def test_site_init_defines_a_self_contained_wiki_install_step(site_init_text, site_init_code):
+    assert 'WIKI_APP_NAME="wiki"' in site_init_code
+    function_src = _extract_site_init_function(site_init_text, "maybe_install_wiki")
+    function_code = _code_only(function_src)
+    # Presence is probed on the filesystem (apps/), install state on the
+    # site's own list-apps output.
+    assert '[ ! -d "$BENCH_DIR/apps/$WIKI_APP_NAME" ]' in function_code
+    assert "list_apps_output" in function_code
+    assert 'grep -qx "$WIKI_APP_NAME"' in function_code
+    assert 'run_bench --site "$SITE_NAME" install-app "$WIKI_APP_NAME"' in function_code
+    # Gated: default 1 when the app is present, and fail closed -- only an
+    # exact "1" installs, so a typo never mutates the site by accident.
+    assert "INSTALL_WIKI:-1" in function_code
+    assert '"$install_wiki" != "1"' in function_code
+    # A wiki failure must NEVER fail site-init: no fail(), no exit, and the
+    # function always returns 0 by contract.
+    assert "fail " not in function_code
+    assert "exit " not in function_code
+    assert "return 0" in function_code
+
+
+def test_wiki_install_runs_after_migrate_and_before_the_result_file(site_init_code):
+    call = re.search(r"^maybe_install_wiki\s*$", site_init_code, re.M)
+    assert call, "maybe_install_wiki must be invoked at top level"
+    migrate_at = site_init_code.index('run_bench --site "$SITE_NAME" migrate')
+    result_at = site_init_code.index("INTELLIGENCE_RESULT_TIMESTAMP")
+    assert migrate_at < call.start() < result_at
+
+
+def test_result_file_reports_wiki_status_without_secrets(site_init_code):
+    for var in ("WIKI_PRESENT", "WIKI_INSTALL_ATTEMPTED", "WIKI_INSTALLED"):
+        assert f"INTELLIGENCE_RESULT_{var}" in site_init_code
+    assert '"wiki"' in site_init_code
+
+
+def _maybe_install_wiki_harness(
+    tmp_path, site_init_text, *, wiki_in_apps, wiki_on_site, install_wiki, install_ok
+):
+    """A runnable harness around the real maybe_install_wiki() with a stub bench.
+
+    The stub logs every invocation to CALLS_LOG, answers `list-apps` with the
+    core apps plus wiki when wiki_on_site is set, and makes `install-app`
+    succeed or fail per install_ok -- so the gate, the skip paths and the
+    failure path are all exercised for real, with no Frappe install involved.
+    """
+    bench = tmp_path / "frappe-bench"
+    (bench / "sites").mkdir(parents=True)
+    if wiki_in_apps:
+        (bench / "apps" / "wiki").mkdir(parents=True)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    calls = tmp_path / "bench-calls.log"
+    bench_stub = stub_bin / "bench"
+    bench_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$CALLS_LOG"\n'
+        'args=""\n'
+        'while [ "$#" -gt 0 ]; do\n'
+        '    case "$1" in\n'
+        "        --site) shift 2 ;;\n"
+        '        *) args="$args $1"; shift ;;\n'
+        "    esac\n"
+        "done\n"
+        'case "$args" in\n'
+        '    " list-apps") printf "frappe\\nerpnext\\nfrappe_intelligence\\n%s" "$EXTRA_APPS" ;;\n'
+        '    *install-app*) [ "$INSTALL_OK" = "1" ] || exit 1 ;;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    bench_stub.chmod(0o755)
+    function_src = _extract_site_init_function(site_init_text, "maybe_install_wiki")
+    extra_apps = "wiki\n" if wiki_on_site else ""
+    gate_line = "unset INSTALL_WIKI\n" if install_wiki is None else f'INSTALL_WIKI="{install_wiki}"\n'
+    script = (
+        "set -u\n"
+        f'PATH="{stub_bin}:$PATH"\n'
+        f'export CALLS_LOG="{calls}"\n'
+        f'export EXTRA_APPS="{extra_apps}"\n'
+        f'export INSTALL_OK="{"1" if install_ok else "0"}"\n'
+        f'export BENCH_DIR="{bench}"\n'
+        'SITE_NAME="erp.test"\n'
+        'APP_NAME="frappe_intelligence"\n'
+        'WIKI_APP_NAME="wiki"\n'
+        f"{gate_line}"
+        "log() { printf '[site-init] %s\\n' \"$*\" >&2; }\n"
+        'run_bench() { (cd "$BENCH_DIR" && bench "$@" </dev/null); }\n'
+        'list_apps_output="$(run_bench --site "$SITE_NAME" list-apps 2>&1)"\n'
+        f"{function_src}\n"
+        "maybe_install_wiki\n"
+        'printf "WIKI_STATE present=%s attempted=%s installed=%s\\n" '
+        '"$wiki_present" "$wiki_install_attempted" "$wiki_installed"\n'
+    )
+    return script, calls
+
+
+def test_wiki_install_attempted_when_present_in_apps_and_missing_on_site(tmp_path, site_init_text):
+    script, calls = _maybe_install_wiki_harness(
+        tmp_path, site_init_text, wiki_in_apps=True, wiki_on_site=False, install_wiki=None, install_ok=True
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert "install-app wiki" in calls.read_text()
+    assert "WIKI_STATE present=1 attempted=1 installed=1" in done.stdout
+
+
+def test_wiki_install_failure_is_logged_and_site_init_stays_green(tmp_path, site_init_text):
+    script, calls = _maybe_install_wiki_harness(
+        tmp_path, site_init_text, wiki_in_apps=True, wiki_on_site=False, install_wiki=None, install_ok=False
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert "install-app wiki" in calls.read_text()
+    assert "WIKI_STATE present=1 attempted=1 installed=0" in done.stdout
+    assert "warning" in done.stderr.lower()
+    assert "wiki" in done.stderr
+
+
+def test_no_wiki_install_attempt_when_app_absent_from_apps(tmp_path, site_init_text):
+    script, calls = _maybe_install_wiki_harness(
+        tmp_path, site_init_text, wiki_in_apps=False, wiki_on_site=False, install_wiki=None, install_ok=True
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert "install-app wiki" not in calls.read_text()
+    assert "WIKI_STATE present=0 attempted=0 installed=0" in done.stdout
+
+
+def test_install_wiki_zero_skips_install_even_when_present(tmp_path, site_init_text):
+    script, calls = _maybe_install_wiki_harness(
+        tmp_path, site_init_text, wiki_in_apps=True, wiki_on_site=False, install_wiki="0", install_ok=True
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert "install-app wiki" not in calls.read_text()
+    assert "WIKI_STATE present=1 attempted=0 installed=0" in done.stdout
+
+
+def test_wiki_already_installed_on_site_is_not_reinstalled(tmp_path, site_init_text):
+    script, calls = _maybe_install_wiki_harness(
+        tmp_path, site_init_text, wiki_in_apps=True, wiki_on_site=True, install_wiki=None, install_ok=True
+    )
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert "install-app wiki" not in calls.read_text()
+    assert "WIKI_STATE present=1 attempted=0 installed=1" in done.stdout
+
+
 def test_script_exits_nonzero_when_requested_tests_fail(site_init_text, site_init_code):
     assert "did not pass" in site_init_text
     assert "exit 0" in site_init_code
@@ -564,6 +779,14 @@ def test_create_site_is_gated_by_create_site_env(compose_text):
     block = _compose_service_block(compose_text, "create-site")
     assert '"$$CREATE_SITE" = "1"' in block
     assert "CREATE_SITE:-" in block
+
+
+def test_intelligence_init_documents_the_install_wiki_flag(compose_text):
+    block = _compose_service_block(compose_text, "intelligence-init")
+    assert "INSTALL_WIKI" in block
+    # Shipped as a commented opt-out example only, so the flag's script-side
+    # default ("1") stays the effective behavior of the template.
+    assert re.search(r'#\s*INSTALL_WIKI:\s*"0"', block)
 
 
 def test_frontend_relinks_app_assets_before_exec_nginx(compose_text):
@@ -670,7 +893,15 @@ def test_docker_readme_exists_and_documents_env_vars():
         "INTELLIGENCE_ALLOW_TESTS",
         "INTELLIGENCE_RUN_TESTS",
         "INTELLIGENCE_INIT_RESULT_PATH",
+        "INSTALL_WIKI",
     ):
         assert var in text
     # Discussing why quay.io is avoided is fine; actually pointing at one isn't.
     assert "quay.io/frappe" not in text
+
+
+def test_docker_readme_documents_the_wiki_gate():
+    text = (DOCKER_DIR / "README.md").read_text()
+    assert "INSTALL_WIKI" in text
+    assert "WIKI_VERSION" in text
+    assert "github.com/frappe/wiki" in text

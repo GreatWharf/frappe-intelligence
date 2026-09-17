@@ -20,13 +20,13 @@ The model sees only enabled, reviewed tool schemas. It cannot choose a Python fu
 Four generic tools cover any configured DocType, so new business objects do not need new Python:
 
 - `list_doctypes`: DocTypes the current user may read under the configured allow-list. Names and modules only; no record data.
-- `describe_doctype`: one allowed DocType's permitted scalar fields, labels, required flags, Link/Select options and read-only child-table shapes. Never credentials or hidden fields.
-- `create_document`: one draft document in a write-scoped DocType from flat scalar `fields` (an array of `{field, value}` pairs). No child rows, no submission. Native validation and permissions apply, and the permission plan is re-derived at execution.
-- `update_document`: flat scalar `changes` to one existing write-scoped draft document with its exact `modified` timestamp as an optimistic lock. No child rows, no submission.
+- `describe_doctype`: one allowed DocType's permitted scalar fields, labels, required flags, Link/Select options and child-table shapes. Never credentials or hidden fields.
+- `create_document`: one draft document in a write-scoped DocType from scalar `fields` (an array of `{field, value}` pairs) plus optional `children` (child-table rows in the same pair shape, bounded per table and per payload). Native validation and permissions apply, and the permission plan is re-derived at execution.
+- `update_document`: scalar `changes` to one existing write-scoped draft document with its exact `modified` timestamp as an optimistic lock. No child rows.
 
-Both writes are approval-gated like every other mutation. DocTypes eligible for writes come from the `allowed_write_doctypes` setting, which must be a subset of `allowed_read_doctypes` and defaults to blank (fail closed). Some DocTypes are never writable regardless of settings: blocked internal types, ledger/payment/journal/stock posting, workflow and assignment rules, and any submittable DocType. These appear in the `never_allow` list returned by the skills endpoint.
+Both writes are approval-gated like every other mutation. DocTypes eligible for writes come from the `allowed_write_doctypes` setting, which must be a subset of `allowed_read_doctypes` and defaults to blank (fail closed). Submittable DocTypes in the write scope can be created and edited as drafts only: `docstatus` is never a writable field and submitted documents are frozen, so a human always reviews and submits in Desk. Some DocTypes are never writable regardless of settings: blocked internal types, ledger/payment/journal/stock posting, and workflow and assignment rules. These appear in the `never_allow` list returned by the skills endpoint.
 
-Choose adaptive tools when the task is ordinary record inspection or draft data entry on an allowed DocType. Choose a reviewed app extension (below) when the action needs business semantics the meta-tools deliberately refuse: submission, posting, child-table writes, linked-record side effects or external calls.
+Choose adaptive tools when the task is ordinary record inspection or draft data entry on an allowed DocType, including drafting invoices with item rows for review. Choose a reviewed app extension (below) when the action needs business semantics the meta-tools deliberately refuse: submission, posting, child-table edits on existing documents, linked-record side effects or external calls.
 
 Email can be drafted in chat and permitted Communication records can be read, but no send-email tool exists. Commerce records can be inspected when allowed; refunds, fulfillment, stock moves, financial posting and automatic reconciliation are not exposed.
 

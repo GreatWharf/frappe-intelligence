@@ -21,6 +21,8 @@ class ProviderConfig:
     max_tokens: int = 4096
     timeout: int = 60
     allowed_hosts: tuple = ()
+    # DocType Thinking Effort label (Low/Medium/High/Max); "" means Auto.
+    effort: str = ""
 
 
 @dataclass
