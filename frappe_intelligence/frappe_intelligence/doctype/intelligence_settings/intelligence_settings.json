@@ -18,6 +18,12 @@
       "fieldtype": "Small Text"
     },
     {
+      "fieldname": "allowed_write_doctypes",
+      "label": "Allowed Write Doctypes",
+      "fieldtype": "Small Text",
+      "description": "Subset of Allowed Read Doctypes that create_document/update_document may target. Blank means no DocType is writable. Ledger, workflow and submittable DocTypes are never writable."
+    },
+    {
       "fieldname": "allowed_reports",
       "label": "Allowed Reports",
       "fieldtype": "Small Text"
@@ -78,6 +84,7 @@
   "field_order": [
     "enabled",
     "allowed_read_doctypes",
+    "allowed_write_doctypes",
     "allowed_reports",
     "enabled_tools",
     "allowed_custom_hosts",

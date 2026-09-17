@@ -283,6 +283,7 @@ def env(monkeypatch):
     monkeypatch.setitem(sys.modules, "frappe_intelligence.tools", toolmod)
     provider = types.ModuleType("frappe_intelligence.providers")
     provider.ProviderConfig = lambda **kwargs: Record(kwargs)
+    provider.KINDS = frozenset({"openai", "anthropic", "gemini", "openrouter", "xai", "custom"})
 
     class ProviderError(Exception):
         pass

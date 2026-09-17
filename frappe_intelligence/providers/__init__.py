@@ -5,7 +5,7 @@ are non-streaming; tool proposals are returned to the approval engine and never
 executed here. Persist ToolCall.metadata privately for Gemini continuations.
 """
 
-from .adapters import complete
+from .adapters import KINDS, complete
 from .types import ProviderConfig, ProviderError, Reply, ToolCall
 
-__all__ = ["ProviderConfig", "ProviderError", "Reply", "ToolCall", "complete"]
+__all__ = ["KINDS", "ProviderConfig", "ProviderError", "Reply", "ToolCall", "complete"]

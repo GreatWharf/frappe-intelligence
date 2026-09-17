@@ -1,6 +1,6 @@
 {
   "name": "frappe-intelligence-frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Development-only DOM tests and explicitly mocked preview for the dependency-free Frappe Desk client",
   "scripts": {
@@ -8,7 +8,7 @@
     "test:dom": "FI_REAL_DOM=1 node --test tests/js/*.test.js",
     "test:browser": "node tests/js/browser.cjs && node tests/js/native-ui.cjs",
     "preview": "node dev/preview-server.cjs",
-    "check": "node --check frappe_intelligence/public/js/intelligence.js && node --check frappe_intelligence/frappe_intelligence/page/intelligence-chat/intelligence-chat.js"
+    "check": "node --check frappe_intelligence/public/js/intelligence.js && node --check frappe_intelligence/frappe_intelligence/page/intelligence_chat/intelligence_chat.js"
   },
   "devDependencies": {
     "jsdom": "26.1.0",

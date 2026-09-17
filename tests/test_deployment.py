@@ -26,6 +26,7 @@ import pytest
 DOCKER_DIR = Path(__file__).resolve().parent.parent / "docker"
 DOCKERFILE = DOCKER_DIR / "Dockerfile"
 SITE_INIT = DOCKER_DIR / "site-init.sh"
+COMPOSE = DOCKER_DIR / "compose.yaml"
 HOOKS = Path(__file__).resolve().parent.parent / "frappe_intelligence" / "hooks.py"
 
 FORBIDDEN_SECRET_FLAGS = (
@@ -60,6 +61,47 @@ def site_init_text():
 @pytest.fixture(scope="module")
 def site_init_code(site_init_text):
     return _code_only(site_init_text)
+
+
+@pytest.fixture(scope="module")
+def compose_text():
+    return COMPOSE.read_text()
+
+
+def _extract_site_init_function(site_init_text, name):
+    """Pull one top-level bash function out of site-init.sh, verbatim."""
+    match = re.search(rf"^{re.escape(name)}\(\)\s*\{{.*?^\}}", site_init_text, re.S | re.M)
+    assert match, f"site-init.sh must define {name}()"
+    return match.group(0)
+
+
+def _compose_service_block(compose_text, service):
+    """Slice one service's definition out of the compose template by indent.
+
+    The offline test venv has no PyYAML; the shipped template keeps a fixed
+    two-space service indent, so a structural slice is precise enough.
+    """
+    match = re.search(rf"^  {re.escape(service)}:\n(.*?)(?=^\S|^  \S|\Z)", compose_text, re.S | re.M)
+    assert match, f"compose.yaml must define a {service!r} service"
+    return match.group(1)
+
+
+def _compose_depends_entry(service_block, dependency):
+    """Slice one depends_on entry (its condition/required lines) out of a service block."""
+    depends = re.search(r"^    depends_on:\n(.*?)(?=^    \S|\Z)", service_block, re.S | re.M)
+    assert depends, "service must declare depends_on"
+    entry = re.search(
+        rf"^      {re.escape(dependency)}:\n(.*?)(?=^      \S|\Z)", depends.group(1), re.S | re.M
+    )
+    assert entry, f"depends_on must include {dependency!r}"
+    return entry.group(1)
+
+
+def _frontend_command_lines(frontend_block):
+    """Extract the frontend's literal (`|`) command block scalar, dedented."""
+    match = re.search(r"^    command: \|\n((?:^      .*\n?)+)", frontend_block, re.M)
+    assert match, "frontend must override command with a literal (|) block"
+    return [line[6:] for line in match.group(1).splitlines()]
 
 
 @pytest.fixture(scope="module")
@@ -219,6 +261,96 @@ def test_site_init_never_creates_or_drops_a_site(site_init_code, site_init_text)
         assert forbidden not in site_init_code, f"site-init.sh must not run {forbidden!r}"
     assert "does not exist" in site_init_text
     assert "never creates a site" in site_init_text
+
+
+def test_site_init_waits_for_the_site_before_its_asset_and_result_steps(site_init_text, site_init_code):
+    # Fresh-deploy ordering: when this job starts ahead of create-site, an
+    # immediate "site must exist" guard fires before the site exists and the
+    # init exits 1. A bounded wait-for-site guard must run first instead.
+    function_src = _extract_site_init_function(site_init_text, "wait_for_site")
+    function_code = _code_only(function_src)
+    # Readiness is probed with a plain native bench subcommand -- never with
+    # anything that depends on frappe_intelligence already being installed.
+    assert 'run_bench --site "$SITE_NAME" list-apps' in function_src
+    assert "APP_NAME" not in function_code
+    assert "frappe_intelligence" not in function_code
+    # Bounded at <= 15 minutes by default, so a wedged create-site cannot
+    # park the init job forever.
+    default = re.search(r"INTELLIGENCE_SITE_WAIT_TIMEOUT:-(\d+)", site_init_code)
+    assert default, "INTELLIGENCE_SITE_WAIT_TIMEOUT must have a default"
+    assert 0 < int(default.group(1)) <= 900
+    # A clear log line and a non-zero exit on timeout (fail() exits 1).
+    assert "if ! wait_for_site; then" in site_init_code
+    timeout_branch = site_init_code.split("if ! wait_for_site; then", 1)[1]
+    assert 'fail "' in timeout_branch
+    assert "was not ready" in timeout_branch
+    # The guard runs before the asset build and before the result file.
+    guard_at = site_init_code.index("if ! wait_for_site; then")
+    assert guard_at < site_init_code.index('run_bench build --app "$APP_NAME"')
+    assert guard_at < site_init_code.index("INTELLIGENCE_RESULT_TIMESTAMP")
+
+
+def _wait_for_site_harness(tmp_path, site_init_text, *, timeout, interval):
+    """A runnable harness around the real wait_for_site() with a stub bench.
+
+    The stub's readiness rule: `bench --site <s> list-apps` succeeds iff
+    sites/<s>/site_config.json exists -- so the poll loop is exercised for
+    real, with no Frappe install involved.
+    """
+    bench = tmp_path / "frappe-bench"
+    (bench / "sites").mkdir(parents=True)
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    bench_stub = stub_bin / "bench"
+    bench_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'site=""\n'
+        'while [ "$#" -gt 0 ]; do\n'
+        '    case "$1" in\n'
+        '        --site) site="$2"; shift 2 ;;\n'
+        "        *) shift ;;\n"
+        "    esac\n"
+        "done\n"
+        'if [ -n "$site" ] && [ -f "$BENCH_DIR/sites/$site/site_config.json" ]; then\n'
+        '    printf "frappe\\nerpnext\\n"\n'
+        "    exit 0\n"
+        "fi\n"
+        "exit 1\n"
+    )
+    bench_stub.chmod(0o755)
+    function_src = _extract_site_init_function(site_init_text, "wait_for_site")
+    script = (
+        "set -u\n"
+        f'PATH="{stub_bin}:$PATH"\n'
+        f'export BENCH_DIR="{bench}"\n'
+        'SITE_NAME="erp.test"\n'
+        'SITE_CONFIG="$BENCH_DIR/sites/$SITE_NAME/site_config.json"\n'
+        f'SITE_WAIT_TIMEOUT="{timeout}"\n'
+        f'SITE_WAIT_INTERVAL="{interval}"\n'
+        "log() { printf '[site-init] %s\\n' \"$*\" >&2; }\n"
+        'run_bench() { (cd "$BENCH_DIR" && bench "$@" </dev/null); }\n'
+        f"{function_src}\n"
+        "wait_for_site\n"
+    )
+    return script, bench
+
+
+def test_wait_for_site_returns_as_soon_as_the_site_appears(tmp_path, site_init_text):
+    # Fresh-deploy race: create-site is still running when this job starts.
+    # The guard must poll, not fail, and return once the site is ready.
+    script, bench = _wait_for_site_harness(tmp_path, site_init_text, timeout=15, interval=1)
+    site_dir = bench / "sites" / "erp.test"
+    creator = f"(sleep 2; mkdir -p '{site_dir}'; printf '{{}}\\n' > '{site_dir}/site_config.json') &\n"
+    done = subprocess.run(["bash", "-c", creator + script], capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+
+
+def test_wait_for_site_times_out_loudly_and_nonzero(tmp_path, site_init_text):
+    script, _ = _wait_for_site_harness(tmp_path, site_init_text, timeout=2, interval=1)
+    done = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+    assert done.returncode != 0
+    assert "erp.test" in done.stderr
+    assert "does not exist yet" in done.stderr
 
 
 def test_site_init_runs_as_frappe_user(site_init_code):
@@ -382,6 +514,141 @@ def test_script_never_touches_all_sites(site_init_code):
         assert match.group(1) == '"$SITE_NAME"', (
             f"found a --site argument that is not $SITE_NAME: {match.group(0)!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# docker/compose.yaml
+# ---------------------------------------------------------------------------
+
+
+def test_compose_template_exists_and_covers_the_stack(compose_text):
+    for service in (
+        "create-site",
+        "intelligence-init",
+        "frontend",
+        "backend",
+        "scheduler",
+        "queue-long",
+        "websocket",
+        "mariadb",
+        "redis-cache",
+        "redis-queue",
+    ):
+        assert re.search(rf"^  {service}:\n", compose_text, re.M), (
+            f"compose.yaml must define a {service!r} service"
+        )
+    # No literal credentials anywhere; every password-ish value arrives as an
+    # environment reference ($$VAR inside a command, ${VAR} in compose env),
+    # never a hardcoded value.
+    code = _code_only(compose_text)
+    assert "quay.io" not in code
+    for line in code.splitlines():
+        if "PASSWORD" in line.upper():
+            assert "$$" in line or "${" in line, f"password-ish line must be an env reference: {line!r}"
+
+
+def test_intelligence_init_depends_on_create_site_success_but_does_not_require_it(compose_text):
+    # Fresh-deploy ordering fix: on a first-ever deploy create-site can still
+    # be running when init would otherwise start, firing site-init.sh's "site
+    # must exist" guard. Init must therefore wait for create-site to have
+    # completed successfully -- yet a CREATE_SITE=0 deploy (or a stack that
+    # omits create-site entirely) must not hang, so the dependency is
+    # explicitly not required.
+    init_block = _compose_service_block(compose_text, "intelligence-init")
+    create_site_entry = _compose_depends_entry(init_block, "create-site")
+    assert "condition: service_completed_successfully" in create_site_entry
+    assert re.search(r"required:\s*false", create_site_entry)
+
+
+def test_create_site_is_gated_by_create_site_env(compose_text):
+    block = _compose_service_block(compose_text, "create-site")
+    assert '"$$CREATE_SITE" = "1"' in block
+    assert "CREATE_SITE:-" in block
+
+
+def test_frontend_relinks_app_assets_before_exec_nginx(compose_text):
+    # The fix for the live Desk asset-404 previously existed only as a
+    # hand-edited compose override on the server; the shipped template must
+    # carry it so every deploy self-heals. The mounted sites volume can hold
+    # a stale/dangling entry, so the link is forced at the image-side
+    # apps/.../public, which resolves identically in every container.
+    block = _compose_service_block(compose_text, "frontend")
+    assert 'entrypoint: ["bash", "-c"]' in block
+    command = "\n".join(_frontend_command_lines(block))
+    assert "mkdir -p sites/assets" in command
+    # A real directory at the target would make ln -sfn nest the link inside
+    # it instead of replacing it; that case must be cleared explicitly first.
+    assert (
+        "if [ -d sites/assets/frappe_intelligence ] && [ ! -L sites/assets/frappe_intelligence ]" in command
+    )
+    assert "rm -rf sites/assets/frappe_intelligence" in command
+    assert (
+        "ln -sfn /home/frappe/frappe-bench/apps/frappe_intelligence/frappe_intelligence/public"
+        " sites/assets/frappe_intelligence"
+    ) in command
+    assert "exec nginx-entrypoint.sh" in command
+    # The re-link happens on every start, before nginx takes over.
+    assert command.index("ln -sfn") < command.index("exec nginx-entrypoint.sh")
+
+
+@pytest.mark.parametrize(
+    "occupant",
+    [
+        "nothing",
+        "dangling-symlink",
+        "symlink-to-elsewhere",
+        "real-directory",
+    ],
+)
+def test_frontend_relink_command_establishes_a_working_link_whatever_occupies_the_target(
+    tmp_path, compose_text, occupant
+):
+    # Runs the real frontend command out of the shipped compose template
+    # against a throwaway bench tree (the image-side bench root is rewritten
+    # to the tmp tree; the absolute path itself is pinned by the static test
+    # above). Same occupant matrix as the site-init link test: the shipped
+    # bug was a stale/dangling target surviving a "successful" start.
+    command = "\n".join(_frontend_command_lines(_compose_service_block(compose_text, "frontend")))
+
+    bench = tmp_path / "frappe-bench"
+    public = bench / "apps" / "frappe_intelligence" / "frappe_intelligence" / "public"
+    (public / "js").mkdir(parents=True)
+    (public / "js" / "intelligence.js").write_text("// real bundle\n")
+    target = bench / "sites" / "assets" / "frappe_intelligence"
+    target.parent.mkdir(parents=True)
+
+    if occupant == "dangling-symlink":
+        target.symlink_to(tmp_path / "gone")
+    elif occupant == "symlink-to-elsewhere":
+        stale = tmp_path / "stale"
+        stale.mkdir()
+        target.symlink_to(stale)
+    elif occupant == "real-directory":
+        target.mkdir()
+        (target / "leftover.txt").write_text("stale\n")
+
+    marker = tmp_path / "nginx-exec-marker"
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    nginx_stub = stub_bin / "nginx-entrypoint.sh"
+    nginx_stub.write_text(f'#!/usr/bin/env bash\nprintf "executed\\n" > "{marker}"\n')
+    nginx_stub.chmod(0o755)
+
+    script = command.replace("/home/frappe/frappe-bench", str(bench))
+    done = subprocess.run(
+        ["bash", "-c", script],
+        cwd=bench,
+        env={"PATH": f"{stub_bin}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    assert marker.is_file(), "nginx-entrypoint.sh must be exec'd after the re-link"
+
+    served = target / "js" / "intelligence.js"
+    assert served.is_file(), f"{occupant}: sites/assets/<app> still does not resolve"
+    assert served.read_text() == "// real bundle\n"
+    assert not (target / "leftover.txt").exists(), "stale contents must not survive"
 
 
 # ---------------------------------------------------------------------------

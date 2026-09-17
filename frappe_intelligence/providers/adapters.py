@@ -14,6 +14,8 @@ _ENDPOINTS = {
     "openrouter": ("https://openrouter.ai/api/v1/chat/completions", "openrouter.ai"),
     "xai": ("https://api.x.ai/v1/chat/completions", "api.x.ai"),
 }
+# The wire contract is lowercase; the DocType Select labels normalize to these at the engine boundary.
+KINDS = frozenset({*_ENDPOINTS, "custom"})
 _NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _CALL_ID = re.compile(r"[A-Za-z0-9_.:-]{1,256}\Z")
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}\Z")
@@ -51,7 +53,7 @@ def _configuration(config):
         raise _config_error()
     if (
         not isinstance(config.kind, str)
-        or config.kind not in (*_ENDPOINTS, "custom")
+        or config.kind not in KINDS
         or not isinstance(config.model, str)
         or not _MODEL.fullmatch(config.model)
         or not isinstance(config.api_key, str)

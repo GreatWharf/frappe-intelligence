@@ -12,7 +12,10 @@
 # Hard boundaries, enforced below, not just documented:
 #   - Never creates or drops a site. SITE_NAME must name a site that already
 #     exists (its sites/<site>/site_config.json is read, never written by
-#     this script beyond bench's own `set-config allow_tests`).
+#     this script beyond bench's own `set-config allow_tests`). On a fresh
+#     deploy the orchestrator's create-site service may still be running when
+#     this job starts, so existence is awaited with a bounded poll -- never
+#     forced by creating the site here.
 #   - Never reads or prints a database/admin password, API key or other
 #     secret. Only bench subcommands that operate against the site's own
 #     already-configured site_config.json are used; none of them are ever
@@ -50,6 +53,13 @@
 #                                 Where to write the safe JSON result file.
 #                                 Default:
 #                                 <BENCH_DIR>/sites/intelligence-staging-result.json
+#   INTELLIGENCE_SITE_WAIT_TIMEOUT
+#                                 Bound (in seconds) on how long the
+#                                 wait-for-site guard below polls for the site
+#                                 to appear and answer before failing.
+#                                 Default: 780 (13 minutes).
+#   INTELLIGENCE_SITE_WAIT_INTERVAL
+#                                 Seconds between readiness polls. Default: 5
 #
 # Usage:
 #   SITE_NAME=erp.example.internal \
@@ -96,8 +106,45 @@ fi
 
 [ -d "$BENCH_DIR" ] || fail "bench directory not found: $BENCH_DIR"
 SITE_CONFIG="$BENCH_DIR/sites/$SITE_NAME/site_config.json"
-if [ ! -f "$SITE_CONFIG" ]; then
-    fail "site '$SITE_NAME' does not exist ($SITE_CONFIG not found). This script never creates a site; provision it separately first."
+
+# Bounded wait-for-site margin. On a fresh deploy this job can legitimately
+# start while the orchestrator's create-site service is still running (the
+# shipped compose template already orders init after create-site via
+# `depends_on: service_completed_successfully`, but the documented standalone
+# `docker run` path has no such gate). Wait for the site to appear and answer
+# instead of failing the existence guard instantly. The default timeout stays
+# under the 15-minute grace window typical orchestrators give a one-shot job.
+SITE_WAIT_TIMEOUT="${INTELLIGENCE_SITE_WAIT_TIMEOUT:-780}"   # seconds
+SITE_WAIT_INTERVAL="${INTELLIGENCE_SITE_WAIT_INTERVAL:-5}"  # seconds
+
+wait_for_site() {
+    # Poll until sites/<site>/site_config.json exists AND the site answers a
+    # plain native bench readiness probe (list-apps -- nothing here depends
+    # on frappe_intelligence itself being installed). Returns 0 once ready, 1
+    # after SITE_WAIT_TIMEOUT seconds. Never creates the site: existence is
+    # awaited, not forced.
+    local waited=0
+    until [ -f "$SITE_CONFIG" ]; do
+        if [ "$waited" -ge "$SITE_WAIT_TIMEOUT" ]; then
+            return 1
+        fi
+        log "site '$SITE_NAME' does not exist yet ($SITE_CONFIG not found; create-site still running?); waiting (${waited}s/${SITE_WAIT_TIMEOUT}s)..."
+        sleep "$SITE_WAIT_INTERVAL"
+        waited=$((waited + SITE_WAIT_INTERVAL))
+    done
+    until run_bench --site "$SITE_NAME" list-apps >/dev/null 2>&1; do
+        if [ "$waited" -ge "$SITE_WAIT_TIMEOUT" ]; then
+            return 1
+        fi
+        log "site '$SITE_NAME' exists but is not reachable yet (database/Redis not ready?); waiting (${waited}s/${SITE_WAIT_TIMEOUT}s)..."
+        sleep "$SITE_WAIT_INTERVAL"
+        waited=$((waited + SITE_WAIT_INTERVAL))
+    done
+    return 0
+}
+
+if ! wait_for_site; then
+    fail "site '$SITE_NAME' was not ready within ${SITE_WAIT_TIMEOUT}s ($SITE_CONFIG not found or 'bench list-apps' still failing). This script never creates a site; provision it separately first, or investigate why create-site has not finished."
 fi
 
 log "target site: $SITE_NAME"

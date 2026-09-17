@@ -1,6 +1,6 @@
 # Implementation verification
 
-## Executed locally — 16 September 2026
+## Executed locally - 16 September 2026
 
 Validation used Python 3.14, Node 24, jsdom 26.1.0 and Playwright 1.57.0/Chromium 143. All application/provider/business responses in automated tests were synthetic. No customer credentials, live model calls or ERP records were used.
 

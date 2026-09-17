@@ -1,4 +1,4 @@
-/* Frappe Intelligence — dependency-free Desk client. No provider credentials or chat data are stored in browser storage. */
+/* Intelligence - dependency-free Desk client. No provider credentials or chat data are stored in browser storage. */
 (function (global, factory) {
 	"use strict";
 	const client = factory(global);
@@ -32,7 +32,10 @@
 		expand: '<path d="M14 3h7v7m0-7-8 8M10 21H3v-7m0 7 8-8"/>',
 		file: '<path d="M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h5"/>',
 		retry: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/>',
-		stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/>'
+		stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/>',
+		grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+		queue: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.2 1.2L6.8 5M3.5 12l1.2 1.2L6.8 11M3.5 18l1.2 1.2L6.8 17"/>',
+		target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>'
 	};
 	function icon(name) { return '<svg class="fi-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (icons[name] || icons.chat) + '</svg>'; }
 	function esc(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
@@ -111,7 +114,7 @@
 			const settle = (fn, value) => { if (!done) { done = true; global.clearTimeout(timer); fn(value); } };
 			const timer = global.setTimeout(() => settle(reject, { userMessage: "The request timed out. Refresh before retrying; the server may have accepted the action." }), 45000);
 			try {
-				const pending = frappe.call({ method: API + method, args: args || {}, silent: true,
+				const pending = frappe.call({ method: method.includes(".") ? method : API + method, args: args || {}, silent: true,
 					callback: (response) => response && response.exc ? settle(reject, response) : settle(resolve, response && response.message),
 					error: (error) => settle(reject, error && error.responseJSON ? Object.assign({ status: error.status }, error.responseJSON) : error) });
 				if (pending && pending.catch) pending.catch((error) => settle(reject, error));
@@ -121,12 +124,13 @@
 	function button(action, label, glyph, classes, extra) { return '<button type="button" class="btn btn-sm ' + (classes && classes.includes("fi-primary") ? "btn-primary" : "btn-default") + ' fi-btn ' + (classes || "") + '" data-action="' + action + '" ' + (extra || "") + '>' + (glyph ? icon(glyph) : "") + '<span>' + esc(label) + "</span></button>"; }
 	function iconButton(action, label, glyph, extra) { return '<button type="button" class="fi-icon-btn" data-action="' + action + '" aria-label="' + esc(label) + '" title="' + esc(label) + '" ' + (extra || "") + '>' + icon(glyph) + "</button>"; }
 	function time(value) { if (!value) return ""; const date = new Date(String(value).replace(" ", "T")); return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+	function stamp(value) { if (!value) return ""; const date = new Date(String(value).replace(" ", "T")); return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
 	function parsed(value, fallback) { if (typeof value !== "string") return value || fallback; try { return JSON.parse(value); } catch (_) { return fallback; } }
 	function previewHTML(preview) {
 		const data = parsed(preview, { summary: String(preview || "Review the requested action before continuing.") });
 		if (typeof data !== "object" || !data) return '<p class="fi-approval-summary">' + esc(data) + '</p>';
 		const summary = data.summary || data.description || "Review the exact request below. Only approve access and changes you expect.";
-		const value = (entry) => typeof entry === "object" && entry !== null ? JSON.stringify(entry, null, 2) : String(entry == null ? "—" : entry);
+		const value = (entry) => typeof entry === "object" && entry !== null ? JSON.stringify(entry, null, 2) : String(entry == null ? "-" : entry);
 		let html = '<p class="fi-approval-summary">' + esc(summary) + '</p>';
 		if (data.operation || data.target) html += '<div class="fi-proposal-target">' + icon("file") + '<span>' + esc(data.operation || "Requested action") + '</span>' + Object.entries(data.target || {}).map(([key, entry]) => '<span class="fi-proposal-tag"><span>' + esc(key.replace(/_/g, " ")) + '</span>' + esc(value(entry)) + '</span>').join("") + '</div>';
 		if (Array.isArray(data.changes) && data.changes.length) html += '<div class="fi-change-table"><table><thead><tr><th>Field</th><th>Before</th><th>Proposed</th></tr></thead><tbody>' + data.changes.map((change) => '<tr><th>' + esc(change.label || change.field) + '</th><td>' + esc(value(change.before)) + '</td><td>' + esc(value(change.after)) + '</td></tr>').join("") + '</tbody></table></div>';
@@ -134,6 +138,48 @@
 		const details = Object.fromEntries(Object.entries(data).filter(([key]) => !["summary", "description", "metadata", "operation", "target", "changes"].includes(key)));
 		if (Object.keys(details).length) html += '<details class="fi-proposal"><summary>Review exact fields and filters</summary><pre>' + esc(JSON.stringify(details.details && Object.keys(details).length === 1 ? details.details : details, null, 2)) + '</pre></details>';
 		return html;
+	}
+	function skillsHTML(data) {
+		const source = data && typeof data === "object" ? data : {};
+		const tools = (Array.isArray(source.tools) ? source.tools : []).filter((tool) => tool && tool.name);
+		const scopes = source.scopes && typeof source.scopes === "object" ? source.scopes : {};
+		const never = Array.isArray(source.never_allow) ? source.never_allow : [];
+		const chips = (list, empty) => {
+			const values = Array.isArray(list) ? list : [];
+			return values.length ? '<div class="fi-chip-list">' + values.map((item) => '<span class="fi-chip">' + esc(item) + "</span>").join("") + "</div>" : '<p class="fi-section-empty fi-muted">' + esc(empty) + "</p>";
+		};
+		return '<div class="fi-skills"><h3 class="fi-section-title">Tools</h3>' + (tools.length ? '<div class="fi-skill-list">' + tools.map((tool) => '<div class="fi-skill-row"><div class="fi-skill-head"><code>' + esc(tool.name) + "</code>" + (tool.mutates ? '<span class="fi-badge fi-badge-writes">Writes</span>' : "") + (tool.external ? '<span class="fi-badge">External</span>' : "") + (tool.enabled === false ? '<span class="fi-badge">Off</span>' : "") + (tool.version ? '<span class="fi-skill-version">v' + esc(tool.version) + "</span>" : "") + '</div><p class="fi-skill-desc">' + esc(tool.description || "") + "</p></div>").join("") + "</div>" : '<p class="fi-section-empty fi-muted">No tools are currently enabled.</p>') + '<h3 class="fi-section-title">Readable doctypes</h3>' + chips(scopes.read, "No readable doctypes are configured.") + '<h3 class="fi-section-title">Writable doctypes</h3>' + chips(scopes.write, "No writable doctypes are configured.") + '<p class="fi-never-note">' + icon("lock") + "<span>" + (never.length ? "Always off-limits, whatever the configuration: " + never.map((item) => esc(item)).join(", ") + "." : "Some record types are always off-limits, whatever the configuration.") + "</span></p></div>";
+	}
+	function queueHTML(rows) {
+		const list = (Array.isArray(rows) ? rows : []).filter((row) => row && row.name);
+		if (!list.length) return '<div class="fi-queue-empty">' + icon("check") + "<strong>No pending approvals</strong><span>Requests from any of your conversations will appear here.</span></div>";
+		return '<div class="fi-queue-list" role="list">' + list.map((row) => {
+			const data = row.preview_json != null ? parsed(row.preview_json, {}) : row.preview && typeof row.preview === "object" ? row.preview : {};
+			const target = data && typeof data.target === "object" && data.target ? data.target : {};
+			const summary = data && (data.summary || data.description) || "", requested = stamp(row.creation);
+			return '<article class="fi-queue-row" role="listitem"><div class="fi-queue-head"><span class="fi-queue-icon">' + icon("lock") + '</span><div class="fi-queue-title"><strong>' + esc(row.tool_name) + "</strong>" + (requested ? '<span class="fi-queue-meta">Requested ' + esc(requested) + "</span>" : "") + '</div><span class="fi-pill">' + esc(row.status || "pending") + "</span></div>" + (target.doctype || target.name ? '<div class="fi-queue-target">' + icon("file") + "<span>" + esc(target.doctype || "") + (target.name ? '<span class="fi-context-divider">/</span>' + esc(target.name) : "") + "</span></div>" : "") + (summary ? '<p class="fi-queue-summary">' + esc(summary) + "</p>" : "") + (row.expires_at ? '<p class="fi-queue-expiry">Expires ' + esc(stamp(row.expires_at)) + "</p>" : "") + '<div class="fi-queue-actions">' + button("queue-open", "Open conversation", "chevron", "fi-text-btn", 'data-name="' + esc(row.conversation || "") + '"') + '<span class="fi-queue-spacer"></span>' + button("queue-deny", "Deny", null, "", 'data-name="' + esc(row.name) + '"') + button("queue-approve", "Approve", "check", "fi-primary", 'data-name="' + esc(row.name) + '"') + "</div></article>";
+		}).join("") + "</div>";
+	}
+	function lines(value) { return Array.from(new Set(String(value || "").split("\n").map((line) => line.trim()).filter(Boolean))); }
+	function scopeState(settings, skills) {
+		const doc = settings && typeof settings === "object" ? settings : {};
+		const data = skills && typeof skills === "object" ? skills : {};
+		const enabled = new Set(lines(doc.enabled_tools));
+		const tools = (Array.isArray(data.tools) ? data.tools : []).filter((tool) => tool && tool.name).map((tool) => ({ name: String(tool.name), description: String(tool.description || ""), mutates: !!tool.mutates, enabled: enabled.has(String(tool.name)) }));
+		return { tools, read: lines(doc.allowed_read_doctypes), write: lines(doc.allowed_write_doctypes), never_allow: Array.isArray(data.never_allow) ? data.never_allow.map((item) => String(item)) : [] };
+	}
+	function scopeProblem(state) {
+		const read = new Set(state.read), never = new Set(state.never_allow);
+		const blocked = state.write.filter((name) => never.has(name));
+		if (blocked.length) return blocked.join(", ") + (blocked.length === 1 ? " is" : " are") + " always off-limits and cannot be writable.";
+		const missing = state.write.filter((name) => !read.has(name));
+		if (missing.length) return "Writable doctypes must also be readable: " + missing.join(", ") + ".";
+		return "";
+	}
+	function scopeHTML(state, options) {
+		const readOnly = !!(options && options.readOnly), off = readOnly ? " disabled" : "";
+		const rows = (key, title, list) => '<h3 class="fi-section-title">' + esc(title) + '</h3><div class="fi-scope-rows" data-scope-rows="' + key + '">' + (list.length ? list.map((value) => '<div class="fi-scope-row"><code>' + esc(value) + '</code><button type="button" class="fi-icon-btn" data-action="scope-remove" data-list="' + key + '" data-value="' + esc(value) + '" aria-label="Remove ' + esc(value) + '"' + off + ">" + icon("close") + "</button></div>").join("") : '<p class="fi-section-empty fi-muted">None configured.</p>') + "</div>" + (readOnly ? "" : '<div class="fi-scope-add"><input class="form-control" data-input="scope-add-' + key + '" placeholder="DocType name, e.g. Customer" aria-label="Add a doctype to the ' + key + ' list"><button type="button" class="btn btn-sm btn-default fi-btn" data-action="scope-add" data-list="' + key + '">Add</button></div>');
+		return '<div class="fi-scope"><p class="fi-dialog-copy">' + (readOnly ? "Only system managers can change scope. Your effective access is shown here." : "Choose the tools and record types Intelligence may use. The server re-validates every save.") + '</p><h3 class="fi-section-title">Enabled tools</h3><div class="fi-scope-tools">' + (state.tools.length ? state.tools.map((tool) => '<label class="fi-scope-tool"><input type="checkbox" data-input="scope-tool" value="' + esc(tool.name) + '"' + (tool.enabled ? " checked" : "") + off + '><span><code>' + esc(tool.name) + "</code>" + (tool.mutates ? ' <span class="fi-badge fi-badge-writes">Writes</span>' : "") + "<small>" + esc(tool.description) + "</small></span></label>").join("") : '<p class="fi-section-empty fi-muted">No tools are available.</p>') + "</div>" + rows("read", "Readable doctypes", state.read) + rows("write", "Writable doctypes", state.write) + '<p class="fi-never-note">' + icon("lock") + "<span>" + (state.never_allow.length ? "Always off-limits: " + state.never_allow.map((item) => esc(item)).join(", ") + ". Writable doctypes must also be readable." : "Writable doctypes must also be readable; some record types are always off-limits.") + "</span></p>" + (readOnly ? "" : "<footer>" + button("scope-save", "Save scope", "check", "fi-primary") + "</footer>") + "</div>";
 	}
 	function mergeMessages(older, newer) {
 		const messages = new Map(); for (const message of older.concat(newer)) messages.set(message.name, message);
@@ -158,7 +204,7 @@
 			this.poller = new Poller(() => this.poll()); this.root = this.doc.createElement("section"); this.root.className = "fi-app"; this.root.setAttribute("aria-label", "Intelligence workspace");
 			this.root.innerHTML = this.shell(); this.bind(); this.render();
 		}
-		shell() { return '<aside class="fi-sidebar" aria-label="Private conversations">' + button("new", "New conversation", "plus", "fi-new") + '<label class="fi-search">' + icon("search") + '<input type="search" data-input="search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off"><kbd>⌘ K</kbd></label><div class="fi-sidebar-label"><span data-slot="list-label">Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + '</div><nav class="fi-conversation-list" data-slot="conversations" aria-label="Conversation list"></nav><footer class="fi-sidebar-footer">' + button("memory", "Memory", "memory") + button("settings", "Providers & models", "settings") + '<div class="fi-private-note">' + icon("lock") + '<span>Only you can see your conversations</span></div></footer></aside><div class="fi-main"><header class="fi-header"><div class="fi-header-left">' + iconButton("sidebar", "Toggle conversations", "panel", 'aria-expanded="false"') + '<div class="fi-heading"><h2 data-slot="title">New conversation</h2><span data-slot="subtitle">Your private workspace</span></div></div><div class="fi-header-actions">' + iconButton("rename", "Rename conversation", "edit") + iconButton("archive", "Archive conversation", "archive") + iconButton("expand", "Open full workspace", "expand") + iconButton("close", "Close Intelligence", "close") + '</div></header><div class="fi-banner" data-slot="banner" role="status" hidden></div><div class="fi-thread" data-slot="thread" tabindex="0" aria-label="Messages"><div class="fi-thread-inner" data-slot="messages"></div></div><div class="fi-bottom"><div class="fi-run" data-slot="run" aria-live="polite" hidden></div><div class="fi-context-list" data-slot="context"></div><form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form><div class="fi-composer-caption"><span>' + icon("lock") + ' You approve every tool action</span><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>'; }
+		shell() { return '<aside class="fi-sidebar" aria-label="Private conversations">' + button("new", "New conversation", "plus", "fi-new") + '<label class="fi-search">' + icon("search") + '<input type="search" data-input="search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off"><kbd>⌘ K</kbd></label><div class="fi-sidebar-label"><span data-slot="list-label">Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + '</div><nav class="fi-conversation-list" data-slot="conversations" aria-label="Conversation list"></nav><footer class="fi-sidebar-footer">' + button("approvals", "Approvals", "queue") + button("skills", "Skills", "grid") + button("memory", "Memory", "memory") + button("settings", "Providers & models", "settings") + button("scope", "Scope", "target") + '<div class="fi-private-note">' + icon("lock") + '<span>Only you can see your conversations</span></div></footer></aside><div class="fi-main"><header class="fi-header"><div class="fi-header-left">' + iconButton("sidebar", "Toggle conversations", "panel", 'aria-expanded="false"') + '<div class="fi-heading"><h2 data-slot="title">New conversation</h2><span data-slot="subtitle">Your private workspace</span></div></div><div class="fi-header-actions">' + iconButton("rename", "Rename conversation", "edit") + iconButton("archive", "Archive conversation", "archive") + iconButton("expand", "Open full workspace", "expand") + iconButton("close", "Close Intelligence", "close") + '</div></header><div class="fi-banner" data-slot="banner" role="status" hidden></div><div class="fi-thread" data-slot="thread" tabindex="0" aria-label="Messages"><div class="fi-thread-inner" data-slot="messages"></div></div><div class="fi-bottom"><div class="fi-run" data-slot="run" aria-live="polite" hidden></div><div class="fi-context-list" data-slot="context"></div><form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form><div class="fi-composer-caption"><span>' + icon("lock") + ' You approve every tool action</span><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>'; }
 		$(selector) { return this.root.querySelector(selector); }
 		slot(name) { return this.$('[data-slot="' + name + '"]'); }
 		draft() { const key = this.selected || "new"; if (!this.drafts.has(key)) this.drafts.set(key, { text: "", attachments: [] }); return this.drafts.get(key); }
@@ -371,6 +417,9 @@
 			if (action === "expand") return this.onExpand && this.onExpand();
 			if (action === "settings") return this.providerDialog();
 			if (action === "memory") return this.memoryDialog();
+			if (action === "skills") return this.skillsDialog();
+			if (action === "approvals") return this.approvalsDialog();
+			if (action === "scope") return this.scopeDialog();
 			if (action === "rename") return this.renameDialog();
 			if (action === "archive") return this.archiveDialog();
 			if (action === "attach") return this.chooseFile();
@@ -458,6 +507,95 @@
 			list.addEventListener("click", (event) => { const target = event.target.closest('[data-action]'); if (!target || modal.busy) return; const memory = memories.find((entry) => entry.name === target.dataset.name); if (!memory) return; if (target.dataset.action === "memory-edit") { form.elements.name.value = memory.name; form.elements.content.value = memory.content; form.querySelector('[data-memory-heading]').textContent = "Edit memory"; form.elements.content.focus(); } else if (target.dataset.action === "memory-delete") { if (target.dataset.confirm !== "yes") { target.dataset.confirm = "yes"; target.querySelector("span").textContent = "Confirm delete"; return; } modal.run(async () => { await this.api("delete_memory", { name: memory.name }); if (form.elements.name.value === memory.name) reset(); await refresh(); }); } });
 			form.addEventListener("submit", (event) => { event.preventDefault(); const content = form.elements.content.value.trim(); if (!content) return; const values = { name: form.elements.name.value || null, content, scope: scope.value, conversation: scope.value === "conversation" ? conversation : null }; modal.run(async () => { await this.api("save_memory", values); reset(); await refresh(); }); }); modal.run(refresh);
 		}
+		skillsDialog() {
+			if (!this.boot) return;
+			const modal = this.dialog("Skills", '<div data-skills-body><div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading skills…</div></div>');
+			const body = modal.element.querySelector("[data-skills-body]");
+			const load = async () => {
+				body.innerHTML = '<div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading skills…</div>';
+				try { const data = await this.api("skills"); if (modal.closed) return; body.innerHTML = skillsHTML(data); }
+				catch (error) { if (modal.closed) return; body.innerHTML = '<div class="fi-inline-error" role="alert"><p>' + esc(userError(error)) + "</p>" + button("skills-retry", "Try again", "retry") + "</div>"; }
+			};
+			modal.element.addEventListener("click", (event) => { const target = event.target.closest('[data-action="skills-retry"]'); if (target && !target.disabled && !modal.busy) modal.run(load); });
+			modal.run(load);
+		}
+		approvalsDialog() {
+			if (!this.boot) return;
+			const modal = this.dialog("Approvals", '<p class="fi-dialog-copy">Requests waiting across all of your conversations. A decision here resumes or stops the work in its own conversation.</p><div class="fi-queue-toolbar">' + button("queue-refresh", "Refresh", "retry", "fi-text-btn") + '</div><div data-queue-body></div>');
+			const body = modal.element.querySelector("[data-queue-body]");
+			const load = async () => {
+				body.innerHTML = '<div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading approvals…</div>';
+				try {
+					const rows = await this.api("frappe.client.get_list", { doctype: "Intelligence Approval", filters: { status: "pending" }, fields: ["name", "conversation", "tool_name", "preview_json", "status", "expires_at", "creation"], order_by: "creation asc", limit_page_length: 100 });
+					if (modal.closed) return; body.innerHTML = queueHTML(rows);
+				} catch (error) { if (modal.closed) return; body.innerHTML = '<div class="fi-inline-error" role="alert"><p>' + esc(userError(error)) + "</p>" + button("queue-retry", "Try again", "retry") + "</div>"; }
+			};
+			modal.element.addEventListener("click", (event) => {
+				const target = event.target.closest("[data-action]");
+				if (!target || target.disabled || modal.busy) return;
+				const action = target.dataset.action;
+				if (action === "queue-refresh" || action === "queue-retry") return modal.run(load);
+				if (action === "queue-open") { const name = target.dataset.name; modal.close(); if (name) this.select(name); return; }
+				if (action === "queue-approve" || action === "queue-deny") {
+					modal.run(async () => { await this.api("approve", { approval: target.dataset.name, decision: action === "queue-approve" ? "approve" : "deny" }); await load(); this.poller.start(0); });
+				}
+			});
+			modal.run(load);
+		}
+		scopeDialog() {
+			if (!this.boot) return;
+			const readOnly = !this.boot.is_manager;
+			let state = null;
+			const modal = this.dialog("Scope", '<div data-scope-body><div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading scope…</div></div>');
+			const body = modal.element.querySelector("[data-scope-body]");
+			const paint = () => { body.innerHTML = scopeHTML(state, { readOnly }); };
+			const load = async () => {
+				body.innerHTML = '<div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading scope…</div>';
+				try {
+					const results = await Promise.all([this.api("skills"), this.api("frappe.client.get", { doctype: "Intelligence Settings", name: "Intelligence Settings" })]);
+					if (modal.closed) return; state = scopeState(results[1], results[0]); paint();
+				} catch (error) { if (modal.closed) return; body.innerHTML = '<div class="fi-inline-error" role="alert"><p>' + esc(userError(error)) + "</p>" + button("scope-retry", "Try again", "retry") + "</div>"; }
+			};
+			modal.element.addEventListener("click", (event) => {
+				const target = event.target.closest("[data-action]");
+				if (!target || target.disabled || modal.busy) return;
+				const action = target.dataset.action;
+				if (action === "scope-retry") return modal.run(load);
+				if (!state) return;
+				if (action === "scope-add" || action === "scope-remove") {
+					const key = target.dataset.list;
+					if (!["read", "write"].includes(key)) return;
+					if (action === "scope-add") {
+						const input = body.querySelector('[data-input="scope-add-' + key + '"]'), value = input.value.trim();
+						if (!value) { input.focus(); return; }
+						if (!state[key].includes(value)) state[key].push(value);
+						paint();
+						const next = body.querySelector('[data-input="scope-add-' + key + '"]'); if (next) next.focus();
+					} else { state[key] = state[key].filter((value) => value !== target.dataset.value); paint(); }
+					return;
+				}
+				if (action === "scope-save") {
+					const problem = scopeProblem(state);
+					if (problem) { const box = modal.element.querySelector(".fi-modal-error"); box.hidden = false; box.textContent = problem; return; }
+					modal.run(async () => {
+						await this.api("frappe.client.set_value", { doctype: "Intelligence Settings", name: "Intelligence Settings", fieldname: { enabled_tools: state.tools.filter((tool) => tool.enabled).map((tool) => tool.name).join("\n"), allowed_read_doctypes: state.read.join("\n"), allowed_write_doctypes: state.write.join("\n") } });
+						modal.busy = false; modal.close(); this.notice = "Scope saved."; this.renderBanner();
+					});
+				}
+			});
+			modal.element.addEventListener("change", (event) => {
+				if (!state || event.target.dataset.input !== "scope-tool") return;
+				const tool = state.tools.find((entry) => entry.name === event.target.value);
+				if (tool) tool.enabled = event.target.checked;
+			});
+			modal.element.addEventListener("keydown", (event) => {
+				if (event.key !== "Enter" || !event.target.dataset || !String(event.target.dataset.input || "").startsWith("scope-add-")) return;
+				event.preventDefault();
+				const trigger = body.querySelector('[data-action="scope-add"][data-list="' + event.target.dataset.input.slice(10) + '"]');
+				if (trigger) trigger.click();
+			});
+			modal.run(load);
+		}
 	}
 	function trapFocus(event, container) {
 		const nodes = Array.from(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]')).filter((node) => !node.closest("[hidden]") && (node.getClientRects ? node.getClientRects().length : true));
@@ -490,5 +628,5 @@
 		global.addEventListener("pagehide", () => { if (singleton) singleton.poller.stop(); });
 		global.addEventListener("pageshow", () => { if (singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
 	}
-	return { install, showPage, toggle: openDrawer, close: closeDrawer, App, Poller, utils: { esc, safeURL, markdown, contextFromRoute, userError, previewHTML }, request };
+	return { install, showPage, toggle: openDrawer, close: closeDrawer, App, Poller, utils: { esc, safeURL, markdown, contextFromRoute, userError, previewHTML, skillsHTML, queueHTML, scopeState, scopeProblem, scopeHTML, stamp }, request };
 });

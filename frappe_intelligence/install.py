@@ -41,6 +41,9 @@ DEFAULTS = {
             "Wiki Document",
         )
     ),
+    # Blank by default: no DocType is writable through the adaptive tools until a
+    # System Manager opts in per DocType (subset of allowed_read_doctypes).
+    "allowed_write_doctypes": "",
     "allowed_reports": "\n".join(
         (
             "Balance Sheet",
@@ -64,6 +67,10 @@ DEFAULTS = {
             "recall_memory",
             "save_memory",
             "edit_wiki_page",
+            "list_doctypes",
+            "describe_doctype",
+            "create_document",
+            "update_document",
         )
     ),
 }

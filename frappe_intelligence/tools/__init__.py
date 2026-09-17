@@ -91,15 +91,13 @@ def _context_settings(context):
     return settings
 
 
-def get_tools(context):
+def _assemble(context):
     import frappe
 
-    from . import attachments, memory, records, reports
+    from . import adaptive, attachments, memory, records, reports
 
-    settings = _context_settings(context)
-    enabled = policy_lines(settings.get("enabled_tools"))
     builtins = {}
-    for module in (records, reports, attachments, memory):
+    for module in (records, reports, attachments, memory, adaptive):
         for spec in module.specs(context):
             builtins[spec.name] = spec
     registry = Registry(builtins, frappe.get_roles(context.user))
@@ -112,7 +110,57 @@ def get_tools(context):
         ):
             raise ValueError("Invalid installed-app tool registration hook.")
         frappe.get_attr(path)(registry)
+    return registry
+
+
+def get_tools(context):
+    settings = _context_settings(context)
+    enabled = policy_lines(settings.get("enabled_tools"))
+    registry = _assemble(context)
     return {name: spec for name, spec in sorted(registry.tools.items()) if name in enabled}
+
+
+def _version_number(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def skill_scopes(user, settings):
+    """Registered-tool metadata (with enabled state) and DocType scopes.
+
+    Lists every assembled tool, not only enabled ones, so the Scope editor can
+    turn tools on as well as off. Carries no execution authority: names,
+    descriptions, flags and scope lists only, never secrets or record data.
+    Does not bind a conversation or run.
+    """
+    import frappe
+
+    from . import adaptive
+
+    enabled = policy_lines(settings.get("enabled_tools"))
+    context = ToolContext(frappe.local.site, user, "", "")
+    registry = _assemble(context)
+    tools = [
+        {
+            "name": spec.name,
+            "description": spec.description,
+            "mutates": bool(spec.mutates),
+            "external": bool(spec.external),
+            "version": _version_number(spec.version),
+            "enabled": name in enabled,
+        }
+        for name, spec in sorted(registry.tools.items())
+    ]
+    return {
+        "tools": tools,
+        "scopes": {
+            "read": sorted(policy_lines(settings.get("allowed_read_doctypes"))),
+            "write": sorted(policy_lines(settings.get("allowed_write_doctypes"))),
+        },
+        "never_allow": sorted(adaptive.never_write_names()),
+    }
 
 
 def schemas(context):

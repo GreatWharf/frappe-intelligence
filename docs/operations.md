@@ -25,6 +25,8 @@ For a repository-backed deployment, use your real repository URL and a reviewed 
 
 In Docker, code/dependencies/assets belong in the image build; installing/migrating the persistent site belongs in one serialized deployment initializer after database/Redis readiness. Do not run site migrations in every worker or web entrypoint. Use the same image for workers, scheduler and web services.
 
+`docker/compose.yaml` ships the compose template the Dokploy stack deploys, and it self-heals two fresh-deploy failure modes: `intelligence-init` is ordered after `create-site` with `condition: service_completed_successfully` and `required: false` (a first-ever deploy waits for site creation instead of failing init's existence guard, while `CREATE_SITE=0` deploys do not hang), and the `frontend` service re-links `sites/assets/frappe_intelligence` at the image-side `apps/frappe_intelligence/frappe_intelligence/public` on every start before exec'ing `nginx-entrypoint.sh`, so a stale or dangling entry in the mounted sites volume cannot 404 the Desk bundle.
+
 ## Initial configuration
 
 1. As System Manager, open **Intelligence Settings**. Review enabled tools, readable DocTypes, allowed reports, quotas, approval expiry and attachment limits.

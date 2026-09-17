@@ -291,3 +291,14 @@ def delete_provider(name):
 @_safe
 def provider_details(name):
     return provider_service.provider_details(name)
+
+
+@frappe.whitelist()
+@_safe
+def skills():
+    """Read-only catalog of enabled tools and DocType scopes; no secrets or record data."""
+    user = require_user()
+    settings = get_settings()
+    from .tools import skill_scopes
+
+    return skill_scopes(user, settings)

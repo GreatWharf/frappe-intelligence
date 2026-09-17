@@ -56,3 +56,20 @@ class SettingsDocument(Document):
                 frappe.throw(
                     "Custom provider hosts must be exact hostnames, one per line, without URLs or wildcards."
                 )
+        self._validate_write_scope()
+
+    def _validate_write_scope(self):
+        """allowed_write_doctypes ⊆ allowed_read_doctypes, minus the never-allow set.
+
+        Catches misconfiguration at settings-save time; the runtime write gate in
+        tools/adaptive.py re-checks the same invariant on every call.
+        """
+        from .tools import policy_lines
+        from .tools.adaptive import write_blocked
+
+        read = policy_lines(self.get("allowed_read_doctypes"))
+        for name in sorted(policy_lines(self.get("allowed_write_doctypes"))):
+            if write_blocked(name):
+                frappe.throw(f"{name} can never be written by Intelligence tools.")
+            if name not in read:
+                frappe.throw(f"{name} must be listed in Allowed Read Doctypes before it can be writable.")

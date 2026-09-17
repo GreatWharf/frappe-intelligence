@@ -73,10 +73,13 @@ broken dependency or frontend bundle is caught at `docker build` time.
 
 ## Runtime site initialization
 
-Run once per environment, against **one** already-existing site, after the
-`sites` volume and the database/Redis services are up (this script adds a
-short bounded retry of its own, but that is not a substitute for your
-orchestrator's own health checks):
+Run once per environment, against **one** site, after the `sites` volume and
+the database/Redis services are up. On a fresh deploy the site may still be
+being created when this job starts, so the script first waits -- with a
+bounded, configurable poll -- for the site to appear and answer
+`bench list-apps` instead of failing its existence guard instantly; the
+shipped compose template additionally orders this job after the create-site
+service, so the wait is normally a no-op:
 
 ```sh
 docker run --rm \
@@ -88,12 +91,32 @@ docker run --rm \
   bash /home/frappe/frappe-bench/docker/site-init.sh
 ```
 
-Or as a `docker compose` service (replacing a generic
-`bench --site all migrate` migration-service command with this one):
+### Compose deploy template
+
+[`docker/compose.yaml`](compose.yaml) ships the full self-healing stack
+(mariadb, redis-cache/-queue, configurator, create-site, intelligence-init,
+backend, scheduler, queue-long, websocket, frontend). Two properties matter:
+
+- **Fresh deploys self-order.** `intelligence-init` declares
+  `depends_on: create-site` with `condition: service_completed_successfully`
+  **and** `required: false`, so a first-ever deploy runs init only after the
+  site exists, while a `CREATE_SITE=0` deploy (create-site exits 0
+  immediately) or a stack without the create-site service never hangs.
+- **The frontend re-links app assets on every start.** Its entrypoint
+  (`["bash", "-c"]`) runs `mkdir -p sites/assets`, removes
+  `sites/assets/frappe_intelligence` if it is a real directory, force-links
+  it at the image-side
+  `/home/frappe/frappe-bench/apps/frappe_intelligence/frappe_intelligence/public`
+  (`ln -sfn`), and only then `exec nginx-entrypoint.sh` -- so a stale or
+  dangling entry in the mounted sites volume can no longer 404 the Desk
+  bundle.
+
+The equivalent single service, if you are grafting init onto an existing
+compose file instead of adopting the template:
 
 ```yaml
 services:
-  intelligence-site-init:
+  intelligence-init:
     image: frappe-intelligence:v16.34.2
     user: frappe
     command: ["bash", "/home/frappe/frappe-bench/docker/site-init.sh"]
@@ -111,22 +134,30 @@ services:
         condition: service_healthy
       redis-queue:
         condition: service_healthy
+      create-site:
+        condition: service_completed_successfully
+        required: false
 ```
 
 ### Environment variables
 
 | Variable | Required | Behavior |
 | --- | --- | --- |
-| `SITE_NAME` | Yes | Exactly one existing site. Never `"all"`; the script refuses that value and refuses a site whose `sites/<site>/site_config.json` is missing. |
+| `SITE_NAME` | Yes | Exactly one site. Never `"all"`; the script refuses that value, and fails (after a bounded wait) if the site's `sites/<site>/site_config.json` never appears. |
 | `INTELLIGENCE_ALLOW_TESTS` | No | Only the exact value `"1"` turns the site's `allow_tests` config flag **on**. Any other value (including unset) leaves the site's existing `allow_tests` setting untouched in both directions. |
 | `INTELLIGENCE_RUN_TESTS` | No | Only the exact value `"1"`, together with `INTELLIGENCE_ALLOW_TESTS=1`, runs `bench run-tests --app frappe_intelligence --module frappe_intelligence.tests.test_integration` (the same real-Frappe suite documented in [`docs/verification.md`](../docs/verification.md)). Requesting this without also enabling `allow_tests` fails fast. |
 | `INTELLIGENCE_INIT_RESULT_PATH` | No | Default `<bench>/sites/intelligence-staging-result.json`. Overwritten atomically on every run. |
+| `INTELLIGENCE_SITE_WAIT_TIMEOUT` | No | Bound in seconds on the wait-for-site poll (default `780`, i.e. 13 minutes). On timeout the run logs a clear error and exits non-zero; the site is never created by this script. |
+| `INTELLIGENCE_SITE_WAIT_INTERVAL` | No | Seconds between readiness polls (default `5`). |
 | `BENCH_DIR` | No | Default `/home/frappe/frappe-bench`, matching the base image. |
 
 ### What it does, in order
 
 1. Refuses to run as anyone but the `frappe` user, and refuses `SITE_NAME`
-   being unset, `"all"`, or naming a site that does not already exist.
+   being unset or `"all"`. A site that does not exist **yet** is first
+   awaited (bounded; see `INTELLIGENCE_SITE_WAIT_TIMEOUT`) so a fresh deploy
+   whose create-site service is still running self-heals; a site that never
+   appears fails the run with a clear error. The site is never created here.
 2. Reads `bench --site $SITE_NAME list-apps` (a native, non-secret bench
    subcommand; every bench call in this script reads stdin from `/dev/null`
    and is never given a database/admin password on the command line).

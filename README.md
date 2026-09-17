@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="frappe_intelligence/public/images/intelligence.svg" alt="Frappe Intelligence logo" height="80" />
+  <img src="frappe_intelligence/public/images/intelligence.svg" alt="Intelligence logo" height="80" />
 </p>
 
-<h1 align="center">Frappe Intelligence</h1>
+<h1 align="center">Intelligence</h1>
 
 <p align="center"><b>An AI assistant that lives inside your ERP. Your keys, your permissions, your approval on every action.</b></p>
 
@@ -21,9 +21,9 @@
 
 > **Unofficial, community-maintained app.** Not affiliated with, endorsed by, or certified by Frappe Technologies, ERPNext, OpenAI, Anthropic, Google, OpenRouter, or xAI.
 
-## Frappe Intelligence
+## Intelligence
 
-Frappe Intelligence brings a ChatGPT-class assistant into Frappe and ERPNext without handing your data, or your judgment, to a black box. It answers questions about the records a user is already allowed to see, reads the reports finance teams actually run, works with uploaded documents, remembers only what it's told to remember, and asks before it touches anything.
+Intelligence brings a ChatGPT-class assistant into Frappe and ERPNext without handing your data, or your judgment, to a black box. It answers questions about the records a user is already allowed to see, reads the reports finance teams actually run, works with uploaded documents, remembers only what it's told to remember, and asks before it touches anything.
 
 <details>
 <summary><b>Screenshots</b></summary>
@@ -63,7 +63,7 @@ ERP systems hold the answers people actually need (what's owed, what shipped, wh
 
 ### Managed hosting
 
-Frappe Intelligence will be available on the Frappe Cloud Marketplace. Self-hosters can install it today:
+Intelligence will be available on the Frappe Cloud Marketplace. Self-hosters can install it today:
 
 ### Self hosting
 

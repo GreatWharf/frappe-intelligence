@@ -172,7 +172,7 @@ def get_run(run_name):
 
 def get_provider_config(provider_name, user=None):
     """Server-only key load, reauthorized for the CURRENT user on every call."""
-    from frappe_intelligence.providers import ProviderConfig
+    from frappe_intelligence.providers import KINDS, ProviderConfig
 
     current_user = require_user()
     if user is not None and user != current_user:
@@ -190,8 +190,12 @@ def get_provider_config(provider_name, user=None):
     allowed = tuple(
         host.strip() for host in (settings.allowed_custom_hosts or "").splitlines() if host.strip()
     )
+    # The DocType stores capitalized Select labels; the adapters key on lowercase kinds.
+    kind = doc.kind.lower() if isinstance(doc.kind, str) else ""
+    if kind not in KINDS:
+        frappe.throw("This provider configuration is not supported.", frappe.ValidationError)
     return ProviderConfig(
-        kind=doc.kind,
+        kind=kind,
         model=doc.model,
         api_key=key,
         base_url=doc.base_url or "",

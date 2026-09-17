@@ -1,0 +1,249 @@
+# =============================================================================
+# Frappe Intelligence -- compose deploy template (Dokploy / docker compose)
+# =============================================================================
+#
+# One self-healing stack for the image built by docker/Dockerfile:
+#
+#   * Fresh deploys self-order. intelligence-init runs only after create-site
+#     has completed successfully, so site-init.sh's "site must exist" guard
+#     can no longer fire while a first-ever site is still being created.
+#     CREATE_SITE=0 deploys (or stacks that drop the create-site service
+#     entirely) do not hang: create-site exits 0 immediately, and init's
+#     depends_on entry is marked `required: false`.
+#   * The frontend re-links the app's assets on EVERY start. The mounted
+#     sites volume can hold a stale or dangling sites/assets/frappe_intelligence
+#     entry, so the entrypoint force-links it at the image-side
+#     apps/frappe_intelligence/frappe_intelligence/public -- the same target
+#     Frappe uses natively, resolvable identically in every container --
+#     before handing off to the stock nginx-entrypoint.sh.
+#
+# Required environment (compose .env or Dokploy env):
+#   SITE_NAME          the one site this stack serves (and creates, when
+#                      CREATE_SITE=1)
+#   DB_ROOT_PASSWORD   MariaDB root password (consumed only by create-site)
+# Optional:
+#   CREATE_SITE        "1" only on the first-ever deploy of a fresh site;
+#                      anything else makes create-site a fast no-op success
+#   ADMIN_PASSWORD     initial Administrator password (CREATE_SITE=1 only)
+#   INTELLIGENCE_IMAGE image reference; default frappe-intelligence:v16.34.2
+#
+# `required: false` on depends_on needs docker compose v2.20.2 or newer.
+# =============================================================================
+
+name: frappe-intelligence
+
+services:
+  mariadb:
+    image: mariadb:10.6
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD is required}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis-cache:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-cache-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis-queue:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-queue-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: regenerate sites/apps.txt from the image's apps/ directory (the
+  # mounted sites volume hides whatever the image baked in) and pin the
+  # bench-global config at this stack's service names.
+  configurator:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    user: frappe
+    restart: "no"
+    entrypoint: ["bash", "-c"]
+    command: >
+      ls -1 apps > sites/apps.txt;
+      bench set-config -g db_host mariadb;
+      bench set-config -gp db_port 3306;
+      bench set-config -g redis_cache redis://redis-cache:6379;
+      bench set-config -g redis_queue redis://redis-queue:6379;
+      bench set-config -g redis_socketio redis://redis-queue:6379;
+      bench set-config -gp socketio_port 9000;
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  # One-shot site provisioning, only ever on a fresh deploy. With CREATE_SITE
+  # unset or 0 it exits 0 immediately, which satisfies downstream
+  # `service_completed_successfully` conditions without creating anything.
+  create-site:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    user: frappe
+    restart: "no"
+    entrypoint: ["bash", "-c"]
+    environment:
+      CREATE_SITE: ${CREATE_SITE:-0}
+      SITE_NAME: ${SITE_NAME:?SITE_NAME is required}
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    command: >
+      if [ "$$CREATE_SITE" = "1" ]; then
+        bench new-site "$$SITE_NAME"
+        --db-type mariadb
+        --db-host mariadb
+        --db-port 3306
+        --no-mariadb-socket
+        --mariadb-root-password "$$DB_ROOT_PASSWORD"
+        --admin-password "$$ADMIN_PASSWORD"
+        --install-app erpnext;
+      else
+        echo "[create-site] CREATE_SITE=$$CREATE_SITE; site creation skipped.";
+      fi
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      configurator:
+        condition: service_completed_successfully
+
+  # One-shot: install/migrate frappe_intelligence on the one named site and
+  # repair its assets (see docker/site-init.sh). Ordered after create-site so
+  # fresh deploys self-heal the init ordering; `required: false` keeps
+  # CREATE_SITE=0 deploys (and stacks without a create-site service) from
+  # hanging on the condition.
+  intelligence-init:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    user: frappe
+    restart: "no"
+    command: ["bash", "/home/frappe/frappe-bench/docker/site-init.sh"]
+    environment:
+      SITE_NAME: ${SITE_NAME:?SITE_NAME is required}
+      # Optional, off by default:
+      # INTELLIGENCE_ALLOW_TESTS: "1"
+      # INTELLIGENCE_RUN_TESTS: "1"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
+      create-site:
+        condition: service_completed_successfully
+        required: false
+
+  # Long-running services reuse the same image and wait for init to have
+  # completed, so they never serve a half-migrated site.
+  backend:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    restart: unless-stopped
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      intelligence-init:
+        condition: service_completed_successfully
+
+  scheduler:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    restart: unless-stopped
+    command: bench schedule
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      intelligence-init:
+        condition: service_completed_successfully
+
+  # Intelligence submits its runs to the `long` queue (docs/operations.md).
+  queue-long:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    restart: unless-stopped
+    command: bench worker --queue long,default,short
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      intelligence-init:
+        condition: service_completed_successfully
+
+  websocket:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    restart: unless-stopped
+    command: node /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  frontend:
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    restart: unless-stopped
+    entrypoint: ["bash", "-c"]
+    # Re-assert the app's asset link on every start, then exec the stock
+    # nginx entrypoint. The image's WORKDIR is the bench root, so
+    # sites/assets is already relative to it. A real directory at the target
+    # would make ln -sfn nest the link inside it instead of replacing it, so
+    # that case is cleared explicitly first.
+    command: |
+      mkdir -p sites/assets
+      if [ -d sites/assets/frappe_intelligence ] && [ ! -L sites/assets/frappe_intelligence ]; then
+        rm -rf sites/assets/frappe_intelligence
+      fi
+      ln -sfn /home/frappe/frappe-bench/apps/frappe_intelligence/frappe_intelligence/public sites/assets/frappe_intelligence
+      exec nginx-entrypoint.sh
+    environment:
+      BACKEND: backend:8000
+      FRAPPE_SITE_NAME_HEADER: ${SITE_NAME:?SITE_NAME is required}
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - "8080:8080"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    depends_on:
+      backend:
+        condition: service_started
+      websocket:
+        condition: service_started
+
+volumes:
+  mariadb-data:
+  redis-cache-data:
+  redis-queue-data:
+  sites:
+  logs:
