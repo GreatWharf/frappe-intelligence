@@ -50,11 +50,12 @@
 	}
 	function inline(text) {
 		// Tokenize before escaping. Never pass model HTML through a Markdown/HTML renderer.
-		const pattern = /(`[^`\n]+`|!\[[^\]\n]*\]\([^\s)]*\)|\[[^\]\n]+\]\([^\s)]*\)|\*\*[^*\n]+\*\*)/g;
+		const pattern = /(`[^`\n]+`|!\[[^\]\n]*\]\([^\s)]*\)|\[[^\]\n]+\]\([^\s)]*\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*)/g;
 		let output = "", cursor = 0;
 		for (const match of String(text).matchAll(pattern)) {
 			output += esc(text.slice(cursor, match.index)); const token = match[0];
 			if (token[0] === "`") output += "<code>" + esc(token.slice(1, -1)) + "</code>";
+			else if (token.startsWith("***")) output += "<strong><em>" + esc(token.slice(3, -3)) + "</em></strong>";
 			else if (token.startsWith("**")) output += "<strong>" + esc(token.slice(2, -2)) + "</strong>";
 			else if (token.startsWith("!")) output += '<span class="fi-muted">[Image not loaded]</span>';
 			else { const link = token.match(/^\[([^\]]+)\]\(([^)]*)\)$/); const href = safeURL(link[2]); output += href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + esc(link[1]) + "</a>" : esc(link[1]); }

@@ -72,6 +72,12 @@ test('Markdown supports readable tables, lists, safe links and escaped code fenc
   assert.ok(output.includes('<table>')); assert.ok(output.includes('<ul><li>First</li><li>Second</li></ul>'));
   assert.ok(output.includes('&lt;/code&gt;&lt;script&gt;')); assert.ok(output.includes('rel="noopener noreferrer"'));
 });
+test('Markdown renders triple-star bold italic without leaking literal asterisks', () => {
+  const output = markdown('***Total due: USD 4,350*** and **plain bold**');
+  assert.ok(output.includes('<strong><em>Total due: USD 4,350</em></strong>'));
+  assert.ok(output.includes('<strong>plain bold</strong>'));
+  assert.ok(!output.includes('*'));
+});
 test('context contains only explicit route identifiers, never page data', () => {
   assert.deepEqual(contextFromRoute(['Form', 'Customer', 'C-001', { secret: 'do not copy' }]), { doctype: 'Customer', name: 'C-001' });
   assert.deepEqual(contextFromRoute(['List', 'Sales Order', 'List', 'private-filter']), { doctype: 'Sales Order' });
