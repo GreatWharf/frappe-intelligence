@@ -160,7 +160,7 @@ def get_conversation(conversation, before_sequence=None):
         for row in frappe.get_all(
             "Intelligence Approval",
             filters={"run": run["name"], "conversation": doc.name},
-            fields=["name", "tool_name", "preview_json", "status", "expires_at"],
+            fields=["name", "tool_name", "preview_json", "status", "expires_at", "creation"],
             order_by="creation asc",
             limit_page_length=256,
         ):
@@ -171,6 +171,7 @@ def get_conversation(conversation, before_sequence=None):
                     "preview": _decode(row.preview_json, dict),
                     "status": row.status,
                     "expires_at": row.expires_at,
+                    "creation": row.creation,
                 }
             )
     return {

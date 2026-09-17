@@ -259,3 +259,19 @@ test('archived conversation is read-only while history remains readable', (t) =>
   const { app, snapshot } = harness(t); app.selected = 'c1'; snapshot.conversation.archived = 1; app.accept('c1', snapshot);
   assert.equal(app.$('textarea').disabled, true); assert.equal(app.$('[data-action="attach"]').disabled, true); assert.ok(app.slot('messages').textContent.includes('Hello'));
 });
+test('tool action cards interleave chronologically instead of trailing the final answer', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.messages = [
+    { name: 'm1', role: 'user', content: 'Brief me', status: 'complete', creation: '2026-09-17 09:00:00' },
+    { name: 'm2', role: 'assistant', content: 'On it', status: 'complete', creation: '2026-09-17 09:00:05' },
+    { name: 'm3', role: 'assistant', content: 'The final briefing', status: 'complete', creation: '2026-09-17 09:02:00' },
+  ];
+  snapshot.run = { name: 'r1', state: 'completed' };
+  snapshot.approvals = [{ name: 'a1', tool_name: 'search_records', status: 'succeeded', creation: '2026-09-17 09:01:00', preview: { summary: 'Search permitted records' } }];
+  app.accept('c1', copy(snapshot));
+  const text = app.slot('messages').textContent;
+  // The answer must follow the actions that produced it; grouping all cards
+  // after all messages buries it mid-thread.
+  assert.ok(text.indexOf('On it') < text.indexOf('search_records'));
+  assert.ok(text.indexOf('search_records') < text.indexOf('The final briefing'));
+});
