@@ -26,7 +26,7 @@ jobs:
           build-args: ERPNEXT_VERSION=v16.34.2
           push: true
           tags: |
-            ghcr.io/greatwharf/frappe-intelligence:0.2.0
+            ghcr.io/greatwharf/frappe-intelligence:0.3.0
             ghcr.io/greatwharf/frappe-intelligence:staging
           cache-from: type=gha
           cache-to: type=gha,mode=max
