@@ -7,7 +7,7 @@ import frappe
 USER_ROLES = ("Intelligence User", "Intelligence Manager", "System Manager")
 DEFAULTS = {
     "enabled": 1,
-    "max_steps": 12,
+    "max_steps": 30,
     "max_tokens": 4096,
     "max_run_seconds": 600,
     "approval_expiry_minutes": 1440,

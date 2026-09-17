@@ -42,7 +42,7 @@
       "fieldname": "max_steps",
       "label": "Max Steps",
       "fieldtype": "Int",
-      "default": "12"
+      "default": "30"
     },
     {
       "fieldname": "max_tokens",

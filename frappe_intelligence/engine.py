@@ -420,7 +420,7 @@ def _fence(run, token):
 def _budget(run, settings, provider_step=False):
     if not settings.enabled:
         return "Frappe Intelligence was disabled."
-    if provider_step and int(run.step_count or 0) >= _number(settings.max_steps, 12, 1, 50):
+    if provider_step and int(run.step_count or 0) >= _number(settings.max_steps, 30, 1, 50):
         return "The maximum number of model steps was reached."
     if _active_seconds(run) >= _number(settings.max_run_seconds, 600, 30, 3600):
         return "The run time limit was reached. Start a new run if needed."
