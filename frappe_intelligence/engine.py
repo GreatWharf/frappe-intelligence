@@ -915,7 +915,7 @@ def _execute_approval(run_name, token, approval_name):
         with _unprivileged_tool():
             result = execute(context, approval.tool_name, arguments)
         encoded = _json(result, MAX_RESULT_CHARS)
-    except Exception:
+    except Exception as exc:
         if spec.external:
             frappe.db.rollback()
             run = _locked_run(run_name)
@@ -924,7 +924,31 @@ def _execute_approval(run_name, token, approval_name):
                     run, "The external action did not return a confirmed result. Reconciliation is required."
                 )
             return
-        raise  # process_run rolls back effect AND started receipt, then records failure
+        if isinstance(exc, (frappe.PermissionError, frappe.ValidationError, ValueError)):
+            # Local tools are transactional: the rollback discards the effect,
+            # the executing status and the started receipt together. Document
+            # validation errors (for example a missing expense account) are
+            # model-correctable, so the failure returns as a tool result and
+            # the outer flow requeues the run instead of failing it.
+            frappe.db.rollback()
+            run = _locked_run(run_name)
+            _fence(run, token)
+            approval = frappe.get_doc(APPROVAL, approval_name, for_update=True)
+            _save(approval, status="failed")
+            _insert(
+                EXECUTION,
+                conversation=run.conversation,
+                run=run.name,
+                approval=approval.name,
+                tool_name=approval.tool_name,
+                state="failed",
+                started_at=_now(),
+                finished_at=_now(),
+                error=str(exc)[:500],
+            )
+            _tool_result(run, approval, {"error": str(exc)[:500]})
+            return
+        raise  # unexpected errors fail the run; process_run sanitizes the message
     if spec.external:
         # External extensions may read the DB, but may not stage local mutations.
         frappe.db.rollback()

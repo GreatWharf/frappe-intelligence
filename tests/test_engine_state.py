@@ -490,6 +490,31 @@ def test_local_effect_and_receipt_roll_back_together_on_error(env):
     assert "secret" not in env.engine.get_run(name)["error"]
 
 
+def test_local_validation_error_returns_a_tool_error_and_the_run_recovers(env, monkeypatch):
+    toolmod = sys.modules["frappe_intelligence.tools"]
+    name = submit(env)
+    env.replies.append(reply(("write", {"value": 3})))
+    env.engine.process_run(name)
+    env.engine.decide_approval(approvals(env)[0].name, "approve")
+    env.frappe.db.commit()
+
+    def validating_execute(context, tool_name, args):
+        raise ValueError("Expense account is mandatory for item Shipping & Handling")
+
+    monkeypatch.setattr(toolmod, "execute", validating_execute)
+    env.engine.process_run(name)
+    assert ("Business Record", "effect") not in env.frappe.rows, "the failed write must roll back"
+    assert env.engine.get_run(name)["state"] != "failed"
+    assert approvals(env)[0].status == "failed"
+    receipts = env.frappe.get_all("Intelligence Tool Execution")
+    assert len(receipts) == 1 and receipts[0].state == "failed"
+    messages = env.frappe.get_all("Intelligence Message")
+    assert any(row.role == "tool" and "Expense account" in row.content for row in messages)
+    env.replies.append(reply(text="Retrying with the item's default expense account."))
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "completed"
+
+
 def test_expired_external_execution_becomes_uncertain_without_retry(env):
     name = submit(env)
     run = env.frappe.get_doc("Intelligence Run", name)
