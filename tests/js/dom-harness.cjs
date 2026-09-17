@@ -54,6 +54,9 @@ class Element {
   get isConnected() { let current = this; while (current) { if (current === this.ownerDocument) return true; current = current.parentNode; } return false; }
   get elements() { const elements = this.querySelectorAll('input,select,textarea,button'); return new Proxy(elements, { get: (target, key) => key in target ? target[key] : target.find((node) => node.name === key) }); }
   appendChild(node) { if (node.parentNode) node.remove(); node.parentNode = this; this.childNodes.push(node); return node; }
+  insertBefore(node, ref) { if (node.parentNode) node.remove(); node.parentNode = this; const index = ref ? this.childNodes.indexOf(ref) : -1; if (index < 0) this.childNodes.push(node); else this.childNodes.splice(index, 0, node); return node; }
+  after(node) { if (!this.parentNode) return; const index = this.parentNode.childNodes.indexOf(this); if (node.parentNode) node.remove(); node.parentNode = this.parentNode; this.parentNode.childNodes.splice(index + 1, 0, node); }
+  get nextSibling() { if (!this.parentNode) return null; const index = this.parentNode.childNodes.indexOf(this); return this.parentNode.childNodes[index + 1] || null; }
   remove() { if (this.parentNode) this.parentNode.childNodes = this.parentNode.childNodes.filter((node) => node !== this); this.parentNode = null; }
   contains(node) { while (node) { if (node === this) return true; node = node.parentNode; } return false; }
   querySelectorAll(selector) { const selectors = selector.split(',').map((part) => part.trim()), result = []; const walk = (parent) => { for (const node of parent.childNodes) { if (selectors.some((part) => matches(node, part))) result.push(node); walk(node); } }; walk(this); return result; }

@@ -44,7 +44,7 @@ let browser;
   await page.locator('.fi-approval').scrollIntoViewIfNeeded(); await screenshot('workspace-approval-desktop');
   await page.locator('#theme-toggle').click(); await screenshot('workspace-approval-dark');
   await page.locator('[data-action="approve"]').click();
-  await page.waitForFunction(() => document.querySelector('[data-slot="run"]').textContent.includes('Completed'));
+  await page.waitForFunction(() => document.querySelector('[data-slot="messages"]').textContent.includes('Review complete')); /* the answer in the thread is the outcome; no Completed chip */
   assert.equal(await page.evaluate(() => preview.calls.filter((row) => row.method === 'approve').length), 1);
   await page.locator('[data-action="rename"]').click(); await page.locator('.fi-modal input[name="title"]').fill('Reviewed open orders'); await page.locator('.fi-modal button[type="submit"]').click();
   await page.waitForFunction(() => document.querySelector('[data-slot="title"]').textContent === 'Reviewed open orders');
@@ -52,7 +52,7 @@ let browser;
   await page.waitForFunction(() => document.querySelector('[data-slot="subtitle"]').textContent.includes('Archived'));
   assert.equal(await page.locator('.fi-composer textarea').isDisabled(), true);
   await page.goto(base + '/?scene=approval'); await page.waitForSelector('[data-action="deny"]'); await page.locator('[data-action="deny"]').click();
-  await page.waitForFunction(() => document.querySelector('[data-slot="run"]').textContent.includes('Completed'));
+  await page.waitForFunction(() => document.querySelector('[data-slot="messages"]').textContent.includes('The request was denied'));
   assert.equal(await page.evaluate(() => preview.calls.find((row) => row.method === 'approve').args.decision), 'deny');
   await page.goto(base + '/?scene=context'); await page.waitForSelector('.fi-drawer-shell:not([hidden]) .fi-context-chip');
   assert.ok((await page.locator('.fi-context-chip').textContent()).includes('Northstar Components')); await screenshot('contextual-drawer');
@@ -62,7 +62,7 @@ let browser;
   assert.equal(submission.args.context, null); assert.ok(!JSON.stringify(submission.args).includes('Commercial'));
   await page.locator('[data-action="approve"]').click(); await page.locator('[data-action="close"]').click();
   await page.waitForSelector('.fi-global-toggle.has-update', { timeout: 12000 });
-  await page.locator('.fi-global-toggle').click(); await page.waitForFunction(() => document.querySelector('[data-slot="run"]').textContent.includes('Completed'));
+  await page.locator('.fi-global-toggle').click(); await page.waitForFunction(() => document.querySelector('[data-slot="messages"]').textContent.includes('Review complete')); /* the answer in the thread is the outcome; no Completed chip */
   await page.evaluate(() => { preview.offline = true; preview.emit({ conversation: Object.keys(preview.snapshots).at(-1) }); });
   await page.waitForFunction(() => document.querySelector('[data-slot="banner"]').textContent.includes('Reconnecting'));
   await page.evaluate(() => { preview.offline = false; dispatchEvent(new Event('online')); });

@@ -14,6 +14,7 @@
 })(typeof window !== "undefined" ? window : globalThis, function (global) {
 	"use strict";
 	const API = "frappe_intelligence.api.";
+	const LOGO = "/assets/frappe_intelligence/images/intelligence.svg";
 	const ACTIVE = new Set(["queued", "running", "awaiting_approval"]);
 	const KINDS = ["OpenAI", "Anthropic", "Gemini", "OpenRouter", "xAI", "Custom"];
 	const EFFORTS = ["Auto", "Low", "Medium", "High", "Max"];
@@ -320,12 +321,17 @@
 			this.$('[data-action="expand"]').hidden = this.mode !== "drawer"; this.$('[data-action="close"]').hidden = this.mode !== "drawer";
 			const archive = this.$('[data-action="archive"]'); const archived = !!(this.snapshot && this.snapshot.conversation.archived); archive.setAttribute("aria-label", archived ? "Restore conversation" : "Archive conversation"); archive.title = archived ? "Restore conversation" : "Archive conversation";
 		}
+		conversationRowsHTML() {
+			return this.conversations.length ? this.conversations.map((row) => '<button type="button" class="fi-conversation ' + (this.selected === row.name ? "is-active" : "") + '" data-action="select" data-name="' + esc(row.name) + '" ' + (this.selected === row.name ? 'aria-current="true"' : "") + '><span class="fi-conversation-icon">' + icon("chat") + '</span><span class="fi-conversation-info"><span class="fi-conversation-title">' + esc(row.title || "Untitled conversation") + '</span><span class="fi-conversation-meta">' + esc(time(row.modified)) + (row.active_run ? '<span class="fi-list-status">In progress</span>' : "") + '</span></span>' + (row.active_run ? '<span class="fi-status-dot" aria-label="Active run"></span>' : "") + '</button>').join("") : '<div class="fi-list-empty">' + (this.loading ? "Loading conversations…" : this.search ? "No conversations match your search." : this.archived ? "No archived conversations." : "Your conversations will appear here.") + '</div>';
+		}
 		renderSidebar() {
 			const signature = JSON.stringify([this.conversations, this.selected, this.archived, this.loading, this.search]);
 			if (signature === this.sidebarSignature) return; this.sidebarSignature = signature;
 			this.slot("list-label").textContent = this.archived ? "Archived conversations" : "Conversations";
 			const filter = this.$('[data-action="archive-filter"]'); filter.setAttribute("aria-pressed", String(this.archived)); filter.title = this.archived ? "Show active conversations" : "Show archived conversations";
-			this.slot("conversations").innerHTML = this.conversations.length ? this.conversations.map((row) => '<button type="button" class="fi-conversation ' + (this.selected === row.name ? "is-active" : "") + '" data-action="select" data-name="' + esc(row.name) + '" ' + (this.selected === row.name ? 'aria-current="true"' : "") + '><span class="fi-conversation-icon">' + icon("chat") + '</span><span class="fi-conversation-info"><span class="fi-conversation-title">' + esc(row.title || "Untitled conversation") + '</span><span class="fi-conversation-meta">' + esc(time(row.modified)) + (row.active_run ? '<span class="fi-list-status">In progress</span>' : "") + '</span></span>' + (row.active_run ? '<span class="fi-status-dot" aria-label="Active run"></span>' : "") + '</button>').join("") : '<div class="fi-list-empty">' + (this.loading ? "Loading conversations…" : this.search ? "No conversations match your search." : this.archived ? "No archived conversations." : "Your conversations will appear here.") + '</div>';
+			const rows = this.conversationRowsHTML();
+			this.slot("conversations").innerHTML = rows;
+			paintDesk(this, rows);
 		}
 		renderProviders() {
 			const select = this.$('[data-input="provider"]'); const providers = this.boot && this.boot.providers || [];
@@ -351,7 +357,7 @@
 			const approvals = this.snapshot && this.snapshot.approvals || [];
 			if (!messages.length && !approvals.length) {
 				const noProviders = this.boot && !(this.boot.providers || []).length;
-				slot.innerHTML = '<div class="fi-welcome"><div class="fi-welcome-symbol" aria-hidden="true"><span class="fi-mark"><i></i><i></i><i></i><i></i></span></div><h2>How can I help?</h2><p>Ask about your business. Find the right records.<br>Take the next step, with you in control.</p>' + (noProviders ? '<div class="fi-setup-note"><strong>Connect a provider to get started</strong><p>Use your own API key and choose the model that works for you.</p>' + button("settings", "Set up a provider", "plus", "fi-primary") + '</div>' : '<div class="fi-starters"><button type="button" data-action="starter" data-prompt="Help me find the records I need to review today."><span class="fi-starter-icon">' + icon("search") + '</span><strong>Find what matters</strong><span>Explore records you can access</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me understand this workflow before making any changes."><span class="fi-starter-icon">' + icon("chat") + '</span><strong>Think it through</strong><span>Understand a process or next step</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Review an attached document and help me identify the next steps."><span class="fi-starter-icon">' + icon("file") + '</span><strong>Start with a document</strong><span>Work with a private PDF or text file</span>' + icon("chevron") + '</button></div>') + '<div class="fi-welcome-foot">' + icon("lock") + ' Private conversations. Explicit approvals. Your permissions.</div></div>';
+				slot.innerHTML = '<div class="fi-welcome"><div class="fi-welcome-symbol" aria-hidden="true"><img class="fi-welcome-logo" src="' + LOGO + '" alt=""></div><h2>How can I help?</h2><p>Ask about your business. Find the right records.<br>Take the next step, with you in control.</p>' + (noProviders ? '<div class="fi-setup-note"><strong>Connect a provider to get started</strong><p>Use your own API key and choose the model that works for you.</p>' + button("settings", "Set up a provider", "plus", "fi-primary") + '</div>' : '<div class="fi-starters"><button type="button" data-action="starter" data-prompt="Help me find the records I need to review today."><span class="fi-starter-icon">' + icon("search") + '</span><strong>Find what matters</strong><span>Explore records you can access</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me understand this workflow before making any changes."><span class="fi-starter-icon">' + icon("chat") + '</span><strong>Think it through</strong><span>Understand a process or next step</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Review an attached document and help me identify the next steps."><span class="fi-starter-icon">' + icon("file") + '</span><strong>Start with a document</strong><span>Work with a private PDF or text file</span>' + icon("chevron") + '</button></div>') + '<div class="fi-welcome-foot">' + icon("lock") + ' Private conversations. Explicit approvals. Your permissions.</div></div>';
 			} else {
 				// Merge messages and tool cards into one chronological feed: cards
 				// grouped after all messages would bury the final answer mid-thread.
@@ -361,16 +367,19 @@
 			if (nearBottom || !this.snapshot || this.snapshot.messages && this.snapshot.messages.length < 2) thread.scrollTop = thread.scrollHeight;
 		}
 		messageHTML(message) {
-			return '<article class="fi-message fi-message-' + esc(message.role) + '" data-message="' + esc(message.name) + '"><div class="fi-message-heading"><span class="fi-avatar ' + (message.role === "assistant" ? "fi-avatar-ai" : "") + '">' + (message.role === "assistant" ? '<span class="fi-mark"><i></i><i></i><i></i><i></i></span>' : "Y") + '</span><strong>' + (message.role === "assistant" ? "Intelligence" : "You") + '</strong><span>' + esc(time(message.creation)) + '</span>' + (message.status === "interrupted" ? '<span class="fi-message-interrupted">Interrupted</span>' : "") + '</div><div class="fi-message-content">' + markdown(message.content) + '</div></article>';
+			return '<article class="fi-message fi-message-' + esc(message.role) + '" data-message="' + esc(message.name) + '"><div class="fi-message-heading"><span class="fi-avatar ' + (message.role === "assistant" ? "fi-avatar-ai" : "") + '">' + (message.role === "assistant" ? '<img class="fi-avatar-logo" src="' + LOGO + '" alt="">' : "Y") + '</span><strong>' + (message.role === "assistant" ? "Intelligence" : "You") + '</strong><span>' + esc(time(message.creation)) + '</span>' + (message.status === "interrupted" ? '<span class="fi-message-interrupted">Interrupted</span>' : "") + '</div><div class="fi-message-content">' + markdown(message.content) + '</div></article>';
 		}
 		approvalHTML(approval) {
 			const pending = approval.status === "pending", locked = this.pending.has("approval:" + approval.name);
 			return '<section class="fi-approval ' + (pending ? "is-pending" : "") + '" aria-label="Tool approval"><div class="fi-approval-top"><span class="fi-approval-icon">' + icon(pending ? "lock" : "check") + '</span><div><span class="fi-eyebrow">' + (pending ? "YOUR APPROVAL IS REQUIRED" : "TOOL ACTION") + '</span><h3>' + esc(approval.tool_name) + '</h3></div><span class="fi-pill">' + esc(approval.status) + '</span></div>' + previewHTML(approval.preview) + (approval.expires_at && pending ? '<p class="fi-approval-expiry">Expires ' + esc(approval.expires_at) + '</p>' : "") + (pending ? '<div class="fi-approval-footer"><span>Nothing runs until you approve.</span><div>' + button("deny", "Deny", null, "", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("approve", "Approve action", "check", "fi-primary", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + '</div></div>' : '<div class="fi-approval-result">' + esc({ approved: "Approved; waiting for execution.", denied: "Denied. This request will not run.", executing: "Executing the approved request.", succeeded: "The approved action completed.", failed: "The action failed. Check the run status.", expired: "This approval expired. Start a new request if it is still needed.", uncertain: "The result could not be confirmed. Check the record before trying again." }[approval.status] || "") + '</div>') + '</section>';
 		}
 		renderRun() {
-			const run = this.snapshot && this.snapshot.run, slot = this.slot("run"); slot.hidden = !run;
+			const run = this.snapshot && this.snapshot.run, slot = this.slot("run");
 			const signature = JSON.stringify([run, this.pending.has("cancel")]); if (signature === this.runSignature) return; this.runSignature = signature;
-			if (!run) return;
+			// A plain completed run needs no banner: the answer in the thread is the outcome.
+			const quiet = run && run.state === "completed" && !run.cancel_requested && !run.error;
+			slot.hidden = !run || quiet;
+			if (!run || quiet) { slot.innerHTML = ""; return; }
 			const active = ACTIVE.has(run.state), warning = ["failed", "needs_reconciliation"].includes(run.state);
 			slot.classList.toggle("is-warning", warning);
 			slot.innerHTML = '<span class="' + (active && run.state !== "awaiting_approval" ? "fi-spinner" : "fi-run-icon") + '">' + (active && run.state !== "awaiting_approval" ? "" : icon(warning ? "info" : run.state === "awaiting_approval" ? "lock" : "check")) + '</span><div class="fi-run-copy"><strong>' + esc(LABELS[run.state] || run.state) + '</strong><span>' + esc(run.error || (run.cancel_requested ? "Cancellation requested. An action already in progress may finish." : run.state === "awaiting_approval" ? "You can leave and return. This request is waiting for your decision." : active ? "You can leave this page. Your run is saved and continues in the background." : run.state === "cancelled" ? "Any previously completed actions are not reversed." : run.state === "needs_reconciliation" ? "Check the affected records before trying again." : "This run is saved with your conversation.")) + '</span></div>' + (active ? button("cancel", run.cancel_requested ? "Stopping…" : "Stop", "stop", "fi-text-btn", run.cancel_requested || this.pending.has("cancel") ? "disabled" : "") : "");
@@ -664,24 +673,72 @@
 	}
 	function deskReady() { return !!(global.document && global.frappe && global.frappe.boot && global.frappe.session && global.frappe.session.user && global.frappe.session.user !== "Guest" && global.frappe.get_route); }
 	function routeIsPage() { const route = global.frappe.get_route(); return route && route[0] === "intelligence-chat"; }
+	// While the Intelligence page is active, conversations and the nav live in the
+	// Desk sidebar itself, so the in-page sidebar stays hidden and the thread gets
+	// the full width. The section is plain DOM injected next to the native blocks;
+	// Desk re-renders its sidebar on workspace changes, so syncDesk re-injects
+	// idempotently (route hook below plus a light interval guard in install()).
+	function deskSection() { return global.document && global.document.querySelector("[data-fi-desk]"); }
+	function deskSectionHTML() {
+		return '<div class="fi-desk-new-row">' + button("new", "New conversation", "plus", "fi-desk-new") + '</div>'
+			+ '<div class="fi-sidebar-label fi-desk-label"><span data-fi-desk-label>Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + '</div>'
+			+ '<nav class="fi-desk-conversations" data-fi-desk-list aria-label="Conversation list"></nav>'
+			+ '<div class="fi-sidebar-label fi-desk-label"><span>Intelligence</span></div>'
+			+ '<nav class="fi-desk-nav">' + button("approvals", "Approvals", "queue") + button("skills", "Skills", "grid") + button("memory", "Memory", "memory") + button("settings", "Providers & models", "settings") + button("scope", "Scope", "target") + '</nav>';
+	}
+	function paintDesk(app, rowsHTML) {
+		const section = deskSection(); if (!section) return;
+		const list = section.querySelector("[data-fi-desk-list]"); if (list) list.innerHTML = rowsHTML;
+		const label = section.querySelector("[data-fi-desk-label]"); if (label) label.textContent = app.archived ? "Archived conversations" : "Conversations";
+		const filter = section.querySelector('[data-action="archive-filter"]'); if (filter) { filter.setAttribute("aria-pressed", String(app.archived)); filter.title = app.archived ? "Show active conversations" : "Show archived conversations"; }
+	}
+	function syncDesk() {
+		if (!deskReady()) return;
+		const active = routeIsPage();
+		const sidebar = global.document.querySelector(".body-sidebar");
+		if (!active || !sidebar) {
+			if (global.document.body) global.document.body.classList.remove("fi-desk-active");
+			const stale = deskSection(); if (stale) stale.remove();
+			return;
+		}
+		let section = sidebar.querySelector("[data-fi-desk]");
+		if (!section) {
+			section = global.document.createElement("div");
+			section.className = "fi-desk-section";
+			section.setAttribute("data-fi-desk", "");
+			section.innerHTML = deskSectionHTML();
+			section.addEventListener("click", (event) => {
+				const target = event.target.closest("[data-action]");
+				if (!target || target.disabled || !section.contains(target)) return;
+				event.preventDefault();
+				getApp().action(target.dataset.action, target);
+			});
+			const anchor = sidebar.querySelector(".standard-items-sections");
+			if (anchor && anchor.parentNode === sidebar) anchor.after(section); else sidebar.appendChild(section);
+		}
+		if (global.document.body) global.document.body.classList.add("fi-desk-active");
+		if (singleton) paintDesk(singleton, singleton.conversationRowsHTML());
+	}
 	function openDrawer() {
 		if (!deskReady()) return; const app = getApp(); if (drawer && !drawer.hidden) { closeDrawer(); return; }
 		if (!drawer) { drawer = global.document.createElement("div"); drawer.className = "fi-drawer-shell"; drawer.hidden = true; drawer.setAttribute("role", "dialog"); drawer.setAttribute("aria-modal", "true"); drawer.setAttribute("aria-label", "Intelligence contextual drawer"); drawer.tabIndex = -1; drawer.addEventListener("keydown", (event) => { if (event.key === "Tab") trapFocus(event, drawer); if (event.key === "Escape" && !app.modal) { event.preventDefault(); closeDrawer(); } }); global.document.body.appendChild(drawer); }
 		drawerFocus = global.document.activeElement; drawer.hidden = false; app.context = contextFromRoute(global.frappe.get_route()); app.show(drawer, "drawer"); if (toggle) { toggle.classList.remove("has-update"); toggle.setAttribute("aria-expanded", "true"); } drawer.focus(); global.setTimeout(() => { if (!drawer.hidden) app.$("textarea").focus(); }, 0);
 	}
 	function closeDrawer() { if (!drawer || drawer.hidden) return; drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); if (singleton) { if (pageHost && routeIsPage()) singleton.show(pageHost, "page"); else singleton.hide(); } if (drawerFocus && drawerFocus.isConnected) drawerFocus.focus(); }
-	function showPage(host) { if (!deskReady()) return; pageHost = host.jquery ? host[0] : host; if (drawer) drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); getApp().show(pageHost, "page"); }
+	function showPage(host) { if (!deskReady()) return; pageHost = host.jquery ? host[0] : host; if (drawer) drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); getApp().show(pageHost, "page"); syncDesk(); }
 	function install() {
 		if (installed || !deskReady()) return; installed = true;
-		toggle = global.document.createElement("button"); toggle.type = "button"; toggle.className = "fi-global-toggle"; toggle.setAttribute("aria-label", "Open Intelligence"); toggle.setAttribute("aria-expanded", "false"); toggle.title = "Intelligence · Ctrl/⌘ Shift I"; toggle.innerHTML = '<span class="fi-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>Intelligence</span><span class="fi-toggle-dot" aria-hidden="true"></span>'; toggle.addEventListener("click", openDrawer); global.document.body.appendChild(toggle);
+		toggle = global.document.createElement("button"); toggle.type = "button"; toggle.className = "fi-global-toggle"; toggle.setAttribute("aria-label", "Open Intelligence"); toggle.setAttribute("aria-expanded", "false"); toggle.title = "Intelligence · Ctrl/⌘ Shift I"; toggle.innerHTML = '<img class="fi-toggle-logo" src="' + LOGO + '" alt="" aria-hidden="true"><span>Intelligence</span><span class="fi-toggle-dot" aria-hidden="true"></span>'; toggle.addEventListener("click", openDrawer); global.document.body.appendChild(toggle);
 		global.document.addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") { event.preventDefault(); openDrawer(); } if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "k" && singleton && singleton.visible && !singleton.modal) { event.preventDefault(); singleton.root.classList.add("fi-sidebar-open"); singleton.$('[data-input="search"]').focus(); } });
-		const routeChange = () => { if (!singleton) return; if (drawer && !drawer.hidden) { singleton.context = contextFromRoute(global.frappe.get_route()); singleton.renderContext(); } else if (!routeIsPage()) singleton.hide(); };
+		const routeChange = () => { syncDesk(); if (!singleton) return; if (drawer && !drawer.hidden) { singleton.context = contextFromRoute(global.frappe.get_route()); singleton.renderContext(); } else if (!routeIsPage()) singleton.hide(); };
 		if (global.frappe.router && global.frappe.router.on) global.frappe.router.on("change", routeChange);
+		syncDesk();
+		if (global.setInterval) global.setInterval(syncDesk, 2000);
 		if (global.frappe.realtime && global.frappe.realtime.on) global.frappe.realtime.on("intelligence_update", (event) => { if (!singleton || !event || !event.conversation) return; if (singleton.visible || singleton.watched.has(event.conversation)) { singleton.lastList = 0; singleton.poller.start(100); } });
 		global.addEventListener("online", () => { if (singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
 		global.document.addEventListener("visibilitychange", () => { if (!global.document.hidden && singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
 		global.addEventListener("pagehide", () => { if (singleton) singleton.poller.stop(); });
 		global.addEventListener("pageshow", () => { if (singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
 	}
-	return { install, showPage, toggle: openDrawer, close: closeDrawer, App, Poller, utils: { esc, safeURL, markdown, contextFromRoute, userError, previewHTML, skillsHTML, learnedSkillsHTML, effortOptions, queueHTML, scopeState, scopeProblem, scopeHTML, stamp }, request };
+	return { install, showPage, syncDesk, toggle: openDrawer, close: closeDrawer, App, Poller, utils: { esc, safeURL, markdown, contextFromRoute, userError, previewHTML, skillsHTML, learnedSkillsHTML, effortOptions, queueHTML, scopeState, scopeProblem, scopeHTML, stamp }, request };
 });

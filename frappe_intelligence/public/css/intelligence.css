@@ -1,5 +1,5 @@
 /* Scoped Frappe-native surfaces. The only global selector is our launcher. */
-.fi-app, .fi-modal-overlay, .fi-global-toggle {
+.fi-app, .fi-modal-overlay, .fi-global-toggle, .fi-desk-section {
 	--fi-bg: var(--fg-color, #fff); --fi-soft: var(--subtle-fg, #f7f8fa); --fi-ground: var(--bg-color, #f3f5f7);
 	--fi-text: var(--text-color, #242a30); --fi-muted: var(--text-muted, #65717c); --fi-border: var(--border-color, #e6e9ec);
 	--fi-accent: var(--btn-primary, #171717); --fi-accent-hover: var(--invert-neutral, #383838); --fi-accent-soft: var(--control-bg, #f3f3f3); --fi-accent-text: var(--text-color, #171717);
@@ -8,7 +8,7 @@
 	--fi-shadow: 0 18px 60px rgb(24 35 43 / 13%); --fi-font: var(--font-stack, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
 	color: var(--fi-text); font: var(--text-base, 14px)/1.5 var(--fi-font); text-align: left; -webkit-font-smoothing: antialiased;
 }
-[data-theme="dark"] .fi-app, [data-theme="dark"] .fi-modal-overlay, [data-theme="dark"] .fi-global-toggle {
+[data-theme="dark"] .fi-app, [data-theme="dark"] .fi-modal-overlay, [data-theme="dark"] .fi-global-toggle, [data-theme="dark"] .fi-desk-section {
 	--fi-bg: var(--fg-color, #1c2228); --fi-soft: var(--subtle-fg, #222930); --fi-ground: var(--bg-color, #161b21);
 	--fi-text: var(--text-color, #e8edef); --fi-muted: var(--text-muted, #a0acb5); --fi-border: var(--border-color, #343e47);
 	--fi-accent: var(--btn-primary, #f3f3f3); --fi-accent-hover: var(--invert-neutral, #d4d4d4); --fi-accent-soft: var(--control-bg, #292929); --fi-accent-text: var(--text-color, #f3f3f3);
@@ -17,7 +17,7 @@
 	--fi-shadow: 0 18px 60px rgb(0 0 0 / 35%);
 }
 @media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) .fi-app, :root:not([data-theme="light"]) .fi-modal-overlay, :root:not([data-theme="light"]) .fi-global-toggle {
+	:root:not([data-theme="light"]) .fi-app, :root:not([data-theme="light"]) .fi-modal-overlay, :root:not([data-theme="light"]) .fi-global-toggle, :root:not([data-theme="light"]) .fi-desk-section {
 		--fi-bg: var(--fg-color, #1c2228); --fi-soft: var(--subtle-fg, #222930); --fi-ground: var(--bg-color, #161b21);
 		--fi-text: var(--text-color, #e8edef); --fi-muted: var(--text-muted, #a0acb5); --fi-border: var(--border-color, #343e47);
 		--fi-accent: var(--btn-primary, #f3f3f3); --fi-accent-hover: var(--invert-neutral, #d4d4d4); --fi-accent-soft: var(--control-bg, #292929); --fi-accent-text: var(--text-color, #f3f3f3);
@@ -26,11 +26,11 @@
 		--fi-shadow: 0 18px 60px rgb(0 0 0 / 35%);
 	}
 }
-.fi-app *, .fi-modal-overlay *, .fi-global-toggle * { box-sizing: border-box; }
+.fi-app *, .fi-modal-overlay *, .fi-global-toggle *, .fi-desk-section * { box-sizing: border-box; }
 .fi-app [hidden], .fi-modal-overlay [hidden], .fi-drawer-shell[hidden] { display: none !important; }
-.fi-app button, .fi-app input, .fi-app textarea, .fi-app select, .fi-modal-overlay button, .fi-modal-overlay input, .fi-modal-overlay textarea, .fi-modal-overlay select { font: inherit; }
-.fi-app button, .fi-modal-overlay button { cursor: pointer; }
-.fi-app button:disabled, .fi-modal-overlay button:disabled, .fi-app select:disabled { cursor: not-allowed; opacity: .48; }
+.fi-app button, .fi-app input, .fi-app textarea, .fi-app select, .fi-modal-overlay button, .fi-modal-overlay input, .fi-modal-overlay textarea, .fi-modal-overlay select, .fi-desk-section button { font: inherit; }
+.fi-app button, .fi-modal-overlay button, .fi-desk-section button { cursor: pointer; }
+.fi-app button:disabled, .fi-modal-overlay button:disabled, .fi-app select:disabled, .fi-desk-section button:disabled { cursor: not-allowed; opacity: .48; }
 .fi-app button, .fi-modal-overlay button, .fi-global-toggle { -webkit-tap-highlight-color: transparent; }
 .fi-app :is(button,input,select,textarea,a,summary,[tabindex]):focus-visible, .fi-modal-overlay :is(button,input,select,textarea,a,summary):focus-visible, .fi-global-toggle:focus-visible { outline: 2px solid var(--fi-focus); outline-offset: 2px; }
 .fi-app a { color: var(--fi-accent-text); text-decoration: underline; text-underline-offset: 3px; }
@@ -434,3 +434,38 @@
 }
 @media (prefers-reduced-motion: reduce) { .fi-app *, .fi-modal-overlay * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 @media print { .fi-sidebar, .fi-bottom, .fi-header-actions, .fi-global-toggle, .fi-modal-overlay { display: none !important; } .fi-app { display: block; height: auto; overflow: visible; border: 0; } .fi-thread { overflow: visible; } }
+
+/* Full-width page mode: conversations and navigation live in the Desk sidebar
+   (injected by syncDesk in intelligence.js), so the in-page sidebar stays hidden
+   and the thread takes the whole width. Drawer mode and surfaces without a Desk
+   sidebar (no fi-desk-active) are unchanged. */
+body.fi-desk-active .fi-app:not(.fi-drawer-app) { grid-template-columns: minmax(0, 1fr); }
+body.fi-desk-active .fi-app:not(.fi-drawer-app) > .fi-sidebar { display: none; }
+
+/* Injected Desk sidebar section */
+.fi-desk-section { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 12px; margin-top: 4px; border-top: 1px solid var(--fi-border); color: var(--fi-text); font: var(--text-base, 14px)/1.5 var(--fi-font); }
+.fi-desk-new-row { padding: 2px 0 4px; }
+.fi-desk-section .fi-btn.fi-desk-new { width: 100%; justify-content: flex-start; }
+.fi-desk-label { padding: 8px 4px 2px; }
+.fi-desk-conversations { display: flex; flex-direction: column; max-height: 36vh; overflow-y: auto; scrollbar-width: thin; }
+.fi-desk-conversations .fi-conversation { padding: 7px 8px; gap: 8px; margin-bottom: 1px; }
+.fi-desk-conversations .fi-conversation-icon { display: none; }
+.fi-desk-conversations .fi-conversation-title { font-size: 12.5px; }
+.fi-desk-conversations .fi-conversation-meta { font-size: 10px; margin-top: 1px; }
+.fi-desk-conversations .fi-list-empty { padding: 6px 8px; font-size: 11px; color: var(--fi-muted); }
+.fi-desk-nav { display: flex; flex-direction: column; gap: 1px; }
+.fi-desk-nav .fi-btn { width: 100%; justify-content: flex-start; background: transparent; border-color: transparent; padding: 6px 8px; min-height: 30px; font-size: 12.5px; font-weight: 500 !important; color: var(--fi-muted); }
+.fi-desk-nav .fi-btn:hover:not(:disabled) { background: var(--fi-soft); border-color: transparent; color: var(--fi-text); }
+
+/* Desk chrome while Intelligence is open: the app mark replaces the workspace
+   letter avatar and the redundant workspace shortcut list is tucked away. */
+body.fi-desk-active .body-sidebar .sidebar-header .icon-container { background-color: transparent !important; background-image: url("/assets/frappe_intelligence/images/intelligence.svg") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: cover !important; }
+body.fi-desk-active .body-sidebar .sidebar-header .icon-container svg { display: none !important; }
+body.fi-desk-active .body-sidebar .body-sidebar-top { display: none !important; }
+
+/* The product mark as an image (assistant avatar, welcome, launcher). */
+.fi-avatar-ai { padding: 0; overflow: hidden; }
+.fi-avatar-logo { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
+.fi-welcome-symbol { padding: 0; overflow: hidden; border-color: transparent; }
+.fi-welcome-logo { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
+.fi-toggle-logo { width: 17px; height: 17px; border-radius: 5px; display: block; }

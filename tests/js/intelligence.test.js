@@ -107,7 +107,10 @@ test('production DOM renderer blocks injection in messages, conversation titles 
   snapshot.messages.push({ name: 'tool', role: 'tool', content: 'MODEL_TOOL_METADATA_MUST_NOT_APPEAR' });
   snapshot.approvals = [{ name: 'a1', tool_name: '<svg/onload=alert(1)>', status: 'pending', preview: { summary: '<img src=x>', target: { doctype: 'Customer' } } }];
   app.selected = 'c1'; app.accept('c1', snapshot);
-  assert.equal(document.querySelectorAll('img, script, iframe').length, 0);
+  // The only img allowed is the fixed product logo on assistant avatars; user
+  // content must never render one.
+  for (const node of document.querySelectorAll('img')) assert.equal(node.getAttribute('src'), '/assets/frappe_intelligence/images/intelligence.svg');
+  assert.equal(document.querySelectorAll('script, iframe').length, 0);
   assert.equal(app.slot('title').textContent, snapshot.conversation.title);
   assert.ok(!app.root.textContent.includes('MODEL_TOOL_METADATA_MUST_NOT_APPEAR'));
   assert.equal(app.$('[data-action="approve"]').textContent.trim(), 'Approve action');
@@ -280,4 +283,70 @@ test('tool action cards interleave chronologically instead of trailing the final
   // after all messages buries it mid-thread.
   assert.ok(text.indexOf('On it') < text.indexOf('search_records'));
   assert.ok(text.indexOf('search_records') < text.indexOf('The final briefing'));
+});
+
+test('a completed run leaves no status chip: the answer in the thread is the outcome', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.run = { name: 'r1', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  assert.equal(app.slot('run').hidden, true);
+  assert.equal(app.slot('run').textContent, '');
+});
+
+test('every non-completed run state still surfaces the status chip', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  for (const state of ['queued', 'running', 'awaiting_approval', 'failed', 'cancelled', 'needs_reconciliation']) {
+    snapshot.run = { name: 'r1', state };
+    app.accept('c1', copy(snapshot));
+    assert.equal(app.slot('run').hidden, false, state);
+    assert.ok(app.slot('run').textContent.trim().length > 0, state);
+  }
+  // A cancelled-completed edge: cancel_requested must keep the chip even when the state settled.
+  snapshot.run = { name: 'r1', state: 'completed', cancel_requested: true };
+  app.accept('c1', copy(snapshot));
+  assert.equal(app.slot('run').hidden, false);
+});
+
+test('the assistant avatar, welcome mark and launcher use the product logo, never the CSS star', (t) => {
+  const { app } = harness(t);
+  const html = app.messageHTML({ name: 'm1', role: 'assistant', content: 'Hi', status: 'complete', creation: '2026-09-17 09:00:00' });
+  assert.ok(html.includes('fi-avatar-logo'));
+  assert.ok(html.includes('/assets/frappe_intelligence/images/intelligence.svg'));
+  assert.ok(!source.includes('<span class="fi-mark"'), 'no CSS-star marks remain in the client');
+  assert.ok(source.includes('fi-welcome-logo') && source.includes('fi-toggle-logo'));
+});
+
+test('syncDesk moves conversations and navigation into the Desk sidebar on our page only', (t) => {
+  const { app, window, document } = harness(t);
+  window.frappe.boot = {}; window.frappe.session = { user: 'user@example.test' };
+  let route = ['intelligence-chat'];
+  window.frappe.get_route = () => route;
+  const sidebar = document.createElement('aside'); sidebar.className = 'body-sidebar';
+  const standard = document.createElement('div'); standard.className = 'standard-items-sections'; sidebar.appendChild(standard);
+  const top = document.createElement('div'); top.className = 'body-sidebar-top'; sidebar.appendChild(top);
+  document.body.appendChild(sidebar);
+  window.frappe.intelligence.syncDesk();
+  const section = sidebar.querySelector('[data-fi-desk]');
+  assert.ok(section, 'section injected');
+  assert.equal(standard.nextSibling, section, 'sits right below Search and Notifications');
+  assert.equal(document.body.classList.contains('fi-desk-active'), true);
+  for (const label of ['New conversation', 'Conversations', 'Approvals', 'Skills', 'Memory', 'Providers & models', 'Scope'])
+    assert.ok(section.textContent.includes(label), label);
+  // The in-page app paints the same rows into the Desk list.
+  app.conversations = [{ name: 'c9', title: 'Quarterly review', modified: '2026-09-17 09:00:00' }];
+  app.sidebarSignature = null; app.renderSidebar();
+  assert.ok(sidebar.querySelector('[data-fi-desk-list]').textContent.includes('Quarterly review'));
+  // Clicks inside the Desk section drive the singleton app.
+  const seen = [];
+  const original = window.frappe.intelligence.App.prototype.action;
+  window.frappe.intelligence.App.prototype.action = function (name) { seen.push(name); };
+  t.after(() => { window.frappe.intelligence.App.prototype.action = original; });
+  sidebar.querySelector('[data-fi-desk-list] [data-action="select"]').click();
+  section.querySelector('[data-action="new"]').click();
+  assert.deepEqual(seen, ['select', 'new']);
+  // Leaving our route removes the section and the body class again.
+  route = ['home'];
+  window.frappe.intelligence.syncDesk();
+  assert.equal(sidebar.querySelector('[data-fi-desk]'), null);
+  assert.equal(document.body.classList.contains('fi-desk-active'), false);
 });
