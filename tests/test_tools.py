@@ -3,6 +3,7 @@
 import copy
 import importlib
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -230,6 +231,13 @@ class FakeFrappe(types.ModuleType):
                     matched = False
                 if op == "in" and actual not in value:
                     matched = False
+                if op == "like":
+                    # Real SQL LIKE: % and _ are wildcards; without them the
+                    # match is exact. Mirroring that here keeps filter tests
+                    # honest about what a real site would return.
+                    pattern = "^" + re.escape(str(value)).replace("%", ".*").replace("_", ".") + "$"
+                    if not re.match(pattern, str(actual or ""), re.S):
+                        matched = False
             if matched:
                 output.append(Row({key: row.get(key) for key in fields}))
         return output[: kwargs.get("limit_page_length", 20)]
@@ -409,6 +417,34 @@ def test_search_cannot_filter_sensitive_fields_or_join(tools):
                 "search_records",
                 {"doctype": "Customer", "filters": [{"field": field, "operator": "=", "value": "x"}]},
             )
+
+
+def test_search_like_filter_matches_substrings(tools):
+    m, c, f = tools
+    f.seed("Customer", "C-NW", customer_name="Northwind Components")
+    args = {
+        "doctype": "Customer",
+        "fields": ["customer_name"],
+        "filters": [{"field": "customer_name", "operator": "like", "value": "Northwind"}],
+    }
+    # Models (and Desk list filters) mean substring search by "like"; SQL LIKE
+    # without % wildcards matches only the exact string, so the tool wraps.
+    result = m.execute(c, "search_records", args)
+    assert [row["customer_name"] for row in result["records"]] == ["Northwind Components"]
+    assert f.queries[-1][1] == [["customer_name", "like", "%Northwind%"]]
+
+
+def test_search_like_filter_respects_explicit_wildcards(tools):
+    m, c, f = tools
+    f.seed("Customer", "C-NW", customer_name="Northwind Components")
+    args = {
+        "doctype": "Customer",
+        "fields": ["customer_name"],
+        "filters": [{"field": "customer_name", "operator": "like", "value": "North%"}],
+    }
+    result = m.execute(c, "search_records", args)
+    assert [row["customer_name"] for row in result["records"]] == ["Northwind Components"]
+    assert f.queries[-1][1] == [["customer_name", "like", "North%"]]
 
 
 def test_versioned_write_preview_is_deterministic_and_does_not_mutate(tools):

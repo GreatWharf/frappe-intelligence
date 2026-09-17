@@ -4,7 +4,7 @@ The model sees only enabled, reviewed tool schemas. It cannot choose a Python fu
 
 ## Built-ins
 
-- `search_records`: configured DocTypes, permission-aware queries, per-record/company rechecks, at most 50 rows and permitted scalar fields.
+- `search_records`: configured DocTypes, permission-aware queries, per-record/company rechecks, at most 50 rows and permitted scalar fields. `like` filters are substring search: values without `%` wildcards are wrapped, matching Desk list behavior.
 - `read_document`: allowed scalar fields and native document/field permissions; credential fields and child-table dumps are excluded.
 - `run_report`: reviewed ERPNext report names and closed company-safe filters; at most 200 result rows, no chart/summary disclosure, prepared reports or custom report execution. Non-Company User Permissions cause refusal when aggregate isolation cannot be established.
 - `read_attachment`: a private file attached to this conversation, approved before any content is disclosed. Supports UTF-8 TXT/Markdown/CSV/JSON and text PDFs, effective size limit 1–20 MiB, 50 PDF pages and bounded extraction time/characters. JSON is plain text, never executed. The transient system prompt lists the conversation's attached files (File name plus file name) so the model can name one here; contents stay behind this tool's approval.

@@ -260,6 +260,10 @@ def _search_plan(context, args):
             operator == "like" and not isinstance(value, str)
         ):
             raise ValueError("Filter operator and value do not match.")
+        if operator == "like" and "%" not in value:
+            # Callers mean substring search; SQL LIKE without wildcards is an
+            # exact match, so a bare "Acme" would silently find nothing.
+            value = f"%{value}%"
         filters.append([item["field"], operator, value])
     return fields, filters
 
