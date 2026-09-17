@@ -898,7 +898,7 @@ def test_skills_returns_the_pinned_contract(stack):
     assert write_scope == ["Event", "ToDo"]
     never = result["never_allow"]
     assert never == sorted(set(never))
-    for name in ("GL Entry", "Workflow", "Payment Entry", "User", "DocType"):
+    for name in ("GL Entry", "Workflow", "Journal Entry", "User", "DocType"):
         assert name in never
     assert not set(write_scope) & set(never)
     assert "synthetic-secret" not in json.dumps(result)

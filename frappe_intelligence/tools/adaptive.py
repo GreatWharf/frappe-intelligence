@@ -3,11 +3,12 @@
 list_doctypes and describe_doctype expose the allowed data model itself;
 create_document and update_document write scalar fields (plus create-time
 child rows) of explicitly write-scoped DocTypes. The never-allow set
-(hardcoded, settings-independent) keeps ledger posting, payment, stock and
-workflow-bypass surfaces out of a generic field setter. Submittable DocTypes
-in the write scope may be created and edited as drafts only: docstatus is
-never a writable field and the docstatus != 0 guard freezes submitted
-documents, so a human always reviews and submits in Desk.
+(hardcoded, settings-independent) keeps ledger posting, stock and
+workflow-bypass surfaces out of a generic field setter. Payment documents
+may be drafted where configured, but like every submittable DocType in the
+write scope they are drafts only: docstatus is never a writable field and
+the docstatus != 0 guard freezes submitted documents, so a human always
+reviews and submits in Desk.
 """
 
 from . import ToolSpec, denied, json_value, policy_lines
@@ -22,12 +23,12 @@ from .records import (
 )
 from .validation import FIELD, MODIFIED, NAME, SCALAR, object_schema, string_schema
 
-# Hard write ceiling: _BLOCKED_TYPES plus financial/stock posting, workflow
+# Hard write ceiling: _BLOCKED_TYPES plus ledger/stock posting, workflow
 # bypass and approval-evasion surfaces. Settings can never widen this.
+# Payment Entry stays writable-but-draft-only: a draft posts nothing, and the
+# engine can never submit it (docstatus is not a writable field).
 _NEVER_WRITE = _BLOCKED_TYPES | {
     "GL Entry",
-    "Payment Entry",
-    "Payment Entry Reference",
     "Journal Entry",
     "Journal Entry Account",
     "Stock Entry",
