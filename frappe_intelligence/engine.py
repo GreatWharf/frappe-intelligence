@@ -683,19 +683,34 @@ def _complete_with_retry(config, messages, tool_schemas):
 
     The transport is single-attempt by design; here the semantics are known
     (a chat completion, not a money-moving POST), so a gateway hiccup gets up
-    to three attempts with 2s/4s backoff. Authentication and contract errors
+    to four attempts with 3s/6s/12s backoff (about 21s of tolerance, sized
+    for a shared rate-limited gateway). Authentication and contract errors
     raise immediately. No database state changes between attempts: the run
     row was committed before the first call and the history is unchanged.
     """
     from frappe_intelligence.providers import ProviderError, complete
 
-    for attempt in range(1, 4):
+    for attempt in range(1, 5):
         try:
             return complete(config, messages, tool_schemas)
         except ProviderError as exc:
-            if exc.code not in _TRANSIENT_PROVIDER_CODES or attempt == 3:
+            if exc.code not in _TRANSIENT_PROVIDER_CODES or attempt == 4:
                 raise
-            time.sleep(min(2**attempt, 8))
+            time.sleep(3 * 2 ** (attempt - 1))
+
+
+def _failure_message(exc):
+    """Safe user-facing run failure text.
+
+    An exhausted provider outage says exactly that (no internals, no codes);
+    every other error keeps the generic safe message. Never leaks exception
+    details, which can carry request or key material.
+    """
+    from frappe_intelligence.providers import ProviderError
+
+    if isinstance(exc, ProviderError):
+        return "The AI provider could not be reached after several attempts. Please try again shortly."
+    return "The run could not continue safely. Review permissions, provider configuration and tool inputs."
 
 
 def _provider_turn(run_name, token):
@@ -924,7 +939,7 @@ def process_run(run_name):
             _provider_turn(run_name, token)
     except LostLease:
         frappe.db.rollback()  # stale provider/local tool output is not authoritative
-    except Exception:
+    except Exception as exc:
         frappe.db.rollback()
         if token:
             run = _locked_run(run_name)
@@ -947,11 +962,7 @@ def process_run(run_name):
                                 finished_at=_now(),
                                 error="Tool execution failed and local changes were rolled back.",
                             )
-                    _finish(
-                        run,
-                        "failed",
-                        "The run could not continue safely. Review permissions, provider configuration and tool inputs.",
-                    )
+                    _finish(run, "failed", _failure_message(exc))
                 frappe.db.commit()
         elif verified_site:
             # Revoked user/provider access is terminal, not an endlessly requeued

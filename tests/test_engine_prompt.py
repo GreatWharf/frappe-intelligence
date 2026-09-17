@@ -458,7 +458,7 @@ def test_transient_provider_errors_are_retried_until_success(env, monkeypatch):
     env.engine.process_run(name)
     assert env.engine.get_run(name)["state"] == "completed"
     assert len(attempts) == 3
-    assert sleeps == [2, 4]
+    assert sleeps == [3, 6]
     # One assistant turn reached the transcript; duplicates were never appended.
     assert len(env.calls) == 3
 
@@ -489,8 +489,12 @@ def test_transient_provider_error_exhausts_bounded_attempts(env, monkeypatch):
         raise env.provider.ProviderError("provider_unavailable", "503")
 
     # The provider stub consumes one queued reply per HTTP attempt.
-    env.replies.extend([unavailable, unavailable, unavailable])
+    env.replies.extend([unavailable, unavailable, unavailable, unavailable])
     env.engine.process_run(name)
     run = env.engine.get_run(name)
     assert run["state"] == "failed"
-    assert len(attempts) == 3
+    assert len(attempts) == 4
+    # An exhausted provider failure says so; the generic safe message is for
+    # unexpected errors only.
+    assert "provider" in run["error"].lower()
+    assert "try again" in run["error"].lower()
