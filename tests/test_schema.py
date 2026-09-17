@@ -48,3 +48,13 @@ def test_app_assets_and_lifecycle_hooks_are_packaged():
         assert (APP / name).exists()
     assert (APP / "frappe_intelligence/page/intelligence_chat/intelligence_chat.json").exists()
     assert (APP / "public/images/intelligence.svg").exists()
+
+
+def test_preview_server_serves_only_paths_that_exist():
+    import re
+
+    source = (ROOT / "dev/preview-server.cjs").read_text(encoding="utf-8")
+    served = re.findall(r"'(frappe_intelligence/[^']+)'", source)
+    assert served, "preview server fixture paths not found"
+    for relative in served:
+        assert (ROOT / relative).exists(), relative

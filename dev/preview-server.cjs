@@ -8,7 +8,7 @@ const files = {
   '/preview.js': ['dev/preview.js', 'application/javascript; charset=utf-8'],
   '/assets/frappe_intelligence/js/intelligence.js': ['frappe_intelligence/public/js/intelligence.js', 'application/javascript; charset=utf-8'],
   '/assets/frappe_intelligence/css/intelligence.css': ['frappe_intelligence/public/css/intelligence.css', 'text/css; charset=utf-8'],
-  '/page.js': ['frappe_intelligence/frappe_intelligence/page/intelligence-chat/intelligence-chat.js', 'application/javascript; charset=utf-8']
+  '/page.js': ['frappe_intelligence/frappe_intelligence/page/intelligence_chat/intelligence_chat.js', 'application/javascript; charset=utf-8']
 };
 const port = Number(process.env.PORT || 8789);
 const server = http.createServer((request, response) => {
