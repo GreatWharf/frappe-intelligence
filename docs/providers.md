@@ -31,9 +31,3 @@ For custom endpoints, an administrator must add the exact hostname under **Intel
 - HTTP errors expose a safe classification, not raw potentially sensitive provider bodies.
 
 All protocol tests use synthetic responses. Live-model access, tool support, billing/quotas and model IDs must be validated with a customer-authorized test connection before production use.
-
-## Codex account login
-
-Codex is not an implemented provider/runtime in this release. No button claims otherwise. The original product brief proposes an optional isolated official-runtime integration, but it still requires a validated deployment, supported authentication flow, per-user credential/session isolation and suitable account/service terms.
-
-A ChatGPT subscription is not interchangeable with an OpenAI API key. Never paste a browser cookie, access/refresh token or `auth.json` into an API-key field. Future account-login support should use the official managed browser/device flow rather than token extraction or a shared server login.

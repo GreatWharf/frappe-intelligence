@@ -14,6 +14,9 @@ The model sees only enabled, reviewed tool schemas. It cannot choose a Python fu
 - `edit_wiki_page`: optional Wiki v3 `Wiki Document` content edits when Wiki is installed and that DocType is allowed. Existing leaf content only; no publication, movement or permission changes.
 - `recall_memory`: approved scoped personal/conversation/site recall.
 - `save_memory`: approved new note; site scope requires a manager. Editing/deleting existing notes is explicit UI administration.
+- `propose_skill`: drafts a new Intelligence Skill (title, description, instructions and read/write DocType scope lists). It is always created disabled with origin Learned and the caller as owner; a human reviews and enables skills in Desk, never this tool.
+- `update_skill`: title, description, instructions or scope-list changes to one skill the caller may edit, locked on its exact integer version. It never changes origin or the enabled flag; shared skills require manager authority.
+- `retire_skill`: deletes one editable skill after approval. Owners retire their own non-shared skills; shared skills require a manager.
 
 ## Adaptive meta-tools
 

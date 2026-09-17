@@ -88,6 +88,6 @@ The repository includes CI definitions for Python 3.10/3.12/3.14 and MariaDB-bac
 - Real provider model IDs, credentials, tool support, rate limits and billing.
 - Real financial-report output under customer-specific roles/User Permissions and installed hooks.
 - Full backup/restore, retention/export/erasure, concurrency/load and host-specific deployment acceptance.
-- Marketplace review, commercial plan enforcement, Codex account login and external MCP are not implemented or certified by these results.
+- Marketplace review, commercial plan enforcement and external MCP transports are not implemented or certified by these results.
 
 The correct status is **an implementation candidate with substantial offline/browser validation**, not a production-certified or Marketplace-approved release.
