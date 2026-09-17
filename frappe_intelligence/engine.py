@@ -678,7 +678,14 @@ def _attachments_block(run):
 
 def _system_prompt(run, context):
     """Transient per-turn system prompt; rebuilt each turn so skill edits apply at once."""
-    parts = [_GROUND_RULES, _MEMORY_GUIDANCE, _ADAPTIVE_GUIDANCE]
+    parts = [
+        # The model's training calendar is stale; without the site clock,
+        # "today" / "next Friday" resolve to guessed dates.
+        f"Current site date and time: {_now():%A, %Y-%m-%d %H:%M}.",
+        _GROUND_RULES,
+        _MEMORY_GUIDANCE,
+        _ADAPTIVE_GUIDANCE,
+    ]
     for block in (_skills_block(run), _attachments_block(run)):
         if block:
             parts.append(block)

@@ -582,3 +582,11 @@ def test_attachments_block_lists_conversation_files(env):
 def test_prompt_without_attachments_has_no_attachments_block(env):
     prompt = system_prompt(env)[0]["content"]
     assert "## Attachments" not in prompt
+
+
+def test_system_prompt_anchors_the_current_site_datetime(env, monkeypatch):
+    monkeypatch.setattr(env.engine, "_now", lambda: datetime(2026, 9, 17, 9, 30))
+    prompt = system_prompt(env)[0]["content"]
+    # The model's training calendar is stale; date-relative requests ("today",
+    # "next Friday") need the site's clock, stated once per turn.
+    assert "Current site date and time: Thursday, 2026-09-17 09:30" in prompt
