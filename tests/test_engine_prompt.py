@@ -130,6 +130,7 @@ class FakeFrappe(types.ModuleType):
     def __init__(self):
         super().__init__("frappe")
         self.rows = {}
+        self.error_logs = []
         self.session = Record(user="alice")
         self.local = Record(site="site.test")
         self.flags = Record()
@@ -251,7 +252,12 @@ class FakeFrappe(types.ModuleType):
         self.events.append((event, message, kwargs))
 
     def log_error(self, *args, **kwargs):
-        pass
+        self.error_logs.append(kwargs)
+
+    def get_traceback(self, *args, **kwargs):
+        import traceback
+
+        return traceback.format_exc()
 
 
 @pytest.fixture
@@ -498,3 +504,81 @@ def test_transient_provider_error_exhausts_bounded_attempts(env, monkeypatch):
     # unexpected errors only.
     assert "provider" in run["error"].lower()
     assert "try again" in run["error"].lower()
+
+
+def test_failed_runs_log_a_traceback_for_diagnostics(env, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    name = submit(env)
+
+    def unavailable():
+        raise env.provider.ProviderError("provider_unavailable", "503")
+
+    # The provider stub consumes one queued reply per HTTP attempt.
+    env.replies.extend([unavailable, unavailable, unavailable, unavailable])
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "failed"
+    # The user-facing message stays sanitized, but the real traceback must reach
+    # the Error Log or production failures are undiagnosable.
+    assert len(env.frappe.error_logs) == 1
+    entry = env.frappe.error_logs[0]
+    assert entry.get("title") == "Intelligence run failed"
+    assert "ProviderError" in entry.get("message", "")
+
+
+def test_unexpected_run_errors_log_a_traceback_and_stay_generic(env):
+    name = submit(env)
+
+    def broken():
+        raise KeyError("adapter-shape")
+
+    env.replies.append(broken)
+    env.engine.process_run(name)
+    run = env.engine.get_run(name)
+    assert run["state"] == "failed"
+    assert run["error"].startswith("The run could not continue safely")
+    assert "adapter-shape" not in run["error"]
+    assert len(env.frappe.error_logs) == 1
+    assert "adapter-shape" in env.frappe.error_logs[0].get("message", "")
+
+
+def test_attachments_block_lists_conversation_files(env):
+    env.frappe.seed(
+        "File",
+        "file-a1",
+        attached_to_doctype="Intelligence Conversation",
+        attached_to_name="conversation",
+        file_name="harbor-hos-77.pdf",
+        is_folder=0,
+        creation="2026-09-01 00:00:00",
+    )
+    env.frappe.seed(
+        "File",
+        "file-b2",
+        attached_to_doctype="Intelligence Conversation",
+        attached_to_name="other-conversation",
+        file_name="foreign.pdf",
+        is_folder=0,
+        creation="2026-09-02 00:00:00",
+    )
+    env.frappe.seed(
+        "File",
+        "file-c3",
+        attached_to_doctype="Intelligence Conversation",
+        attached_to_name="conversation",
+        file_name="a folder",
+        is_folder=1,
+        creation="2026-09-03 00:00:00",
+    )
+    prompt = system_prompt(env)[0]["content"]
+    assert "## Attachments" in prompt
+    assert "- file-a1: harbor-hos-77.pdf" in prompt
+    assert "read_attachment" in prompt
+    # Other conversations' files and folders are never listed.
+    assert "file-b2" not in prompt
+    assert "foreign.pdf" not in prompt
+    assert "file-c3" not in prompt
+
+
+def test_prompt_without_attachments_has_no_attachments_block(env):
+    prompt = system_prompt(env)[0]["content"]
+    assert "## Attachments" not in prompt

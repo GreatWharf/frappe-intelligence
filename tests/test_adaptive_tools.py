@@ -48,6 +48,12 @@ class Meta:
         return next((f for f in self.fields if f.fieldname == key), None)
 
     def get_permitted_fieldnames(self, *, user=None, permission_type="read", **kwargs):
+        # Real child (istable) DocTypes carry no DocPerm rows of their own, so a
+        # permitted-fieldname lookup against them returns nothing; access is
+        # inherited from the parent document. Mirror that or the tests approve
+        # field sets a real site never would.
+        if self.istable:
+            return []
         blocked = self.blocked_write if permission_type in ("write", "create") else self.blocked_read
         return [f.fieldname for f in self.fields if f.fieldname not in blocked]
 

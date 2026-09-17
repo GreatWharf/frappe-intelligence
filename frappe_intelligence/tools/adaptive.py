@@ -11,7 +11,15 @@ documents, so a human always reviews and submits in Desk.
 """
 
 from . import ToolSpec, denied, json_value, policy_lines
-from .records import _BLOCKED_TYPES, _SENSITIVE, allowed_meta, checked_doc, safe_fields, settings
+from .records import (
+    _BLOCKED_TYPES,
+    _SENSITIVE,
+    allowed_meta,
+    checked_doc,
+    child_fields,
+    safe_fields,
+    settings,
+)
 from .validation import FIELD, MODIFIED, NAME, SCALAR, object_schema, string_schema
 
 # Hard write ceiling: _BLOCKED_TYPES plus financial/stock posting, workflow
@@ -156,9 +164,9 @@ def _checked_children(meta, context, entries):
         if df is None or df.fieldtype != "Table" or not df.get("options"):
             raise ValueError(f"Field '{field}' on {meta.name} is not a child table.")
         child_meta = frappe.get_meta(df.options)
-        # Child rows inherit the parent's permission; gate fields with the same
-        # create-and-read-back scalar/sensitive rules as the parent fields.
-        writable = safe_fields(child_meta, context.user, "create") & safe_fields(child_meta, context.user)
+        # Child rows inherit the parent's permission, which has already been
+        # gated; child DocTypes carry no permission rules of their own.
+        writable = child_fields(child_meta)
         rows = [_checked_pairs(child_meta, writable, row) for row in entry["rows"]]
         checked.append({"field": field, "child_doctype": df.options, "rows": rows})
     return checked
@@ -238,20 +246,20 @@ def describe_doctype(context, args):
         if len(child_tables) >= _MAX_CHILD_TABLES:
             truncated = True
             break
-        # Child rows inherit the parent's permission; gate fields with the same
-        # scalar/sensitive rules instead of the top-level doctype allow-list.
+        # Child rows inherit the parent's permission; gate fields by shape
+        # (permlevel-zero scalars) since child DocTypes carry no rules of their own.
         child_meta = frappe.get_meta(df.options)
-        child_readable = safe_fields(child_meta, context.user, "read")
-        child_fields = []
+        child_readable = child_fields(child_meta)
+        described = []
         for cdf in child_meta.fields:
             if cdf.fieldname not in child_readable:
                 continue
-            if len(child_fields) >= _MAX_CHILD_FIELDS:
+            if len(described) >= _MAX_CHILD_FIELDS:
                 truncated = True
                 break
-            child_fields.append(_describe_field(cdf))
+            described.append(_describe_field(cdf))
         child_tables.append(
-            {"fieldname": df.fieldname, "child_doctype": df.options, "child_fields": child_fields}
+            {"fieldname": df.fieldname, "child_doctype": df.options, "child_fields": described}
         )
     return {
         "doctype": doctype,

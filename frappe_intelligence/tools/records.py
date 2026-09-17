@@ -154,6 +154,27 @@ def safe_fields(meta, user, permission="read"):
     }
 
 
+def child_fields(meta):
+    """Scalar fields of a child table (istable) DocType.
+
+    Child DocTypes carry no DocPerm rules of their own: in Frappe, access to
+    child rows is inherited from the parent document, whose read/create gates
+    have already run before child fields are described or written. A
+    permitted-fieldname lookup against the child itself therefore returns
+    nothing on a real site. Gate by field shape instead: permlevel-zero
+    scalars, never sensitive, hidden or virtual.
+    """
+    return {
+        df.fieldname
+        for df in meta.fields
+        if not df.get("permlevel")
+        and df.fieldtype in _SCALAR_TYPES
+        and not _SENSITIVE.search(df.fieldname)
+        and not df.get("hidden")
+        and not df.get("is_virtual")
+    }
+
+
 def selected_fields(meta, requested, user):
     allowed = safe_fields(meta, user) | set(_STANDARD_FIELDS)
     if requested is not None:
