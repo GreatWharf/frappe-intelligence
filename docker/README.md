@@ -26,7 +26,7 @@ docker build -f docker/Dockerfile -t frappe-intelligence:dev .
 # against, ERPNext 16.34.2 / Frappe 16.33.1:
 docker build -f docker/Dockerfile \
   --build-arg ERPNEXT_VERSION=v16.34.2 \
-  -t frappe-intelligence:v16.34.2 .
+  -t frappe-intelligence:0.2.0 .
 ```
 
 The build context **is** this repository's own checkout; the Dockerfile
@@ -83,7 +83,7 @@ step that fetches over the network:
 docker build -f docker/Dockerfile \
   --build-arg ERPNEXT_VERSION=v16.34.2 \
   --build-arg WIKI_VERSION=<ref> \
-  -t frappe-intelligence:v16.34.2 .
+  -t frappe-intelligence:0.2.0 .
 ```
 
 `<ref>` must be a tag/branch of the upstream repo verified against
@@ -113,7 +113,7 @@ docker run --rm \
   -v sites:/home/frappe/frappe-bench/sites \
   --network your-frappe-network \
   -e SITE_NAME=erp.example.internal \
-  frappe-intelligence:v16.34.2 \
+  frappe-intelligence:0.2.0 \
   bash /home/frappe/frappe-bench/docker/site-init.sh
 ```
 
@@ -143,7 +143,7 @@ compose file instead of adopting the template:
 ```yaml
 services:
   intelligence-init:
-    image: frappe-intelligence:v16.34.2
+    image: frappe-intelligence:0.2.0
     user: frappe
     command: ["bash", "/home/frappe/frappe-bench/docker/site-init.sh"]
     environment:

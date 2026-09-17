@@ -28,7 +28,7 @@
 #   CREATE_SITE        "1" only on the first-ever deploy of a fresh site;
 #                      anything else makes create-site a fast no-op success
 #   ADMIN_PASSWORD     initial Administrator password (CREATE_SITE=1 only)
-#   INTELLIGENCE_IMAGE image reference; default frappe-intelligence:v16.34.2
+#   INTELLIGENCE_IMAGE image reference; default frappe-intelligence:0.2.0
 #   INSTALL_WIKI       "0" skips installing the wiki app when the image ships
 #                      it; unset (default) installs it
 #
@@ -82,7 +82,7 @@ services:
   # mounted sites volume hides whatever the image baked in) and pin the
   # bench-global config at this stack's service names.
   configurator:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     user: frappe
     restart: "no"
     entrypoint: ["bash", "-c"]
@@ -102,7 +102,7 @@ services:
   # unset or 0 it exits 0 immediately, which satisfies downstream
   # `service_completed_successfully` conditions without creating anything.
   create-site:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     user: frappe
     restart: "no"
     entrypoint: ["bash", "-c"]
@@ -139,7 +139,7 @@ services:
   # CREATE_SITE=0 deploys (and stacks without a create-site service) from
   # hanging on the condition.
   intelligence-init:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     user: frappe
     restart: "no"
     command: ["bash", "/home/frappe/frappe-bench/docker/site-init.sh"]
@@ -168,7 +168,7 @@ services:
   # Long-running services reuse the same image and wait for init to have
   # completed, so they never serve a half-migrated site.
   backend:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     restart: unless-stopped
     volumes:
       - sites:/home/frappe/frappe-bench/sites
@@ -180,7 +180,7 @@ services:
         condition: service_completed_successfully
 
   scheduler:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     restart: unless-stopped
     command: bench schedule
     volumes:
@@ -192,7 +192,7 @@ services:
 
   # Intelligence submits its runs to the `long` queue (docs/operations.md).
   queue-long:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     restart: unless-stopped
     command: bench worker --queue long,default,short
     volumes:
@@ -203,7 +203,7 @@ services:
         condition: service_completed_successfully
 
   websocket:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     restart: unless-stopped
     command: node /home/frappe/frappe-bench/apps/frappe/socketio.js
     volumes:
@@ -214,7 +214,7 @@ services:
         condition: service_completed_successfully
 
   frontend:
-    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:v16.34.2}
+    image: ${INTELLIGENCE_IMAGE:-frappe-intelligence:0.2.0}
     restart: unless-stopped
     entrypoint: ["bash", "-c"]
     # Re-assert the app's asset link on every start, then exec the stock
