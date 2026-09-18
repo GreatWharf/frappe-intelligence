@@ -385,7 +385,7 @@ test('file tool actions show the attachment file name, never the raw File ID', (
   assert.ok(row.querySelector('strong').textContent.includes("Read attachment 'invoice-acme.pdf'"));
   const chip = row.querySelector('.fi-file-ref');
   assert.ok(chip, 'file chip rendered');
-  assert.equal(chip.tagName, 'span', 'chip is not a link to a raw File route');
+  assert.equal(chip.tagName.toLowerCase(), 'span', 'chip is not a link to a raw File route');
   assert.ok(!row.textContent.includes('FILE-9D5-8-0'), 'raw File ID never rendered in the row');
 });
 
