@@ -67,10 +67,10 @@ class Registry:
             self.tools[spec.name] = spec
 
 
-def denied():
+def denied(message="Not permitted to use this Intelligence tool or resource."):
     import frappe
 
-    frappe.throw("Not permitted to use this Intelligence tool or resource.", frappe.PermissionError)
+    frappe.throw(message, frappe.PermissionError)
 
 
 def policy_lines(value):
@@ -178,9 +178,16 @@ def schemas(context):
 
 
 def _resolve(context, name, arguments):
-    spec = get_tools(context).get(name)
+    tools = get_tools(context)
+    spec = tools.get(name)
     if spec is None:
-        denied()
+        # Not a permission denial: the model mistyped or invented a tool name.
+        # Answering with the available names lets it self-correct instead of
+        # concluding the resource is off-limits.
+        denied(
+            "Unknown tool %r. This run's available tools are: %s."
+            % (name, ", ".join(sorted(tools)))
+        )
     validate(arguments, spec.parameters)
     return spec
 

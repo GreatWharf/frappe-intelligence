@@ -344,6 +344,15 @@ def test_unknown_tools_fail_closed(tools):
         m.execute(c, "frappe.delete_doc", {})
 
 
+def test_unknown_tool_error_names_available_tools(tools):
+    m, c, _ = tools
+    with pytest.raises(PermissionError) as excinfo:
+        m.execute(c, "list_todos", {})
+    message = str(excinfo.value)
+    assert "Unknown tool" in message
+    assert "search_records" in message
+
+
 def test_reads_only_return_approved_content_and_never_secrets(tools):
     m, c, f = tools
     args = {"doctype": "Customer", "name": "C-1"}
