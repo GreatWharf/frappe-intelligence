@@ -316,6 +316,22 @@ test('the assistant avatar, welcome mark and launcher use the product logo, neve
   assert.ok(source.includes('fi-welcome-logo') && source.includes('fi-toggle-logo'));
 });
 
+test('the welcome screen greets by name with a daypart, escapes it, and falls back', (t) => {
+  const { app } = harness(t);
+  const welcome = (patch) => {
+    app.boot = Object.assign(copy(boot), patch);
+    app.messageSignature = null;
+    app.render();
+    return app.slot('messages').innerHTML;
+  };
+  const fallback = welcome({});
+  assert.ok(fallback.includes('How can I help?'), 'fallback greeting without a name');
+  assert.ok(fallback.includes('data-prompt="Give me my briefing for today'), 'briefing starter present');
+  const named = welcome({ user_name: 'Rishi <script>' });
+  assert.match(named, /Good (morning|afternoon|evening), Rishi &lt;script&gt;\./);
+  assert.ok(!named.includes('<script>'), 'the name is escaped');
+});
+
 test('syncDesk moves conversations and navigation into the Desk sidebar on our page only', (t) => {
   const { app, window, document } = harness(t);
   window.frappe.boot = {}; window.frappe.session = { user: 'user@example.test' };

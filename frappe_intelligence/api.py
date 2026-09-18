@@ -64,9 +64,13 @@ def bootstrap():
     manager = bool(MANAGER_ROLES.intersection(frappe.get_roles(user)))
     from .limits import upload_limit_bytes
 
+    full_name = frappe.db.get_value("User", user, "full_name") or ""
+    first_name = full_name.split(" ", 1)[0].strip() if full_name else ""
+
     return {
         "enabled": bool(settings.get("enabled")),
         "user": user,
+        "user_name": first_name,
         "is_manager": manager,
         "providers": provider_service.list_providers(),
         "managed_providers": provider_service.list_providers(managed=True),

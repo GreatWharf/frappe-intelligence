@@ -95,3 +95,13 @@ def test_conversation_approvals_carry_creation_for_chronological_rendering(api, 
     result = module.get_conversation("c")
     # The chat renderer merge-sorts cards and messages on this timestamp.
     assert result["approvals"][0]["creation"] == "2026-09-17 09:01:00"
+
+
+def test_bootstrap_returns_first_name_only(api):
+    module, fake, _ = api
+    fake.db.get_value = lambda *a, **kw: "Rishi Sharma"
+    fake.get_roles = lambda user: ["System Manager"]
+    out = module.bootstrap()
+    assert out["user_name"] == "Rishi"
+    fake.db.get_value = lambda *a, **kw: None
+    assert module.bootstrap()["user_name"] == ""

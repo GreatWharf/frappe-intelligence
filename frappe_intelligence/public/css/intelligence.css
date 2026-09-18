@@ -120,6 +120,12 @@
 .fi-starters button > .fi-icon { grid-row: 1 / 3; grid-column: 3; width: 13px; color: var(--fi-muted); }
 .fi-welcome-foot { display: flex; align-items: center; gap: 6px; margin-top: 22px; color: var(--fi-muted); font-size: 9px; }
 .fi-welcome-foot .fi-icon { height: 11px; width: 11px; }
+@keyframes fi-welcome-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.fi-welcome > * { animation: fi-welcome-rise 0.45s ease-out both; }
+.fi-welcome > :nth-child(2) { animation-delay: 0.06s; }
+.fi-welcome > :nth-child(3) { animation-delay: 0.12s; }
+.fi-welcome > :nth-child(4) { animation-delay: 0.18s; }
+.fi-welcome > :nth-child(5) { animation-delay: 0.24s; }
 .fi-setup-note { background: var(--fi-accent-soft); border: 1px solid var(--fi-border); border-radius: 10px; padding: 22px; margin-top: 24px; }
 .fi-setup-note > strong { font-weight: 600; }
 .fi-setup-note p { margin: 6px 0 16px; color: var(--fi-muted); font-size: 12px; }
