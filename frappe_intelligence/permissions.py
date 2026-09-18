@@ -28,7 +28,11 @@ def conversation_query(user=None, doctype=None):
     user = user or frappe.session.user
     if not _eligible(user):
         return "1=0"
-    return "`tabIntelligence Conversation`.`owner` = " + frappe.db.escape(user)
+    return (
+        "(`tabIntelligence Conversation`.`owner` = "
+        + frappe.db.escape(user)
+        + " OR `tabIntelligence Conversation`.`shared` = 1)"
+    )
 
 
 def private_query(user=None, doctype=None):
@@ -37,7 +41,7 @@ def private_query(user=None, doctype=None):
         return "1=0"
     return (
         f"`tab{doctype}`.`conversation` IN (SELECT name FROM `tabIntelligence Conversation` "
-        "WHERE owner = " + frappe.db.escape(user) + ")"
+        "WHERE owner = " + frappe.db.escape(user) + " OR shared = 1)"
     )
 
 
@@ -48,12 +52,18 @@ def private_permission(doc, user=None, ptype=None):
     if not _eligible(user):
         return False
     if doc.doctype == "Intelligence Conversation":
-        return doc.owner == user
-    return bool(
-        doc.doctype in CHILD_TYPES
-        and doc.get("conversation")
-        and frappe.db.get_value("Intelligence Conversation", doc.conversation, "owner") == user
-    )
+        if doc.owner == user:
+            return True
+        return ptype == "read" and bool(doc.get("shared"))
+    if not (doc.doctype in CHILD_TYPES and doc.get("conversation")):
+        return False
+    row = frappe.db.get_value("Intelligence Conversation", doc.conversation, ["owner", "shared"])
+    if not row:
+        return False
+    owner, shared = row
+    if owner == user:
+        return True
+    return ptype == "read" and bool(shared)
 
 
 def provider_permission(doc, user=None, ptype=None):

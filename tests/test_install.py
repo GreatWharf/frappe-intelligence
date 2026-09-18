@@ -55,6 +55,9 @@ def migrator(monkeypatch):
         def __init__(self, **data):
             self.__dict__.update(data)
 
+        def get(self, key, default=None):
+            return self.__dict__.get(key, default)
+
         def insert(self, **kwargs):
             name = self.__dict__.get("name") or self.__dict__.get("role_name") or f"doc-{len(store)}"
             self.__dict__.setdefault("name", name)
@@ -66,7 +69,14 @@ def migrator(monkeypatch):
         exists=lambda doctype, name: (doctype, name) in store,
         add_index=lambda *args: None,
     )
-    fake.get_doc = lambda data: Doc(**data)
+
+    def get_doc(data, name=None, **kwargs):
+        if isinstance(data, dict):
+            return Doc(**data)
+        return store[(data, name)]
+
+    fake.get_doc = get_doc
+    fake.delete_doc = lambda doctype, name, **kw: store.pop((doctype, name), None)
     fake.throw = lambda message, exc=ValueError, **kw: (_ for _ in ()).throw(exc(message))
     monkeypatch.setitem(sys.modules, "frappe", fake)
     monkeypatch.delitem(sys.modules, "frappe_intelligence.install", raising=False)
@@ -122,3 +132,38 @@ def test_defaults_enable_the_skill_management_tools(migrator):
         assert name in tools
     assert "search_records" in tools
     assert len(tools) == len(set(tools))
+
+
+def navigation_docs(store, doctype):
+    return [doc for (dt, _), doc in store.items() if dt == doctype]
+
+
+def test_navigation_creates_sidebar_and_desktop_icon_and_drops_the_legacy_workspace(migrator):
+    module, fake, store = migrator
+    fake.get_doc({"doctype": "Workspace", "name": "Intelligence", "for_user": None}).insert()
+    module.after_migrate()
+    assert ("Workspace", "Intelligence") not in store, "the middleman workspace is deleted"
+    sidebars = navigation_docs(store, "Workspace Sidebar")
+    assert len(sidebars) == 1
+    assert sidebars[0].title == "Intelligence" and sidebars[0].standard == 1
+    assert sidebars[0].items == [
+        {"type": "Link", "label": "Conversations", "link_type": "Page", "link_to": "intelligence"}
+    ]
+    icons = navigation_docs(store, "Desktop Icon")
+    assert len(icons) == 1
+    assert icons[0].label == "Intelligence"
+    assert icons[0].logo_url == "/assets/frappe_intelligence/images/intelligence.svg"
+    assert icons[0].link_to == "Intelligence"
+
+
+def test_navigation_preserves_existing_and_user_owned_entries(migrator):
+    module, fake, store = migrator
+    sidebar = fake.get_doc(
+        {"doctype": "Workspace Sidebar", "name": "Intelligence", "title": "Customized"}
+    ).insert()
+    icon = fake.get_doc({"doctype": "Desktop Icon", "name": "Intelligence", "hidden": 1}).insert()
+    fake.get_doc({"doctype": "Workspace", "name": "Intelligence", "for_user": "alice"}).insert()
+    module.after_migrate()
+    assert navigation_docs(store, "Workspace Sidebar") == [sidebar]
+    assert navigation_docs(store, "Desktop Icon") == [icon]
+    assert ("Workspace", "Intelligence") in store, "a user's own workspace is left untouched"

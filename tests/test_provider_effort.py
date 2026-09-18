@@ -1,9 +1,9 @@
 """Thinking-effort configuration: validation, public exposure and wire mapping.
 
 The provider DocType stores one of Auto/Low/Medium/High/Max. The engine passes
-it through on ProviderConfig ("" for Auto/blank) and only the OpenAI-compatible
-wires (openai/custom) serialize it as reasoning_effort; every other adapter
-ignores it for now.
+it through on ProviderConfig ("" for Auto/blank). The OpenAI-compatible wires
+(openai/xai/custom) serialize it as reasoning_effort, OpenRouter as a reasoning
+object, Anthropic as a clamped thinking budget and Gemini as thinkingConfig.
 """
 
 import importlib
@@ -263,11 +263,69 @@ def test_auto_and_blank_effort_are_omitted_from_the_wire(env, kind, effort):
     assert "reasoning_effort" not in request["payload"]
 
 
-@pytest.mark.parametrize("kind", ["Anthropic", "Gemini", "OpenRouter", "xAI"])
-def test_other_wires_ignore_effort_for_now(env, kind):
-    provider_doc(env, kind=kind, effort="High")
+@pytest.mark.parametrize("kind", ["xAI"])
+@pytest.mark.parametrize(
+    "effort,wire", [("Low", "low"), ("Medium", "medium"), ("High", "high"), ("Max", "high")]
+)
+def test_xai_wire_maps_effort_to_reasoning_effort(env, kind, effort, wire):
+    provider_doc(env, kind=kind, effort=effort)
     config = env.engine.get_provider_config("provider")
-    assert config.effort == "High"
     reply, request = complete(config, canned_reply(config.kind))
     assert reply.text == "Done"
+    assert request["payload"]["reasoning_effort"] == wire
+
+
+@pytest.mark.parametrize(
+    "effort,wire", [("Low", "low"), ("Medium", "medium"), ("High", "high"), ("Max", "high")]
+)
+def test_openrouter_wire_maps_effort_to_a_reasoning_object(env, effort, wire):
+    provider_doc(env, kind="OpenRouter", effort=effort)
+    config = env.engine.get_provider_config("provider")
+    reply, request = complete(config, canned_reply(config.kind))
+    assert reply.text == "Done"
+    assert request["payload"]["reasoning"] == {"effort": wire}
     assert "reasoning_effort" not in request["payload"]
+
+
+def test_anthropic_wire_clamps_the_thinking_budget_below_max_tokens(env):
+    doc = provider_doc(env, kind="Anthropic", effort="High")
+    doc.max_tokens = 8192
+    config = env.engine.get_provider_config("provider")
+    assert config.max_tokens == 4096  # site setting caps the provider row
+    reply, request = complete(config, canned_reply(config.kind))
+    assert reply.text == "Done"
+    assert request["payload"]["thinking"] == {"type": "enabled", "budget_tokens": 3072}
+
+
+def test_anthropic_wire_omits_thinking_without_token_headroom(env):
+    provider_doc(env, kind="Anthropic", effort="High")
+    config = env.engine.get_provider_config("provider")
+    assert config.max_tokens == 256
+    _, request = complete(config, canned_reply(config.kind))
+    assert "thinking" not in request["payload"]
+
+
+@pytest.mark.parametrize(
+    "effort,budget", [("Low", 1024), ("Medium", 8192), ("High", 24576), ("Max", 24576)]
+)
+def test_gemini_wire_maps_effort_to_thinking_config(env, effort, budget):
+    provider_doc(env, kind="Gemini", effort=effort)
+    config = env.engine.get_provider_config("provider")
+    reply, request = complete(config, canned_reply(config.kind))
+    assert reply.text == "Done"
+    assert request["payload"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": budget}
+
+
+@pytest.mark.parametrize("kind", ["Anthropic", "Gemini", "OpenRouter", "xAI"])
+@pytest.mark.parametrize("effort", ["Auto", ""])
+def test_other_wires_omit_every_effort_field_on_auto(env, kind, effort):
+    provider_doc(env, kind=kind, effort=effort)
+    config = env.engine.get_provider_config("provider")
+    assert config.effort == ""
+    reply, request = complete(config, canned_reply(config.kind))
+    assert reply.text == "Done"
+    payload = request["payload"]
+    assert "reasoning_effort" not in payload
+    assert "reasoning" not in payload
+    assert "thinking" not in payload
+    assert "thinkingConfig" not in payload.get("generationConfig", {})

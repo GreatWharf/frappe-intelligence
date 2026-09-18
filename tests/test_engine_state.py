@@ -224,6 +224,10 @@ class FakeFrappe(types.ModuleType):
                         return False
                     if op == "not in" and actual in value:
                         return False
+                    if op == "!=" and actual == value:
+                        return False
+                    if op == "like" and value.strip("%") not in (actual or ""):
+                        return False
                     if op in (">=", ">") and (actual is None or actual < value):
                         return False
                     if op in ("<=", "<") and (actual is None or actual > value):
@@ -900,3 +904,109 @@ def test_daily_quota_and_step_budget_are_enforced(env):
     assert not env.calls
     with pytest.raises(ValueError):
         submit(env)
+
+
+def test_first_message_titles_a_new_chat_conversation(env):
+    env.frappe.seed(
+        "Intelligence Conversation",
+        "titled",
+        owner="alice",
+        provider="provider",
+        message_count=0,
+        title="New chat",
+    )
+    result = env.engine.submit_message("titled", "  Help me\n  plan   the\n\nquarter  ")
+    doc = env.frappe.get_doc("Intelligence Conversation", "titled")
+    assert doc.title == "Help me plan the quarter"
+    assert doc.active_run == result["name"]
+
+
+def test_first_message_title_is_capped_at_eighty_characters(env):
+    env.frappe.seed(
+        "Intelligence Conversation",
+        "titled",
+        owner="alice",
+        provider="provider",
+        message_count=0,
+        title="New chat",
+    )
+    env.engine.submit_message("titled", "word " * 30)
+    doc = env.frappe.get_doc("Intelligence Conversation", "titled")
+    assert doc.title == ("word " * 30).strip()[:80]
+    assert len(doc.title) == 80
+
+
+def test_a_custom_titled_conversation_is_never_renamed(env):
+    env.frappe.seed(
+        "Intelligence Conversation",
+        "titled",
+        owner="alice",
+        provider="provider",
+        message_count=0,
+        title="Quarterly review",
+    )
+    env.engine.submit_message("titled", "Help me")
+    assert env.frappe.get_doc("Intelligence Conversation", "titled").title == "Quarterly review"
+
+
+def test_automatic_mode_auto_approves_and_requeues_the_run(env):
+    env.frappe.settings.approval_mode = "Automatic"
+    name = submit(env)
+    env.replies.append(reply(("write", {"value": 2})))
+    env.engine.process_run(name)
+    approval = approvals(env)[0]
+    assert approval.status == "approved"
+    assert not approval.decided_by, "policy auto-approvals stay unattributed to a human"
+    assert approval.decided_at
+    assert approval.digest, "auto-approvals keep the same durable digest audit"
+    assert env.engine.get_run(name)["state"] == "queued"
+    env.replies.append(reply(text="Done."))
+    env.engine.process_run(name)
+    env.engine.process_run(name)
+    assert len(env.executions) == 1
+    assert env.engine.get_run(name)["state"] == "completed"
+
+
+def test_writes_only_mode_auto_approves_reads_and_holds_writes(env):
+    env.frappe.settings.approval_mode = "Approve Writes Only"
+    name = submit(env)
+    env.replies.append(reply(("read", {"doctype": "Customer"}), ("write", {"value": 1})))
+    env.engine.process_run(name)
+    by_call = {row.tool_call_id: row for row in approvals(env)}
+    assert by_call["call-0"].tool_name == "read"
+    assert by_call["call-0"].status == "approved"
+    assert not by_call["call-0"].decided_by and by_call["call-0"].decided_at
+    assert by_call["call-1"].tool_name == "write"
+    assert by_call["call-1"].status == "pending"
+    assert not by_call["call-1"].decided_by
+    assert env.engine.get_run(name)["state"] == "awaiting_approval"
+    assert not env.executions
+
+
+def test_default_mode_keeps_every_proposal_pending(env):
+    assert env.frappe.settings.get("approval_mode") in (None, "Approve Every Step")
+    name = submit(env)
+    env.replies.append(reply(("read", {}), ("write", {})))
+    env.engine.process_run(name)
+    rows = approvals(env)
+    assert len(rows) == 2
+    assert all(row.status == "pending" and not row.decided_by for row in rows)
+    assert env.engine.get_run(name)["state"] == "awaiting_approval"
+
+
+def test_notification_failure_never_breaks_run_completion(env, monkeypatch):
+    get_doc = env.frappe.get_doc
+
+    def exploding(doctype, name=None, **kwargs):
+        if isinstance(doctype, dict) and doctype.get("doctype") == "Notification Log":
+            raise RuntimeError("notification table missing")
+        return get_doc(doctype, name, **kwargs)
+
+    errors = []
+    monkeypatch.setattr(env.frappe, "get_doc", exploding)
+    monkeypatch.setattr(env.frappe, "log_error", lambda *args, **kwargs: errors.append(kwargs))
+    name = submit(env)
+    env.replies.append(reply(text="Done."))
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "completed"
+    assert errors and errors[0].get("title") == "Intelligence notification failed"

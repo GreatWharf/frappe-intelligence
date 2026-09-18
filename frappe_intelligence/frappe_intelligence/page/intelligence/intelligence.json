@@ -1,0 +1,20 @@
+{
+ "doctype": "Page",
+ "name": "intelligence",
+ "page_name": "intelligence",
+ "title": "Intelligence",
+ "module": "Frappe Intelligence",
+ "standard": "Yes",
+ "system_page": 0,
+ "roles": [
+  {
+   "role": "Intelligence User"
+  },
+  {
+   "role": "Intelligence Manager"
+  },
+  {
+   "role": "System Manager"
+  }
+ ]
+}

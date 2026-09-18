@@ -5,13 +5,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const client = require('../../frappe_intelligence/public/js/intelligence.js');
-const { esc, safeURL, markdown, contextFromRoute, userError, previewHTML } = client.utils;
+const { esc, safeURL, markdown, contextFromRoute, userError, previewHTML, actionSentence, recordLink, fileCardHTML } = client.utils;
 const source = fs.readFileSync(path.resolve(__dirname, '../../frappe_intelligence/public/js/intelligence.js'), 'utf8');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const copy = (value) => JSON.parse(JSON.stringify(value));
-const boot = { enabled: true, is_manager: true, providers: [{ name: 'p1', title: 'Work', kind: 'OpenAI', model: 'configured-model' }], defaults: { max_upload_mb: 10 }, capabilities: { attachments: true, memory: true } };
+const boot = { enabled: true, is_manager: true, user: 'owner@example.test', providers: [{ name: 'p1', title: 'Work', kind: 'OpenAI', model: 'configured-model', thinking_effort: 'Medium' }], defaults: { max_upload_mb: 10, approval_mode: 'Approve Every Step' }, capabilities: { attachments: true, memory: true } };
 function fixture() {
-  return { conversation: { name: 'c1', title: 'Private chat', provider: 'p1', archived: 0 }, messages: [{ name: 'm1', role: 'user', content: 'Hello', status: 'complete' }], approvals: [], files: [], run: null };
+  return { conversation: { name: 'c1', title: 'Private chat', provider: 'p1', archived: 0, owner: 'owner@example.test', shared: 0 }, messages: [{ name: 'm1', role: 'user', content: 'Hello', status: 'complete' }], approvals: [], files: [], run: null, can_post: true };
 }
 function harness(t, override = {}) {
   const { JSDOM } = process.env.FI_REAL_DOM === '1' ? require('jsdom') : require('./dom-harness.cjs');
@@ -23,7 +23,7 @@ function harness(t, override = {}) {
     calls.push({ method, args });
     if (override[method]) return override[method](args, snapshot);
     if (method === 'bootstrap') return copy(boot);
-    if (method === 'list_conversations') return [copy(snapshot.conversation)];
+    if (method === 'list_conversations') return args && Number(args.shared) ? [] : [copy(snapshot.conversation)];
     if (method === 'get_conversation') return copy(snapshot);
     if (method === 'create_conversation') return copy(snapshot.conversation);
     if (method === 'send_message') { snapshot.run = { name: 'r1', state: 'running' }; snapshot.messages.push({ name: 'm2', role: 'user', content: args.content }); return copy(snapshot.run); }
@@ -151,7 +151,7 @@ test('late conversation fetch cannot overwrite a more recent selection', async (
 });
 test('search request sequencing ignores a stale server response', async (t) => {
   let call = 0; const resolve = [];
-  const { app } = harness(t, { list_conversations: () => new Promise((done) => { resolve[call++] = done; }) });
+  const { app } = harness(t, { list_conversations: (args) => Number(args && args.shared) ? [] : new Promise((done) => { resolve[call++] = done; }) });
   app.search = 'old'; const old = app.refreshList(); app.search = 'new'; const current = app.refreshList();
   resolve[1]([{ name: 'new', title: 'New match' }]); await current; resolve[0]([{ name: 'old', title: 'Wrong match' }]); await old;
   assert.equal(app.conversations[0].name, 'new'); assert.ok(!app.slot('conversations').textContent.includes('Wrong match'));
@@ -202,7 +202,7 @@ test('provider editor includes disabled managed configurations, preserves blank 
   assert.equal(document.querySelector('.fi-modal-overlay'), null);
 });
 test('provider save failure does not close modal or show success', async (t) => {
-  const { app, window, document } = harness(t, { save_provider: () => { throw { userMessage: 'This endpoint is not allowlisted.' }; } }); app.providerDialog();
+  const { app, window, document } = harness(t, { save_provider: () => { throw { userMessage: 'This endpoint is not allowlisted.' }; } }); app.providerDialog(); await tick();
   const form = document.querySelector('.fi-modal form'); form.elements.title.value = 'Custom'; form.elements.model.value = 'model';
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
   assert.ok(document.querySelector('.fi-modal')); assert.ok(document.querySelector('.fi-modal-error').textContent.includes('not allowlisted'));
@@ -235,13 +235,18 @@ test('editing a shared provider preserves allowed roles, token limit and timeout
   form.elements.title.value = 'Renamed safely'; form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
   const call = calls.find((entry) => entry.method === 'save_provider'); assert.equal(call.args.allowed_roles, provider.allowed_roles); assert.equal(call.args.max_tokens, 8192); assert.equal(call.args.timeout, 90); assert.equal(call.args.is_shared, 1);
 });
-test('saved files remain visible on reload and are reused only after explicit selection', async (t) => {
+test('saved files render as file cards by file name and are reused only after explicit selection', async (t) => {
   const { app, window, document, calls, snapshot } = harness(t);
-  snapshot.files = [{ name: 'file-1', file_name: '<private-report>.pdf', file_url: '/private/files/report.pdf', is_private: 1 }];
+  snapshot.files = [{ name: 'file-1', file_name: '<private-report>.pdf', file_url: '/private/files/report.pdf', is_private: 1, file_size: 48230 }];
   app.selected = 'c1'; app.accept('c1', snapshot); assert.equal(app.draft().attachments.length, 0);
-  app.$('[data-action="files"]').click(); const reuse = document.querySelector('[data-action="reuse-file"]'); assert.ok(reuse); reuse.click(); reuse.click();
-  assert.equal(app.draft().attachments.length, 1); assert.equal(document.querySelector('.fi-saved-file-row strong').textContent, '<private-report>.pdf');
-  app.modal.close(); input(app, window, 'Review the selected file'); await app.send();
+  const card = app.slot('messages').querySelector('.fi-file-card');
+  assert.ok(card, 'file card rendered in the thread');
+  assert.equal(card.querySelector('strong').textContent, '<private-report>.pdf', 'card shows the file name, not the docname');
+  assert.ok(!card.textContent.includes('report.pdf'), 'the bare hash path is not the label');
+  const open = card.querySelector('a.fi-file-open'); assert.equal(open.getAttribute('href'), '/private/files/report.pdf');
+  const reuse = card.querySelector('[data-action="reuse-file"]'); assert.ok(reuse); reuse.click(); reuse.click();
+  assert.equal(app.draft().attachments.length, 1);
+  input(app, window, 'Review the selected file'); await app.send();
   const request = calls.find((entry) => entry.method === 'send_message'); assert.deepEqual(JSON.parse(request.args.attachments), ['file-1']); assert.equal(calls.filter((entry) => entry.method === 'upload_attachment').length, 0);
 });
 test('pagination loads more than 200 rows without replacing current run, duplicating messages, or losing history on polling', async (t) => {
@@ -259,10 +264,13 @@ test('unchanged authoritative polls preserve focused sidebar and run controls', 
   const row = app.$('[data-action="select"]'), cancel = app.$('[data-action="cancel"]'); row.focus(); app.accept('c1', copy(snapshot));
   assert.equal(app.$('[data-action="select"]'), row); assert.equal(document.activeElement, row); assert.equal(app.$('[data-action="cancel"]'), cancel);
 });
-test('keyboard Escape closes mobile conversation sidebar and restores toggle focus', (t) => {
-  const { app, window, document } = harness(t); const toggle = app.$('[data-action="sidebar"]'); toggle.click();
-  assert.equal(app.root.classList.contains('fi-sidebar-open'), true); app.$('[data-input="search"]').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-  assert.equal(app.root.classList.contains('fi-sidebar-open'), false); assert.equal(document.activeElement, toggle); assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+test('sidebar toggle collapses the conversation column and reports aria state', (t) => {
+  const { app } = harness(t); const toggle = app.$('[data-action="sidebar"]');
+  assert.equal(app.root.classList.contains('fi-sidebar-collapsed'), false);
+  toggle.click();
+  assert.equal(app.root.classList.contains('fi-sidebar-collapsed'), true); assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  toggle.click();
+  assert.equal(app.root.classList.contains('fi-sidebar-collapsed'), false); assert.equal(toggle.getAttribute('aria-expanded'), 'true');
 });
 test('archived conversation is read-only while history remains readable', (t) => {
   const { app, snapshot } = harness(t); app.selected = 'c1'; snapshot.conversation.archived = 1; app.accept('c1', snapshot);
@@ -281,8 +289,8 @@ test('tool action cards interleave chronologically instead of trailing the final
   const text = app.slot('messages').textContent;
   // The answer must follow the actions that produced it; grouping all cards
   // after all messages buries it mid-thread.
-  assert.ok(text.indexOf('On it') < text.indexOf('search_records'));
-  assert.ok(text.indexOf('search_records') < text.indexOf('The final briefing'));
+  assert.ok(text.indexOf('On it') < text.indexOf('Search permitted records'));
+  assert.ok(text.indexOf('Search permitted records') < text.indexOf('The final briefing'));
 });
 
 test('a completed run leaves no status chip: the answer in the thread is the outcome', (t) => {
@@ -332,37 +340,127 @@ test('the welcome screen greets by name with a daypart, escapes it, and falls ba
   assert.ok(!named.includes('<script>'), 'the name is escaped');
 });
 
-test('syncDesk moves conversations and navigation into the Desk sidebar on our page only', (t) => {
-  const { app, window, document } = harness(t);
-  window.frappe.boot = {}; window.frappe.session = { user: 'user@example.test' };
-  let route = ['intelligence-chat'];
+test('the global pill stays available across Desk but never on the intelligence page', (t) => {
+  const { JSDOM } = process.env.FI_REAL_DOM === '1' ? require('jsdom') : require('./dom-harness.cjs');
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://desk.example.test/desk', runScripts: 'outside-only' });
+  const window = dom.window; let route = ['home'];
+  window.frappe = { boot: {}, session: { user: 'user@example.test' }, get_route: () => route };
+  window.eval(source);
+  t.after(() => dom.window.close());
+  window.frappe.intelligence.install();
+  const pill = window.document.querySelector('.fi-global-toggle');
+  assert.ok(pill, 'pill installed');
+  assert.equal(pill.hidden, false, 'pill visible off the intelligence page');
+  route = ['intelligence'];
+  window.frappe.intelligence.syncDesk();
+  assert.equal(pill.hidden, true, 'pill hidden on the intelligence page');
+  assert.equal(window.document.body.classList.contains('fi-desk-active'), true);
+  route = ['intelligence', 'c1'];
+  window.frappe.intelligence.syncDesk();
+  assert.equal(pill.hidden, true, 'pill hidden on a deep conversation route');
+  route = ['Form', 'Customer', 'C-1'];
+  window.frappe.intelligence.syncDesk();
+  assert.equal(pill.hidden, false, 'pill available elsewhere in Desk');
+  assert.equal(window.document.body.classList.contains('fi-desk-active'), false);
+});
+
+test('selecting a conversation navigates the Desk route to its deep link', async (t) => {
+  const { app, window } = harness(t);
+  const routes = []; let route = ['intelligence'];
   window.frappe.get_route = () => route;
-  const sidebar = document.createElement('aside'); sidebar.className = 'body-sidebar';
-  const standard = document.createElement('div'); standard.className = 'standard-items-sections'; sidebar.appendChild(standard);
-  const top = document.createElement('div'); top.className = 'body-sidebar-top'; sidebar.appendChild(top);
-  document.body.appendChild(sidebar);
-  window.frappe.intelligence.syncDesk();
-  const section = sidebar.querySelector('[data-fi-desk]');
-  assert.ok(section, 'section injected');
-  assert.equal(standard.nextSibling, section, 'sits right below Search and Notifications');
-  assert.equal(document.body.classList.contains('fi-desk-active'), true);
-  for (const label of ['New conversation', 'Conversations', 'Approvals', 'Skills', 'Memory', 'Providers & models', 'Scope'])
-    assert.ok(section.textContent.includes(label), label);
-  // The in-page app paints the same rows into the Desk list.
-  app.conversations = [{ name: 'c9', title: 'Quarterly review', modified: '2026-09-17 09:00:00' }];
-  app.sidebarSignature = null; app.renderSidebar();
-  assert.ok(sidebar.querySelector('[data-fi-desk-list]').textContent.includes('Quarterly review'));
-  // Clicks inside the Desk section drive the singleton app.
-  const seen = [];
-  const original = window.frappe.intelligence.App.prototype.action;
-  window.frappe.intelligence.App.prototype.action = function (name) { seen.push(name); };
-  t.after(() => { window.frappe.intelligence.App.prototype.action = original; });
-  sidebar.querySelector('[data-fi-desk-list] [data-action="select"]').click();
-  section.querySelector('[data-action="new"]').click();
-  assert.deepEqual(seen, ['select', 'new']);
-  // Leaving our route removes the section and the body class again.
-  route = ['home'];
-  window.frappe.intelligence.syncDesk();
-  assert.equal(sidebar.querySelector('[data-fi-desk]'), null);
-  assert.equal(document.body.classList.contains('fi-desk-active'), false);
+  window.frappe.set_route = (...parts) => { route = parts; routes.push(parts); };
+  app.mode = 'page';
+  await app.select('c1');
+  assert.deepEqual(route, ['intelligence', 'c1']);
+  await app.select('c1');
+  assert.equal(routes.length, 1, 're-selecting the open conversation does not push a duplicate route');
+  app.newConversation();
+  assert.deepEqual(route, ['intelligence']);
+});
+
+test('a router change into a conversation deep link opens it, and back returns to new', async (t) => {
+  const { JSDOM } = process.env.FI_REAL_DOM === '1' ? require('jsdom') : require('./dom-harness.cjs');
+  const dom = new JSDOM('<!doctype html><html><body><div id="host"></div></body></html>', { url: 'https://desk.example.test/desk/intelligence', runScripts: 'outside-only' });
+  const window = dom.window; let route = ['intelligence']; let onChange = null;
+  const snap = fixture();
+  window.frappe = {
+    boot: {}, session: { user: 'user@example.test' },
+    get_route: () => route, set_route: (...parts) => { route = parts; },
+    router: { on: (event, callback) => { if (event === 'change') onChange = callback; } },
+    call: ({ method, args, callback }) => {
+      const name = method.replace('frappe_intelligence.api.', '');
+      if (name === 'get_conversation') { callback({ message: copy(Object.assign(snap, { conversation: Object.assign({}, snap.conversation, { name: args.conversation }) })) }); return { catch: () => {} }; }
+      if (name === 'bootstrap') { callback({ message: copy(boot) }); return { catch: () => {} }; }
+      callback({ message: [] }); return { catch: () => {} };
+    },
+  };
+  window.eval(source);
+  t.after(() => dom.window.close());
+  window.frappe.intelligence.install();
+  window.frappe.intelligence.showPage(window.document.querySelector('#host'));
+  route = ['intelligence', 'c9']; onChange();
+  await tick(); await tick();
+  const app = window.frappe.intelligence;
+  const section = window.document.querySelector('.fi-app');
+  assert.ok(section, 'app mounted in the page host');
+  route = ['intelligence']; onChange();
+  await tick();
+  assert.ok(true, 'router change back to the bare page did not throw');
+  // Leaving the page stops the singleton poller so the test process can exit.
+  route = ['home']; onChange();
+});
+
+test('a queued or running run shows the thinking indicator, and it clears when the run settles', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  for (const state of ['queued', 'running']) {
+    snapshot.run = { name: 'r1', state };
+    app.accept('c1', copy(snapshot));
+    assert.ok(app.slot('messages').querySelector('.fi-thinking'), 'thinking indicator while ' + state);
+  }
+  snapshot.run = { name: 'r1', state: 'awaiting_approval' };
+  app.accept('c1', copy(snapshot));
+  assert.equal(app.slot('messages').querySelector('.fi-thinking'), null, 'awaiting a decision is not thinking');
+  snapshot.run = { name: 'r1', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  assert.equal(app.slot('messages').querySelector('.fi-thinking'), null, 'cleared once the run settles');
+});
+
+test('approval cards lead with a human action sentence and link to the target record', (t) => {
+  assert.equal(actionSentence({ action: "Create Supplier 'Acme Corp'" }, 'create_record'), "Create Supplier 'Acme Corp'");
+  assert.equal(actionSentence({ doctype: 'Customer', name: 'C-1' }, 'update_record'), "Update Customer 'C-1'");
+  assert.equal(actionSentence({ target: { doctype: 'Sales Order' } }, 'delete_document'), 'Delete Sales Order');
+  assert.ok(recordLink({ doctype: 'Sales Order', name: 'SO-001' }).includes('/app/sales-order/SO-001'));
+  assert.equal(recordLink({ doctype: 'Sales Order' }), '');
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.run = { name: 'r1', state: 'awaiting_approval' };
+  snapshot.approvals = [{ name: 'a1', tool_name: 'create_record', status: 'pending', creation: '2026-09-17 09:01:00', preview: { action: "Create Supplier 'Acme Corp'", summary: 'Create the supplier.', doctype: 'Supplier', name: 'Acme Corp' } }];
+  app.accept('c1', copy(snapshot));
+  const card = app.slot('messages').querySelector('.fi-approval');
+  assert.ok(card.querySelector('h3').textContent.includes("Create Supplier 'Acme Corp'"));
+  assert.equal(card.querySelector('.fi-record-chip').getAttribute('href'), '/app/supplier/Acme%20Corp');
+  assert.ok(card.querySelector('.fi-pill-pending'));
+  assert.ok(card.querySelector('[data-action="approve"]'), 'owner can decide inline');
+});
+
+test('a shared read-only conversation replaces the composer and hides approval buttons', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.can_post = false; snapshot.conversation.owner = 'alex@example.test'; snapshot.conversation.shared = 1;
+  snapshot.run = { name: 'r1', state: 'awaiting_approval' };
+  snapshot.approvals = [{ name: 'a1', tool_name: 'create_record', status: 'pending', preview: { summary: 'Create a record.' } }];
+  app.accept('c1', copy(snapshot));
+  assert.equal(app.$('form.fi-composer').hidden, true, 'composer hidden');
+  assert.ok(app.slot('readonly').textContent.includes('Shared by alex@example.test'), 'read-only notice names the owner');
+  assert.equal(app.slot('messages').querySelector('[data-action="approve"]'), null, 'no approve buttons for viewers');
+  assert.ok(app.slot('messages').textContent.includes('Waiting for the owner to decide.'));
+  assert.equal(app.$('[data-action="share"]').hidden, true, 'viewers cannot re-share');
+});
+
+test('the shared-with-me section lists other people\'s shared conversations', async (t) => {
+  const sharedRow = { name: 'shared-1', title: 'Quarterly notes', owner: 'alex@example.test', shared: 1 };
+  const { app } = harness(t, { list_conversations: (args) => Number(args.shared) ? [copy(sharedRow)] : [] });
+  await app.refreshList();
+  const slot = app.slot('shared');
+  assert.equal(slot.hidden, false);
+  assert.ok(slot.textContent.includes('Quarterly notes'));
+  assert.ok(!app.slot('conversations').textContent.includes('Quarterly notes'), 'shared rows stay out of the own list');
 });

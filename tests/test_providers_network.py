@@ -383,3 +383,36 @@ def test_connection_cleanup_failure_cannot_replace_safe_provider_error():
             network.post_json(url=URL, headers={}, payload={}, timeout=1, allowed_hosts=HOSTS)
     assert exc.value.code == "authentication_failed"
     assert "super-secret" not in str(exc.value)
+
+
+def test_get_json_issues_a_bodyless_get_through_the_same_pinned_transport():
+    with (
+        patch.object(
+            network, "_resolve_public_addresses", return_value=[network.Address(socket.AF_INET, PUBLIC_IP)]
+        ) as dns,
+        patch.object(network, "_PinnedHTTPSConnection") as factory,
+    ):
+        conn = factory.return_value
+        conn.getresponse.return_value = Response()
+        result = network.get_json(
+            url=URL, headers={"Authorization": "Bearer super-secret"}, timeout=1, allowed_hosts=HOSTS
+        )
+    assert result == {"ok": True}
+    args, kwargs = conn.request.call_args
+    assert args[:2] == ("GET", "/v1/chat/completions")
+    assert kwargs["body"] is None
+    assert kwargs["headers"]["Accept-Encoding"] == "identity"
+    assert "super-secret" not in args[1]
+    assert factory.call_args.args[0] == "models.example.com"
+    assert dns.call_count == 1
+    conn.close.assert_called_once()
+
+
+def test_get_json_validates_the_endpoint_before_any_dns_or_io():
+    with patch.object(socket, "getaddrinfo") as dns:
+        with pytest.raises(ProviderError) as exc:
+            network.get_json(
+                url="http://models.example.com/v1/models", headers={}, timeout=1, allowed_hosts=HOSTS
+            )
+    assert exc.value.code == "unsafe_endpoint"
+    dns.assert_not_called()

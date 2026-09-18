@@ -4,7 +4,7 @@ import re
 import uuid
 from dataclasses import asdict
 
-from .network import MAX_TIMEOUT, encode_json, parse_json_object, post_json, validate_endpoint
+from .network import MAX_TIMEOUT, encode_json, get_json, parse_json_object, post_json, validate_endpoint
 from .types import ProviderConfig, ProviderError, Reply, ToolCall
 
 _ENDPOINTS = {
@@ -18,6 +18,9 @@ _ENDPOINTS = {
 KINDS = frozenset({*_ENDPOINTS, "custom"})
 # Thinking-effort mapping for the OpenAI-compatible wires; Max degrades to high.
 _EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high"}
+# Reasoning token budgets for the Anthropic and Gemini wires.
+_THINKING_BUDGET = {"low": 1024, "medium": 4096, "high": 16384, "max": 32768}
+_GEMINI_BUDGET = {"low": 1024, "medium": 8192, "high": 24576, "max": 24576}
 _NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _CALL_ID = re.compile(r"[A-Za-z0-9_.:-]{1,256}\Z")
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}\Z")
@@ -206,12 +209,14 @@ def _openai_request(config, messages, tools):
         sent.append(item)
     token_parameter = "max_completion_tokens" if config.kind == "openai" else "max_tokens"
     payload = {"model": config.model, "messages": sent, "stream": False, token_parameter: config.max_tokens}
-    # Reasoning effort rides only the OpenAI-compatible wires; Anthropic, Gemini,
-    # OpenRouter and xAI requests ignore thinking effort for now.
-    if config.kind in ("openai", "custom"):
-        effort = _EFFORT.get(config.effort.lower())
-        if effort:
+    # Reasoning effort rides the OpenAI-compatible wires natively; OpenRouter
+    # takes its documented reasoning object instead.
+    effort = _EFFORT.get(config.effort.lower())
+    if effort:
+        if config.kind in ("openai", "custom", "xai"):
             payload["reasoning_effort"] = effort
+        elif config.kind == "openrouter":
+            payload["reasoning"] = {"effort": effort}
     if tools:
         payload["tools"] = [{"type": "function", "function": function} for function in tools]
     return {"Authorization": f"Bearer {config.api_key}"}, payload
@@ -249,6 +254,12 @@ def _anthropic_request(config, messages, tools):
     if not turns:
         raise _request_error()
     payload = {"model": config.model, "max_tokens": config.max_tokens, "messages": turns, "stream": False}
+    budget = _THINKING_BUDGET.get(config.effort.lower())
+    if budget:
+        # Extended thinking requires headroom between the budget and max_tokens.
+        budget = min(budget, config.max_tokens - 1024)
+        if budget >= 1024:
+            payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
     if system:
         payload["system"] = "\n\n".join(system)
     if tools:
@@ -309,6 +320,9 @@ def _gemini_request(config, messages, tools):
     if not turns:
         raise _request_error()
     payload = {"contents": turns, "generationConfig": {"maxOutputTokens": config.max_tokens}}
+    budget = _GEMINI_BUDGET.get(config.effort.lower())
+    if budget:
+        payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": budget}
     if system:
         payload["systemInstruction"] = {"parts": system}
     if tools:
@@ -530,3 +544,54 @@ def complete(config, messages, tools):
     if not isinstance(response, dict):
         raise _response_error()
     return normalize(response)
+
+
+def _models_url(config):
+    if config.kind == "custom":
+        validate_endpoint(config.base_url, config.allowed_hosts)
+        return config.base_url.rstrip("/") + "/models", tuple(config.allowed_hosts)
+    url, host = _ENDPOINTS[config.kind]
+    if config.kind == "gemini":
+        return url + "/models", (host,)
+    # _ENDPOINTS values point at the completion path; the catalog is its sibling.
+    root = url.rsplit("/", 1)[0] if config.kind == "anthropic" else url.rsplit("/", 2)[0]
+    return root + "/models", (host,)
+
+
+def list_models(config):
+    """Fetch the provider's model catalog with the same pinned transport.
+
+    Returns up to 500 validated model IDs, sorted. Never exposes raw catalog
+    payloads: only the IDs the UI offers in the provider dialog.
+    """
+    if not isinstance(config, ProviderConfig):
+        raise _config_error()
+    if config.kind == "custom" and not config.base_url:
+        raise _config_error()
+    url, allowed_hosts = _models_url(config)
+    validate_endpoint(url, allowed_hosts)
+    if config.kind == "anthropic":
+        headers = {"x-api-key": config.api_key, "anthropic-version": "2023-06-01"}
+    elif config.kind == "gemini":
+        headers = {"x-goog-api-key": config.api_key}
+    else:
+        headers = {"Authorization": f"Bearer {config.api_key}"}
+    response = get_json(url=url, headers=headers, timeout=config.timeout, allowed_hosts=allowed_hosts)
+    if config.kind == "gemini":
+        rows = response.get("models")
+        extract = lambda row: str(row.get("name", "")).removeprefix("models/")  # noqa: E731
+    else:
+        rows = response.get("data")
+        extract = lambda row: str(row.get("id", ""))  # noqa: E731
+    if not isinstance(rows, list):
+        raise _response_error()
+    models = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        model = extract(row)
+        if model and _MODEL.fullmatch(model) and model not in models:
+            models.append(model)
+        if len(models) >= 500:
+            break
+    return sorted(models)

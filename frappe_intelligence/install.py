@@ -1,7 +1,5 @@
 """Standard Frappe lifecycle hooks; no customer-specific SQL or shell setup."""
 
-import json
-
 import frappe
 
 USER_ROLES = ("Intelligence User", "Intelligence Manager", "System Manager")
@@ -14,6 +12,7 @@ DEFAULTS = {
     "max_upload_mb": 10,
     "max_file_chars": 30000,
     "daily_run_limit": 100,
+    "approval_mode": "Approve Every Step",
     "allowed_read_doctypes": "\n".join(
         (
             "Customer",
@@ -149,31 +148,51 @@ def _roles():
 
 
 def _navigation():
-    if frappe.db.exists("Workspace", "Intelligence"):
-        return
-    frappe.get_doc(
-        {
-            "doctype": "Workspace",
-            "name": "Intelligence",
-            "label": "Intelligence",
-            "title": "Intelligence",
-            "module": "Frappe Intelligence",
-            "public": 1,
-            "is_hidden": 0,
-            "icon": "message",
-            "roles": [{"role": role} for role in USER_ROLES],
-            "shortcuts": [{"label": "Open Intelligence", "type": "Page", "link_to": "intelligence-chat"}],
-            "content": json.dumps(
-                [
+    """Own the Desk entry: one sidebar item straight into the chat page.
+
+    There is deliberately no Workspace: a one-shortcut workspace only inserts a
+    middleman page between the app icon and the chat. The Workspace Sidebar
+    resolves the left sidebar for /desk/intelligence, and the standard Desktop
+    Icon carries the logo that the sidebar header and apps screen resolve.
+    """
+    if not frappe.db.exists("Workspace Sidebar", "Intelligence"):
+        frappe.get_doc(
+            {
+                "doctype": "Workspace Sidebar",
+                "title": "Intelligence",
+                "standard": 1,
+                "app": "frappe_intelligence",
+                "items": [
                     {
-                        "id": "intelligence-chat",
-                        "type": "shortcut",
-                        "data": {"shortcut_name": "Open Intelligence", "col": 12},
+                        "type": "Link",
+                        "label": "Conversations",
+                        "link_type": "Page",
+                        "link_to": "intelligence",
                     }
-                ]
-            ),
-        }
-    ).insert(ignore_permissions=True)
+                ],
+            }
+        ).insert(ignore_permissions=True)
+    if not frappe.db.exists("Desktop Icon", "Intelligence"):
+        frappe.get_doc(
+            {
+                "doctype": "Desktop Icon",
+                "label": "Intelligence",
+                "icon_type": "App",
+                "standard": 1,
+                "app": "frappe_intelligence",
+                "link_type": "Workspace Sidebar",
+                "link_to": "Intelligence",
+                "logo_url": "/assets/frappe_intelligence/images/intelligence.svg",
+                "hidden": 0,
+                "roles": [{"role": role} for role in USER_ROLES],
+            }
+        ).insert(ignore_permissions=True)
+    # Drop the middleman workspace created by releases before 0.4. A user's own
+    # customized workspace is left untouched; only the seeded shortcut page goes.
+    if frappe.db.exists("Workspace", "Intelligence"):
+        workspace = frappe.get_doc("Workspace", "Intelligence")
+        if not workspace.get("for_user"):
+            frappe.delete_doc("Workspace", "Intelligence", ignore_permissions=True, force=True)
 
 
 def _seed_skills():

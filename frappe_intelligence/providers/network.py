@@ -318,6 +318,15 @@ def _http_error(status):
 
 def post_json(*, url, headers, payload, timeout, allowed_hosts):
     """POST once, without environment proxies, redirects, or automatic retries."""
+    return _request("POST", url, headers, payload, timeout, allowed_hosts)
+
+
+def get_json(*, url, headers, timeout, allowed_hosts):
+    """GET once under the same pinning and bounds as post_json (model catalogs)."""
+    return _request("GET", url, headers, None, timeout, allowed_hosts)
+
+
+def _request(method, url, headers, payload, timeout, allowed_hosts):
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
@@ -327,7 +336,7 @@ def post_json(*, url, headers, payload, timeout, allowed_hosts):
         raise ProviderError("invalid_config", "The provider timeout must be between 1 and 120 seconds.")
     deadline = time.monotonic() + timeout
     endpoint = validate_endpoint(url, allowed_hosts)
-    body = encode_json(payload)
+    body = encode_json(payload) if payload is not None else None
     headers = _headers(headers)
     addresses = _resolve_public_addresses(endpoint.host, endpoint.port, deadline)
     connection = None
@@ -354,7 +363,7 @@ def post_json(*, url, headers, payload, timeout, allowed_hosts):
         timer = threading.Timer(_remaining(deadline), interrupt)
         timer.daemon = True
         timer.start()
-        connection.request("POST", endpoint.target, body=body, headers=headers)
+        connection.request(method, endpoint.target, body=body, headers=headers)
         response = connection.getresponse()
         _remaining(deadline)
         if not 200 <= response.status < 300:

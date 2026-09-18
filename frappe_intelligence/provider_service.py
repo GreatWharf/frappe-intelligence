@@ -1,19 +1,28 @@
 """Provider administration; secrets never leave the server-side connection boundary."""
 
+import re
 from urllib.parse import urlsplit
 
 import frappe
 
-from .access import can_use_provider, get_settings, internal_write, require_manager, require_user
+from .access import (
+    can_use_provider,
+    get_settings,
+    internal_write,
+    require_manager,
+    require_user,
+)
 
 KINDS = frozenset({"OpenAI", "Anthropic", "Gemini", "OpenRouter", "xAI", "Custom"})
 EFFORTS = ("Auto", "Low", "Medium", "High", "Max")
+MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}\Z")
 PUBLIC_FIELDS = (
     "name",
     "title",
     "kind",
     "model",
     "thinking_effort",
+    "models",
     "base_url",
     "is_shared",
     "enabled",
@@ -75,6 +84,26 @@ def _check(value, label):
     return int(value)
 
 
+def _models_list(value):
+    """Normalize a model catalog: one valid, unique model ID per line."""
+    if value in (None, ""):
+        return "", []
+    if not isinstance(value, str) or len(value) > 40000:
+        frappe.throw("Invalid model list.")
+    lines = []
+    for line in value.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if not MODEL_ID.fullmatch(line):
+            frappe.throw(f"Invalid model ID: {line[:80]}")
+        if line not in lines:
+            lines.append(line)
+        if len(lines) > 500:
+            frappe.throw("The model list is limited to 500 entries.")
+    return "\n".join(lines), lines
+
+
 def save_provider(
     name=None,
     title="",
@@ -88,6 +117,7 @@ def save_provider(
     max_tokens=None,
     timeout=None,
     thinking_effort=None,
+    models=None,
 ):
     user = require_user()
     doc = (
@@ -99,6 +129,8 @@ def save_provider(
         frappe.throw("You cannot manage this provider.", frappe.PermissionError)
     if name and doc.get("is_shared"):
         require_manager()
+    if models is None:
+        models = (doc.get("models") or "") if name else ""
     if is_shared is None:
         is_shared = doc.get("is_shared") if name else 0
     if enabled is None:
@@ -117,6 +149,9 @@ def save_provider(
         frappe.throw("Select a supported thinking effort.")
     title = _text(title, "provider title", 140)
     model = _text(model, "model ID", 140)
+    models, catalog = _models_list(models)
+    if catalog and model not in catalog:
+        frappe.throw("Choose a model from this provider's model list.")
     if kind not in KINDS:
         frappe.throw("Select a supported provider.")
     shared, enabled = _check(is_shared, "sharing setting"), _check(enabled, "enabled setting")
@@ -169,6 +204,7 @@ def save_provider(
         "kind": kind,
         "model": model,
         "thinking_effort": thinking_effort,
+        "models": models,
         "base_url": base_url,
         "is_shared": shared,
         "enabled": enabled,
@@ -194,3 +230,77 @@ def delete_provider(name):
     with internal_write():
         frappe.delete_doc("Intelligence Provider", name, ignore_permissions=True)
     return {"deleted": True}
+
+
+def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
+    """Fetch the model catalog from the provider API for the dialog's dropdown.
+
+    For a saved provider the stored key is used when no key is typed; for a new
+    provider the key comes from the dialog input and is never stored here. When
+    the provider is saved, the catalog is persisted so the dropdown works
+    offline afterwards.
+    """
+    user = require_user()
+    settings = get_settings()
+    doc = None
+    if name:
+        doc = frappe.get_doc("Intelligence Provider", name, for_update=True)
+        if not can_manage(doc, user):
+            frappe.throw("You cannot manage this provider.", frappe.PermissionError)
+        kind = doc.kind
+        base_url = doc.base_url or ""
+        if api_key in (None, ""):
+            from .access import provider_secret_access
+
+            with provider_secret_access(name, user):
+                api_key = doc.get_password("api_key")
+    if kind not in KINDS:
+        frappe.throw("Select a supported provider.")
+    base_url = _text(base_url or "", "API base URL", 1000, required=False)
+    if kind == "Custom":
+        parsed = urlsplit(base_url)
+        allowed = {
+            host.strip().lower()
+            for host in (settings.get("allowed_custom_hosts") or "").splitlines()
+            if host.strip()
+        }
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.hostname.lower() not in allowed
+        ):
+            frappe.throw("A manager must allowlist this HTTPS custom provider host in Intelligence Settings.")
+    elif base_url:
+        frappe.throw("Built-in providers use fixed API endpoints. Choose Custom for an approved endpoint.")
+    if not isinstance(api_key, str) or not api_key.strip() or len(api_key) > 8192:
+        frappe.throw("Enter the provider API key to fetch its models.")
+    from .providers import ProviderConfig, ProviderError
+    from .providers.adapters import list_models
+
+    config = ProviderConfig(
+        kind=kind.lower(),
+        model="catalog",
+        api_key=api_key.strip(),
+        base_url=base_url,
+        max_tokens=1,
+        timeout=30,
+        allowed_hosts=tuple(
+            host.strip() for host in (settings.get("allowed_custom_hosts") or "").splitlines() if host.strip()
+        ),
+        effort="",
+    )
+    try:
+        models = list_models(config)
+    except ProviderError as exc:
+        frappe.throw(exc.message)
+    if not models:
+        frappe.throw("The provider returned no models for these credentials.")
+    if doc is not None:
+        doc.models = "\n".join(models)
+        with internal_write():
+            doc.save()
+    return {"models": models}

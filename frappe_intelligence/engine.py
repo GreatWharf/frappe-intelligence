@@ -43,6 +43,8 @@ MAX_MESSAGE_CHARS = 30000
 MAX_HISTORY_CHARS = 250000
 MAX_RESULT_CHARS = 60000
 MAX_SKILLS_PROMPT_CHARS = 4000
+MAX_SCHEMA_PROMPT_CHARS = 24000
+SCHEMA_FIELD_TYPES = frozenset({"Section Break", "Column Break", "Tab Break", "HTML", "Fold", "Heading", "Button"})
 
 _GROUND_RULES = (
     "You are Intelligence, an assistant embedded in ERPNext Desk. "
@@ -149,6 +151,29 @@ def _event(run):
         user=run.user,
         after_commit=True,
     )
+
+
+def _notify(run, subject):
+    """File a Desk notification for the run owner; never breaks the run."""
+    try:
+        frappe.get_doc(
+            {
+                "doctype": "Notification Log",
+                "title": subject,
+                "for_user": run.user,
+                "from_user": "Administrator",
+                "document_type": CONVERSATION,
+                "document_name": run.conversation,
+                "link": f"/desk/intelligence/{run.conversation}",
+            }
+        ).insert(ignore_permissions=True)
+    except Exception:
+        # A notification is best-effort; it must never fail a run or its commit,
+        # even when the database is the reason the insert failed.
+        try:
+            frappe.log_error(title="Intelligence notification failed")
+        except Exception:
+            pass
 
 
 def _enqueue(run):
@@ -362,7 +387,15 @@ def submit_message(conversation, content, context=None, attachments=None):
             attachments
         )
     append_message(conversation, "user", canonical, run=run.name)
-    _save(frappe.get_doc(CONVERSATION, conversation, for_update=True), active_run=run.name)
+    # Name the conversation from its first message so the sidebar is readable
+    # without waiting on a provider round-trip for a generated title.
+    fresh = frappe.get_doc(CONVERSATION, conversation, for_update=True)
+    updates = {"active_run": run.name}
+    if fresh.title == "New chat":
+        title = re.sub(r"\s+", " ", content).strip()[:80]
+        if title:
+            updates["title"] = title
+    _save(fresh, **updates)
     _enqueue(run)
     _event(run)
     return _public(run)
@@ -392,6 +425,12 @@ def _finish(run, state, error=""):
     if conversation.active_run == run.name and state != "needs_reconciliation":
         _save(conversation, active_run=None)
     _event(run)
+    if state == "completed":
+        _notify(run, f"Intelligence finished: {conversation.title}")
+    elif state == "failed":
+        _notify(run, f"Intelligence run failed: {conversation.title}")
+    elif state == "needs_reconciliation":
+        _notify(run, f"Intelligence needs reconciliation: {conversation.title}")
 
 
 def _release(run, state="queued"):
@@ -507,6 +546,11 @@ def decide_approval(approval_name, decision):
         )
         if approval.status not in accepted and approval.status != "expired":
             frappe.throw("This proposal already has a different decision.", frappe.ValidationError)
+        if approval.status == "approved" and _date(approval.expires_at) <= _now():
+            # Never affirm an approval whose window has closed; execution demotes
+            # it anyway, so the API answer should agree.
+            _save(approval, status="expired")
+            _event(run)
         return _public(run)
     if run.state in TERMINAL or run.cancel_requested:
         frappe.throw("This run is no longer accepting approvals.", frappe.ValidationError)
@@ -683,6 +727,55 @@ def _attachments_block(run):
     return block
 
 
+def _schema_block():
+    """Compact field map of the allowed DocTypes, rebuilt per turn.
+
+    The assistant should already know the fields it may touch instead of
+    spending visible tool calls on list_doctypes/describe_doctype; those tools
+    remain for detail outside this digest. Truncation is stated, never silent.
+    """
+    settings = get_settings()
+    names = sorted(
+        line.strip() for line in (settings.get("allowed_read_doctypes") or "").splitlines() if line.strip()
+    )
+    if not names:
+        return ""
+    lines = []
+    total = 0
+    for name in names:
+        try:
+            meta = frappe.get_meta(name)
+        except Exception:
+            continue
+        parts = []
+        for field in meta.fields:
+            if field.fieldtype in SCHEMA_FIELD_TYPES:
+                continue
+            label = field.fieldname
+            if field.fieldtype in ("Link", "Table", "Table MultiSelect") and field.options:
+                label += f"->{field.options}"
+            if field.reqd:
+                label += "*"
+            parts.append(label)
+            if len(parts) >= 60:
+                parts.append("[more fields via describe_doctype]")
+                break
+        line = f"- {name}: {', '.join(parts)}"
+        if total + len(line) + 1 > MAX_SCHEMA_PROMPT_CHARS:
+            lines.append("[more DocTypes available via describe_doctype]")
+            break
+        lines.append(line)
+        total += len(line) + 1
+    if not lines:
+        return ""
+    return (
+        "## DocType field map\nFields available to the adaptive tools "
+        "(* marks mandatory, -> names the link or child-table target). "
+        "Use these directly; describe_doctype is only for fields not listed here.\n"
+        + "\n".join(lines)
+    )
+
+
 def _system_prompt(run, context):
     """Transient per-turn system prompt; rebuilt each turn so skill edits apply at once."""
     parts = [
@@ -693,7 +786,7 @@ def _system_prompt(run, context):
         _MEMORY_GUIDANCE,
         _ADAPTIVE_GUIDANCE,
     ]
-    for block in (_skills_block(run), _attachments_block(run)):
+    for block in (_skills_block(run), _attachments_block(run), _schema_block()):
         if block:
             parts.append(block)
     return "\n\n".join(parts)
@@ -817,7 +910,15 @@ def _provider_turn(run_name, token):
         output_tokens=int(run.output_tokens or 0) + _number(usage.get("output_tokens"), 0, 0, 10000000),
     )
     expires = _now() + timedelta(minutes=_number(get_settings().approval_expiry_minutes, 1440, 1, 10080))
+    mode = (get_settings().get("approval_mode") or "Approve Every Step").strip()
+    # Approve Writes Only auto-approves read-only tools; Automatic auto-approves
+    # the whole reviewed set. Auto-approvals keep the same durable approval,
+    # digest, preview and execution receipts, so the audit trail is identical.
+    auto_all = mode == "Automatic"
+    auto_reads = mode == "Approve Writes Only"
+    pending = 0
     for call, spec, preview in proposals:
+        automatic = auto_all or (auto_reads and not spec.mutates)
         proposal = frappe._dict(
             conversation=run.conversation,
             run=run.name,
@@ -826,15 +927,23 @@ def _provider_turn(run_name, token):
             tool_call_id=call["id"],
             arguments_json=_json(call["arguments"]),
             preview_json=_json(preview),
-            status="pending",
+            status="approved" if automatic else "pending",
             expires_at=expires,
         )
+        if automatic:
+            # A blank decided_by marks the policy auto-approval: a human decision
+            # always stamps the deciding user (see decide_approval).
+            proposal["decided_at"] = _now()
+        else:
+            pending += 1
         _insert(APPROVAL, **proposal, digest=_digest(run, proposal))
-    if proposals:
+    if pending:
         _release(run, "awaiting_approval")
-    elif calls:
-        # Every proposed call was rejected at the prepare step; the tool error
-        # results are already in history, so requeue for the model to adapt.
+        _notify(run, "Intelligence is waiting for your approval.")
+    elif proposals or calls:
+        # Auto-approved proposals run in the next step; when every proposed call
+        # was rejected at prepare, the tool errors are already in history and the
+        # model adapts on the requeue.
         _release(run)
     else:
         _finish(run, "completed")

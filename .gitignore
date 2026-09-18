@@ -16,3 +16,4 @@ playwright-report/
 .DS_Store
 PRODUCT_BRIEF.md
 IMPLEMENTATION_PLAN.md
+uv.lock

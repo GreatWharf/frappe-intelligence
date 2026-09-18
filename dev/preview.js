@@ -4,27 +4,35 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const scene = new URLSearchParams(location.search).get('scene') || 'empty';
   const timestamp = '2026-09-16 10:24:00';
-  const providers = [{ name: 'provider-1', title: 'Work account', kind: 'OpenAI', model: 'gpt-4.1', enabled: 1, is_shared: 0, thinking_effort: 'Medium', has_api_key: true, can_edit: true }];
+  const providers = [{ name: 'provider-1', title: 'Work account', kind: 'OpenAI', model: 'gpt-4.1', enabled: 1, is_shared: 0, thinking_effort: 'Medium', has_api_key: true, can_edit: true, models: 'gpt-4.1\ngpt-4.1-mini\ngpt-4o' }];
   const conversations = [
-    { name: 'chat-1', title: 'Review outstanding sales orders', provider: 'provider-1', modified: timestamp, active_run: scene === 'approval' ? 'run-1' : null, archived: 0 },
-    { name: 'chat-2', title: 'A clearer month-end checklist', provider: 'provider-1', modified: '2026-09-15 15:12:00', archived: 0 },
-    { name: 'chat-3', title: 'Understand our delivery workflow', provider: 'provider-1', modified: '2026-09-14 10:11:00', archived: 0 },
-    { name: 'chat-4', title: 'Notes from the supplier review', provider: 'provider-1', modified: '2026-09-12 09:45:00', archived: 0 }
+    { name: 'chat-1', title: 'Review outstanding sales orders', provider: 'provider-1', modified: timestamp, active_run: scene === 'approval' ? 'run-1' : null, archived: 0, owner: 'jamie@example.invalid', shared: 0 },
+    { name: 'chat-2', title: 'A clearer month-end checklist', provider: 'provider-1', modified: '2026-09-15 15:12:00', archived: 0, owner: 'jamie@example.invalid', shared: 0 },
+    { name: 'chat-3', title: 'Understand our delivery workflow', provider: 'provider-1', modified: '2026-09-14 10:11:00', archived: 0, owner: 'jamie@example.invalid', shared: 0 },
+    { name: 'chat-4', title: 'Notes from the supplier review', provider: 'provider-1', modified: '2026-09-12 09:45:00', archived: 0, owner: 'jamie@example.invalid', shared: 0 }
+  ];
+  const sharedConversations = [
+    { name: 'shared-1', title: 'Q3 stock reconciliation notes', provider: 'provider-1', modified: '2026-09-13 12:02:00', archived: 0, owner: 'alex@example.invalid', shared: 1 }
   ];
   const snapshots = {};
-  for (const row of conversations) snapshots[row.name] = { conversation: row, messages: [], approvals: [], files: [], run: null };
+  for (const row of conversations.concat(sharedConversations)) snapshots[row.name] = { conversation: row, messages: [], approvals: [], files: [], run: null, can_post: row.owner === 'jamie@example.invalid' && !row.archived };
   snapshots['chat-1'].messages = [
     { name: 'message-1', role: 'user', content: 'Which sales orders are still waiting to be delivered? Help me see what needs attention this week.', status: 'complete', creation: timestamp },
-    { name: 'message-2', role: 'assistant', content: 'I can look for open sales orders and compare their delivery dates.\n\nI’ll start with a **read-only search** for submitted orders that are not fully delivered. I’ll only see the records your account is allowed to access.\n\nPlease review the request below before I continue.', status: 'complete', creation: timestamp }
+    { name: 'message-2', role: 'assistant', content: 'I can look for open sales orders and compare their delivery dates.\n\nI will start with a **read-only search** for submitted orders that are not fully delivered. I will only see the records your account is allowed to access.\n\nPlease review the request below before I continue.', status: 'complete', creation: timestamp }
+  ];
+  snapshots['chat-1'].files = [{ name: 'file-1', file_name: 'delivery-schedule-week38.pdf', file_url: '/private/files/delivery-schedule-week38.pdf', is_private: 1, file_size: 48230 }];
+  snapshots['shared-1'].messages = [
+    { name: 'message-30', role: 'user', content: 'Summarize the stock reconciliation differences for Q3.', status: 'complete', creation: '2026-09-13 11:58:00' },
+    { name: 'message-31', role: 'assistant', content: 'Fictional preview summary of the shared reconciliation conversation. Read only for you.', status: 'complete', creation: '2026-09-13 12:02:00' }
   ];
   if (scene === 'approval') {
     snapshots['chat-1'].run = { name: 'run-1', state: 'awaiting_approval', step_count: 1 };
-    snapshots['chat-1'].approvals = [{ name: 'approval-1', tool_name: 'search_records', status: 'pending', expires_at: '2026-09-17 10:24:00', preview: { summary: 'Find submitted sales orders that still have items to deliver.', operation: 'Read records', target: { doctype: 'Sales Order' }, details: { fields: ['name', 'customer', 'delivery_date', 'per_delivered'], filters: { docstatus: 1, per_delivered: ['<', 100] }, limit: 20 } } }];
+    snapshots['chat-1'].approvals = [{ name: 'approval-1', tool_name: 'create_record', status: 'pending', expires_at: '2026-09-17 10:24:00', creation: timestamp, preview: { action: "Create Supplier 'Acme Corp'", summary: 'Create the fictional supplier record Acme Corp with default payment terms.', doctype: 'Supplier', name: 'Acme Corp', fields: { supplier_name: 'Acme Corp', supplier_group: 'Commercial' }, changes: [{ field: 'supplier_name', label: 'Supplier name', before: '-', after: 'Acme Corp' }], details: { fields: ['supplier_name', 'supplier_group'], limit: 1 } } }];
   }
   const memories = [{ name: 'memory-1', scope: 'personal', content: 'Use a Monday-to-Sunday week when reviewing delivery schedules.' }];
   const handlers = {};
-  let sequence = 10, route = ['intelligence-chat'];
-  const preview = window.preview = { scene, calls: [], offline: false, providers, conversations, snapshots, memories, emit: (event) => (handlers.intelligence_update || []).forEach((callback) => callback(event)) };
+  let sequence = 10, route = ['intelligence'];
+  const preview = window.preview = { scene, calls: [], offline: false, providers, conversations, sharedConversations, snapshots, memories, emit: (event) => (handlers.intelligence_update || []).forEach((callback) => callback(event)) };
   function changed(snapshot) { preview.emit({ conversation: snapshot.conversation.name, run: snapshot.run && snapshot.run.name, state: snapshot.run && snapshot.run.state }); }
   function finish(snapshot, state, text) {
     if (snapshot.run.state === 'cancelled') return;
@@ -38,22 +46,26 @@
     await new Promise((resolve) => setTimeout(resolve, 90));
     const snapshot = snapshots[args.conversation];
     switch (method) {
-      case 'bootstrap': return { enabled: true, user: 'jamie@example.invalid', is_manager: true, providers: providers.filter((row) => row.enabled), managed_providers: providers, capabilities: { attachments: true, memory: true, shared_memory: true, provider_management: true, streaming: false }, defaults: { max_upload_mb: 10, approval_expiry_minutes: 1440 } };
-      case 'list_conversations': return conversations.filter((row) => Number(row.archived || 0) === Number(args.archived || 0) && row.title.toLowerCase().includes((args.search || '').toLowerCase()));
+      case 'bootstrap': return { enabled: true, user: 'jamie@example.invalid', user_name: 'Jamie Davis', is_manager: true, providers: providers.filter((row) => row.enabled), managed_providers: providers, capabilities: { attachments: true, memory: true, shared_memory: true, provider_management: true, streaming: false }, defaults: { max_upload_mb: 10, approval_expiry_minutes: 1440, approval_mode: 'Approve Every Step' } };
+      case 'list_conversations': {
+        if (Number(args.shared || 0)) return sharedConversations;
+        return conversations.filter((row) => Number(row.archived || 0) === Number(args.archived || 0) && row.title.toLowerCase().includes((args.search || '').toLowerCase()));
+      }
       case 'get_conversation': if (!snapshot) throw { userMessage: 'Conversation not found.' }; return snapshot;
       case 'create_conversation': {
-        const conversation = { name: 'chat-' + (++sequence), title: args.title || 'New conversation', provider: args.provider, modified: timestamp, archived: 0 };
-        conversations.unshift(conversation); snapshots[conversation.name] = { conversation, messages: [], approvals: [], files: [], run: null }; return conversation;
+        const conversation = { name: 'chat-' + (++sequence), title: 'New conversation', provider: args.provider, modified: timestamp, archived: 0, owner: 'jamie@example.invalid', shared: 0 };
+        conversations.unshift(conversation); snapshots[conversation.name] = { conversation, messages: [], approvals: [], files: [], run: null, can_post: true }; return conversation;
       }
       case 'send_message': {
         if (snapshot.run && ['running', 'queued', 'awaiting_approval'].includes(snapshot.run.state)) throw { userMessage: 'This conversation already has an active run.' };
+        if (!snapshot.messages.length) snapshot.conversation.title = args.content.slice(0, 80);
         snapshot.messages.push({ name: 'message-' + (++sequence), role: 'user', content: args.content, status: 'complete', creation: timestamp });
         snapshot.run = { name: 'run-' + (++sequence), state: 'running', step_count: 1 }; snapshot.conversation.active_run = snapshot.run.name;
         setTimeout(() => {
           if (snapshot.run.state !== 'running') return;
           snapshot.run.state = 'awaiting_approval';
           snapshot.messages.push({ name: 'message-' + (++sequence), role: 'assistant', content: '**Mock preview response.** I can help by reading the relevant records. Review this example request before continuing; no actual records will be accessed in this preview.', status: 'complete', creation: timestamp });
-          snapshot.approvals.push({ name: 'approval-' + (++sequence), tool_name: 'search_records', status: 'pending', preview: { summary: 'Example: read a small set of permitted customer records.', operation: 'Read records', target: { doctype: 'Customer' }, details: { fields: ['name', 'customer_name'], limit: 5 } } }); changed(snapshot);
+          snapshot.approvals.push({ name: 'approval-' + (++sequence), tool_name: 'search_records', status: 'pending', creation: timestamp, preview: { action: "Search Customer records", summary: 'Example: read a small set of permitted customer records.', doctype: 'Customer', details: { fields: ['name', 'customer_name'], limit: 5 } } }); changed(snapshot);
         }, 900); return snapshot.run;
       }
       case 'approve': {
@@ -68,7 +80,9 @@
         const match = Object.values(snapshots).find((row) => row.run && row.run.name === args.run); match.run.state = 'cancelled'; match.conversation.active_run = null; changed(match); return match.run;
       }
       case 'rename_conversation': snapshot.conversation.title = args.title; return snapshot.conversation;
-      case 'archive_conversation': snapshot.conversation.archived = args.archived; return snapshot.conversation;
+      case 'archive_conversation': snapshot.conversation.archived = args.archived; snapshot.can_post = !args.archived; return snapshot.conversation;
+      case 'share_conversation': snapshot.conversation.shared = args.shared; return snapshot.conversation;
+      case 'fetch_provider_models': return { models: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'o4-mini'] };
       case 'skills': return {
         tools: [
           { name: 'search_records', description: 'Find records you can access.', mutates: false, external: false, version: '1', enabled: 1 },
@@ -84,7 +98,7 @@
       case 'provider_details': return providers.find((row) => row.name === args.name);
       case 'save_provider': {
         let provider = providers.find((row) => row.name === args.name); if (!provider) { provider = { name: 'provider-' + (++sequence) }; providers.push(provider); }
-        Object.assign(provider, { title: args.title, kind: args.kind, model: args.model, base_url: args.base_url, enabled: args.enabled, is_shared: args.is_shared, thinking_effort: args.thinking_effort || 'Auto', has_api_key: true, can_edit: true }); return provider;
+        Object.assign(provider, { title: args.title, kind: args.kind, model: args.model, base_url: args.base_url, enabled: args.enabled, is_shared: args.is_shared, thinking_effort: args.thinking_effort || 'Auto', models: args.models || '', has_api_key: true, can_edit: true }); return provider;
       }
       case 'delete_provider': { const index = providers.findIndex((row) => row.name === args.name); providers.splice(index, 1); return { deleted: true }; }
       case 'list_memories': return memories.filter((row) => row.scope === args.scope && (args.scope !== 'conversation' || row.conversation === args.conversation));
@@ -96,18 +110,19 @@
   window.__ = (text) => text;
   window.frappe = {
     boot: {}, session: { user: 'jamie@example.invalid' }, csrf_token: 'mock-not-a-real-token',
-    pages: { 'intelligence-chat': {} }, get_route: () => route,
-    set_route: (...parts) => { route = parts; (handlers.route || []).forEach((callback) => callback()); if (parts[0] === 'intelligence-chat') { document.querySelector('#page').hidden = false; document.querySelector('#record').hidden = true; frappe.pages['intelligence-chat'].on_page_show(document.querySelector('#page')); } },
+    pages: { intelligence: {} }, get_route: () => route,
+    set_route: (...parts) => { route = parts; (handlers.route || []).forEach((callback) => callback()); if (parts[0] === 'intelligence') { document.querySelector('#page').hidden = false; document.querySelector('#record').hidden = true; frappe.pages.intelligence.on_page_show(document.querySelector('#page')); } },
     router: { on: (_event, callback) => { (handlers.route ||= []).push(callback); } },
     realtime: { on: (event, callback) => { (handlers[event] ||= []).push(callback); } },
-    ui: { make_app_page: ({ parent }) => ({ main: [parent] }) },
+    show_alert: (opts) => { preview.lastAlert = opts && opts.message || String(opts); },
+    ui: { make_app_page: ({ parent }) => ({ main: [parent] }), freeze: () => { preview.frozen = true; }, unfreeze: () => { preview.frozen = false; } },
     call: ({ method, args, callback, error }) => api(method.replace('frappe_intelligence.api.', ''), args || {}).then((data) => { callback({ message: clone(data) }); }).catch((failure) => { error(failure); })
   };
   const originalFetch = window.fetch.bind(window);
   window.fetch = async (url, options) => {
     if (String(url).endsWith('frappe_intelligence.api.upload_attachment')) {
       preview.calls.push({ method: 'upload_attachment', args: { conversation: options.body.get('conversation') } });
-      const file = options.body.get('file'); const attachment = { name: 'file-' + (++sequence), file_name: file.name, file_url: '/private/files/' + encodeURIComponent(file.name), is_private: 1 };
+      const file = options.body.get('file'); const attachment = { name: 'file-' + (++sequence), file_name: file.name, file_url: '/private/files/' + encodeURIComponent(file.name), is_private: 1, file_size: file.size };
       snapshots[options.body.get('conversation')].files.push(attachment);
       return new Response(JSON.stringify({ message: attachment }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }

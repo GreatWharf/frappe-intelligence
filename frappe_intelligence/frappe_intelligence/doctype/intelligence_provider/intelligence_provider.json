@@ -1,114 +1,121 @@
 {
-  "doctype": "DocType",
-  "name": "Intelligence Provider",
-  "module": "Frappe Intelligence",
-  "autoname": "hash",
-  "engine": "InnoDB",
-  "issingle": 0,
-  "fields": [
-    {
-      "fieldname": "title",
-      "label": "Title",
-      "fieldtype": "Data",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "kind",
-      "label": "Kind",
-      "fieldtype": "Select",
-      "options": "OpenAI\nAnthropic\nGemini\nOpenRouter\nxAI\nCustom",
-      "reqd": 1
-    },
-    {
-      "fieldname": "model",
-      "label": "Model",
-      "fieldtype": "Data",
-      "reqd": 1
-    },
-    {
-      "fieldname": "thinking_effort",
-      "label": "Thinking Effort",
-      "fieldtype": "Select",
-      "options": "Auto\nLow\nMedium\nHigh\nMax",
-      "default": "Auto"
-    },
-    {
-      "fieldname": "api_key",
-      "label": "Api Key",
-      "fieldtype": "Password",
-      "hidden": 1
-    },
-    {
-      "fieldname": "base_url",
-      "label": "Base Url",
-      "fieldtype": "Data"
-    },
-    {
-      "fieldname": "is_shared",
-      "label": "Is Shared",
-      "fieldtype": "Check",
-      "default": "0"
-    },
-    {
-      "fieldname": "enabled",
-      "label": "Enabled",
-      "fieldtype": "Check",
-      "default": "1"
-    },
-    {
-      "fieldname": "allowed_roles",
-      "label": "Allowed Roles",
-      "fieldtype": "Small Text"
-    },
-    {
-      "fieldname": "max_tokens",
-      "label": "Max Tokens",
-      "fieldtype": "Int",
-      "default": "4096"
-    },
-    {
-      "fieldname": "timeout",
-      "label": "Timeout",
-      "fieldtype": "Int",
-      "default": "60"
-    }
-  ],
-  "field_order": [
-    "title",
-    "kind",
-    "model",
-    "thinking_effort",
-    "api_key",
-    "base_url",
-    "is_shared",
-    "enabled",
-    "allowed_roles",
-    "max_tokens",
-    "timeout"
-  ],
-  "permissions": [
-    {
-      "role": "Intelligence User",
-      "read": 1,
-      "create": 1,
-      "write": 1
-    },
-    {
-      "role": "Intelligence Manager",
-      "read": 1,
-      "create": 1,
-      "write": 1
-    },
-    {
-      "role": "System Manager",
-      "read": 1,
-      "create": 1,
-      "write": 1
-    }
-  ],
-  "track_changes": 0,
-  "sort_field": "creation",
-  "sort_order": "DESC",
-  "title_field": "title"
+ "doctype": "DocType",
+ "name": "Intelligence Provider",
+ "module": "Frappe Intelligence",
+ "autoname": "hash",
+ "engine": "InnoDB",
+ "issingle": 0,
+ "fields": [
+  {
+   "fieldname": "title",
+   "label": "Title",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "kind",
+   "label": "Kind",
+   "fieldtype": "Select",
+   "options": "OpenAI\nAnthropic\nGemini\nOpenRouter\nxAI\nCustom",
+   "reqd": 1
+  },
+  {
+   "fieldname": "model",
+   "label": "Model",
+   "fieldtype": "Data",
+   "reqd": 1
+  },
+  {
+   "fieldname": "thinking_effort",
+   "label": "Thinking Effort",
+   "fieldtype": "Select",
+   "options": "Auto\nLow\nMedium\nHigh\nMax",
+   "default": "Auto"
+  },
+  {
+   "fieldname": "models",
+   "label": "Available Models",
+   "fieldtype": "Small Text",
+   "description": "Model IDs offered by this provider, one per line. Fetched from the provider API or entered by hand; the active Model must be one of these."
+  },
+  {
+   "fieldname": "api_key",
+   "label": "Api Key",
+   "fieldtype": "Password",
+   "hidden": 1
+  },
+  {
+   "fieldname": "base_url",
+   "label": "Base Url",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "is_shared",
+   "label": "Is Shared",
+   "fieldtype": "Check",
+   "default": "0"
+  },
+  {
+   "fieldname": "enabled",
+   "label": "Enabled",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "allowed_roles",
+   "label": "Allowed Roles",
+   "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "max_tokens",
+   "label": "Max Tokens",
+   "fieldtype": "Int",
+   "default": "4096"
+  },
+  {
+   "fieldname": "timeout",
+   "label": "Timeout",
+   "fieldtype": "Int",
+   "default": "60"
+  }
+ ],
+ "field_order": [
+  "title",
+  "kind",
+  "model",
+  "thinking_effort",
+  "models",
+  "api_key",
+  "base_url",
+  "is_shared",
+  "enabled",
+  "allowed_roles",
+  "max_tokens",
+  "timeout"
+ ],
+ "permissions": [
+  {
+   "role": "Intelligence User",
+   "read": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "Intelligence Manager",
+   "read": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "create": 1,
+   "write": 1
+  }
+ ],
+ "track_changes": 0,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "title_field": "title"
 }

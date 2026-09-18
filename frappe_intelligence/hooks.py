@@ -4,7 +4,7 @@ app_publisher = "Great Wharf"
 app_description = "Bring your own AI to Frappe with private chats and approved business tools"
 app_email = "Merrick@greatwharf.com"
 app_license = "MIT"
-app_home = "/desk/intelligence-chat"
+app_home = "/desk/intelligence"
 app_logo_url = "/assets/frappe_intelligence/images/intelligence.svg"
 
 app_include_js = ["/assets/frappe_intelligence/js/intelligence.js"]

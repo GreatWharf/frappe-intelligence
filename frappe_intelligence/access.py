@@ -56,7 +56,8 @@ def get_settings():
 def get_conversation(name, write=False):
     user = require_user()
     doc = frappe.get_doc("Intelligence Conversation", name, for_update=write)
-    if doc.owner != user:
+    # Sharing is read-only: only the owner may write, post or attach.
+    if doc.owner != user and (write or not doc.get("shared")):
         _denied()
     doc.check_permission("write" if write else "read")
     return doc
@@ -107,7 +108,11 @@ def conversation_query(user=None):
     user = user or frappe.session.user
     if not _enabled_user(user) or not USER_ROLES.intersection(frappe.get_roles(user)):
         return "1=0"
-    return "`tabIntelligence Conversation`.`owner` = " + frappe.db.escape(user)
+    return (
+        "(`tabIntelligence Conversation`.`owner` = "
+        + frappe.db.escape(user)
+        + " OR `tabIntelligence Conversation`.`shared` = 1)"
+    )
 
 
 def conversation_permission(doc, user=None, permission_type=None):
@@ -116,7 +121,11 @@ def conversation_permission(doc, user=None, permission_type=None):
         return False
     if frappe.flags.get("intelligence_internal") and user == frappe.session.user:
         return True
-    return bool(_enabled_user(user) and USER_ROLES.intersection(frappe.get_roles(user)) and doc.owner == user)
+    if not (_enabled_user(user) and USER_ROLES.intersection(frappe.get_roles(user))):
+        return False
+    if doc.owner == user:
+        return True
+    return permission_type == "read" and bool(doc.get("shared"))
 
 
 def private_record_permission(doc, user=None, permission_type=None):

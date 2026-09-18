@@ -46,7 +46,7 @@ def test_provider_secret_is_password_and_execution_receipt_is_unique():
 def test_app_assets_and_lifecycle_hooks_are_packaged():
     for name in ("modules.txt", "patches.txt", "hooks.py"):
         assert (APP / name).exists()
-    assert (APP / "frappe_intelligence/page/intelligence_chat/intelligence_chat.json").exists()
+    assert (APP / "frappe_intelligence/page/intelligence/intelligence.json").exists()
     assert (APP / "public/images/intelligence.svg").exists()
 
 

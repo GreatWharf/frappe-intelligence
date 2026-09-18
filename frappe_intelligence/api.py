@@ -18,7 +18,17 @@ from .access import (
     get_conversation as owned_conversation,
 )
 
-CONVERSATION_FIELDS = ("name", "title", "provider", "archived", "active_run", "modified", "message_count")
+CONVERSATION_FIELDS = (
+    "name",
+    "title",
+    "provider",
+    "owner",
+    "shared",
+    "archived",
+    "active_run",
+    "modified",
+    "message_count",
+)
 ACTIVE_STATES = frozenset({"queued", "running", "awaiting_approval"})
 
 
@@ -84,19 +94,24 @@ def bootstrap():
         "defaults": {
             "max_upload_mb": upload_limit_bytes(settings) // (1024 * 1024),
             "approval_expiry_minutes": settings.get("approval_expiry_minutes") or 1440,
+            "approval_mode": settings.get("approval_mode") or "Approve Every Step",
         },
     }
 
 
 @frappe.whitelist()
 @_safe
-def list_conversations(search="", archived=0):
+def list_conversations(search="", archived=0, shared=0):
     user = require_user()
     if not isinstance(search, str) or len(search) > 140:
         frappe.throw("Search must be no longer than 140 characters.")
-    if archived not in (0, 1, "0", "1"):
-        frappe.throw("Invalid archive filter.")
-    filters = {"owner": user, "archived": int(archived)}
+    if archived not in (0, 1, "0", "1") or shared not in (0, 1, "0", "1"):
+        frappe.throw("Invalid conversation filter.")
+    if int(shared):
+        # Conversations other users chose to share; read-only for this user.
+        filters = {"shared": 1, "owner": ["!=", user], "archived": int(archived)}
+    else:
+        filters = {"owner": user, "archived": int(archived)}
     if search.strip():
         filters["title"] = ["like", "%" + search.strip() + "%"]
     return frappe.get_all(
@@ -136,6 +151,7 @@ def create_conversation(provider, title="New chat"):
 def get_conversation(conversation, before_sequence=None):
     from . import engine
 
+    user = require_user()
     doc = owned_conversation(conversation)
     filters = {"conversation": doc.name}
     if before_sequence is not None:
@@ -180,6 +196,7 @@ def get_conversation(conversation, before_sequence=None):
             )
     return {
         "conversation": _conversation(doc),
+        "can_post": doc.owner == user and not doc.archived,
         "messages": messages,
         "run": run,
         "approvals": approvals,
@@ -221,6 +238,18 @@ def rename_conversation(conversation, title):
     if not isinstance(title, str) or not title.strip() or len(title) > 140:
         frappe.throw("Conversation titles must be 1–140 characters.")
     doc.title = title.strip()
+    with internal_write():
+        doc.save()
+    return _conversation(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def share_conversation(conversation, shared=1):
+    doc = owned_conversation(conversation, write=True)
+    if shared not in (0, 1, "0", "1"):
+        frappe.throw("Invalid sharing setting.")
+    doc.shared = int(shared)
     with internal_write():
         doc.save()
     return _conversation(doc)
@@ -282,6 +311,7 @@ def save_provider(
     max_tokens=None,
     timeout=None,
     thinking_effort=None,
+    models=None,
 ):
     return provider_service.save_provider(
         name,
@@ -296,7 +326,14 @@ def save_provider(
         max_tokens,
         timeout,
         thinking_effort,
+        models,
     )
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
+    return provider_service.fetch_provider_models(name, kind, base_url, api_key)
 
 
 @frappe.whitelist(methods=["POST"])

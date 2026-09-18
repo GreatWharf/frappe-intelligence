@@ -19,6 +19,7 @@
 	const KINDS = ["OpenAI", "Anthropic", "Gemini", "OpenRouter", "xAI", "Custom"];
 	const EFFORTS = ["Auto", "Low", "Medium", "High", "Max"];
 	const LABELS = { queued: "Queued", running: "Working", awaiting_approval: "Needs your approval", completed: "Completed", failed: "Run failed", cancelled: "Cancelled", needs_reconciliation: "Needs review" };
+	const PAGE = "intelligence";
 	const icons = {
 		plus: '<path d="M12 5v14M5 12h14"/>', search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
 		chat: '<path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2V12a9 9 0 0 1 18-.5Z"/>',
@@ -31,14 +32,15 @@
 		check: '<path d="m5 12 4 4L19 6"/>', archive: '<path d="M4 8h16v13H4Z"/><path d="M3 3h18v5H3Zm6 9h6"/>',
 		edit: '<path d="m14 5 5 5M4 20l5-1L20 8a3 3 0 0 0-4-4L5 15Z"/>',
 		panel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
-		expand: '<path d="M14 3h7v7m0-7-8 8M10 21H3v-7m0 7 8-8"/>',
+		share: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6m-7.6 6 7.6 3.6"/>',
+		link: '<path d="M10 14a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>',
 		file: '<path d="M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h5"/>',
 		retry: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/>',
 		stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/>',
 		sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.3 11.3 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.3-11.3 1.4-1.4"/>',
 		grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
-		queue: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.2 1.2L6.8 5M3.5 12l1.2 1.2L6.8 11M3.5 18l1.2 1.2L6.8 17"/>',
-		target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>'
+		target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
+		menu: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>'
 	};
 	function icon(name) { return '<svg class="fi-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (icons[name] || icons.chat) + '</svg>'; }
 	function esc(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
@@ -46,7 +48,7 @@
 		const raw = String(value || "").trim();
 		if (!raw || /[\x00-\x20\x7f\\]/.test(raw) || raw.startsWith("//")) return "";
 		if (raw.startsWith("/")) {
-			try { const local = new URL(raw, "https://intelligence.invalid"); return /^\/((?:app|desk)(?:\/|$)|private\/files\/|files\/)/.test(local.pathname) && !/%(?:00|0a|0d|5c)/i.test(raw) ? local.pathname + local.search + local.hash : ""; } catch (_) { return ""; }
+			try { const local = new URL(raw, "https://intelligence.invalid"); return /^\/((?:app|desk)(?:\/|$)|private\/files\/|files\/|api\/method\/frappe\.)/.test(local.pathname) && !/%(?:00|0a|0d|5c)/i.test(raw) ? local.pathname + local.search + local.hash : ""; } catch (_) { return ""; }
 		}
 		try { const url = new URL(raw); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password ? url.href : ""; } catch (_) { return ""; }
 	}
@@ -130,18 +132,58 @@
 	function time(value) { if (!value) return ""; const date = new Date(String(value).replace(" ", "T")); return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
 	function stamp(value) { if (!value) return ""; const date = new Date(String(value).replace(" ", "T")); return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
 	function parsed(value, fallback) { if (typeof value !== "string") return value || fallback; try { return JSON.parse(value); } catch (_) { return fallback; } }
+	function dashed(doctype) { return String(doctype || "").trim().toLowerCase().replace(/[\s_]+/g, "-"); }
+	function previewData(preview) { const data = parsed(preview, { summary: String(preview || "") }); return data && typeof data === "object" ? data : { summary: String(data || "") }; }
+	function actionSentence(preview, toolName) {
+		const data = previewData(preview);
+		if (data.action) return String(data.action);
+		const target = data.target && typeof data.target === "object" ? data.target : {};
+		const doctype = data.doctype || target.doctype || "";
+		const name = data.name || target.name || "";
+		const tool = String(toolName || "").toLowerCase();
+		let verb = "Run";
+		if (/create|insert|new/.test(tool)) verb = "Create";
+		else if (/update|edit|set|modify/.test(tool)) verb = "Update";
+		else if (/delete|remove/.test(tool)) verb = "Delete";
+		else if (/submit/.test(tool)) verb = "Submit";
+		else if (/cancel/.test(tool)) verb = "Cancel";
+		else if (/search|list|find/.test(tool)) verb = "Search";
+		else if (/read|get|fetch|open/.test(tool)) verb = "Read";
+		if (!doctype) return verb + " requested action";
+		return verb + " " + doctype + (name ? " '" + name + "'" : verb === "Search" || verb === "Read" && !name ? " records" : "");
+	}
+	function recordLink(preview) {
+		const data = previewData(preview);
+		const target = data.target && typeof data.target === "object" ? data.target : {};
+		const doctype = data.doctype || target.doctype, name = data.name || target.name;
+		if (!doctype || !name) return "";
+		const url = safeURL("/app/" + dashed(doctype) + "/" + encodeURIComponent(name));
+		return url ? '<a class="fi-record-chip" href="' + esc(url) + '">' + icon("link") + "<span>" + esc(doctype) + " / " + esc(name) + "</span></a>" : "";
+	}
 	function previewHTML(preview) {
-		const data = parsed(preview, { summary: String(preview || "Review the requested action before continuing.") });
-		if (typeof data !== "object" || !data) return '<p class="fi-approval-summary">' + esc(data) + '</p>';
-		const summary = data.summary || data.description || "Review the exact request below. Only approve access and changes you expect.";
-		const value = (entry) => typeof entry === "object" && entry !== null ? JSON.stringify(entry, null, 2) : String(entry == null ? "-" : entry);
-		let html = '<p class="fi-approval-summary">' + esc(summary) + '</p>';
-		if (data.operation || data.target) html += '<div class="fi-proposal-target">' + icon("file") + '<span>' + esc(data.operation || "Requested action") + '</span>' + Object.entries(data.target || {}).map(([key, entry]) => '<span class="fi-proposal-tag"><span>' + esc(key.replace(/_/g, " ")) + '</span>' + esc(value(entry)) + '</span>').join("") + '</div>';
-		if (Array.isArray(data.changes) && data.changes.length) html += '<div class="fi-change-table"><table><thead><tr><th>Field</th><th>Before</th><th>Proposed</th></tr></thead><tbody>' + data.changes.map((change) => '<tr><th>' + esc(change.label || change.field) + '</th><td>' + esc(value(change.before)) + '</td><td>' + esc(value(change.after)) + '</td></tr>').join("") + '</tbody></table></div>';
+		const data = previewData(preview);
+		const summary = data.summary || data.description || "";
+		// Structured before/after values stay behind a details toggle; the table cells
+		// show a compact label instead of raw JSON.
+		const value = (entry) => {
+			if (entry == null) return "-";
+			if (typeof entry !== "object") return esc(String(entry));
+			const label = Array.isArray(entry) ? entry.length + " item" + (entry.length === 1 ? "" : "s") : Object.keys(entry).length + " field" + (Object.keys(entry).length === 1 ? "" : "s");
+			return '<details class="fi-change-value"><summary>' + esc(label) + "</summary><pre>" + esc(JSON.stringify(entry, null, 2)) + "</pre></details>";
+		};
+		let html = summary ? '<p class="fi-approval-summary">' + esc(summary) + "</p>" : "";
+		if (Array.isArray(data.changes) && data.changes.length) html += '<div class="fi-change-table"><table><thead><tr><th>Field</th><th>Before</th><th>Proposed</th></tr></thead><tbody>' + data.changes.map((change) => "<tr><th>" + esc(change.label || change.field) + "</th><td>" + value(change.before) + "</td><td>" + value(change.after) + "</td></tr>").join("") + "</tbody></table></div>";
 		// Only the server's purpose-built approval preview is displayed. Never render model tool-call metadata.
-		const details = Object.fromEntries(Object.entries(data).filter(([key]) => !["summary", "description", "metadata", "operation", "target", "changes"].includes(key)));
-		if (Object.keys(details).length) html += '<details class="fi-proposal"><summary>Review exact fields and filters</summary><pre>' + esc(JSON.stringify(details.details && Object.keys(details).length === 1 ? details.details : details, null, 2)) + '</pre></details>';
+		const details = Object.fromEntries(Object.entries(data).filter(([key]) => !["summary", "description", "metadata", "action", "operation", "target", "changes", "doctype", "name"].includes(key)));
+		if (Object.keys(details).length) html += '<details class="fi-proposal"><summary>Raw request details</summary><pre>' + esc(JSON.stringify(details.details && Object.keys(details).length === 1 ? details.details : details, null, 2)) + "</pre></details>";
 		return html;
+	}
+	function fileCardHTML(file, options) {
+		const url = safeURL(file && file.file_url);
+		const label = String(file && file.file_name || "Attachment");
+		const size = file && Number(file.file_size) ? '<span class="fi-file-size">' + esc(Math.ceil(Number(file.file_size) / 1024) + " KB") + "</span>" : "";
+		const attach = options && options.attach ? button("reuse-file", options.attachLabel || "Attach", "plus", "fi-text-btn fi-file-attach", 'data-name="' + esc(file.name) + '"') : "";
+		return '<article class="fi-file-card" data-file="' + esc(file && file.name || "") + '"><span class="fi-file-icon">' + icon("file") + '</span><div class="fi-file-info"><strong>' + esc(label) + "</strong>" + size + "</div>" + (url ? '<a class="fi-file-open" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open</a>' : "") + attach + "</article>";
 	}
 	function effortOptions(selected) {
 		const current = EFFORTS.includes(selected) ? selected : "Auto";
@@ -165,16 +207,6 @@
 		const enabled = (skill) => skill.enabled === undefined ? true : !!Number(skill.enabled);
 		const editable = (skill) => !!(opts.isManager || Number(skill.can_edit) === 1 || skill.can_edit === true || (opts.user && skill.owner && String(skill.owner) === String(opts.user)));
 		return '<h3 class="fi-section-title">Learned skills</h3><div class="fi-skill-list">' + list.map((skill) => '<div class="fi-skill-row fi-learned-row"><div class="fi-skill-head"><strong class="fi-skill-title">' + esc(skill.title || skill.name) + "</strong><code>" + esc(skill.name) + '</code><span class="fi-badge fi-badge-origin">' + (skill.origin === "Seeded" ? "Seeded" : "Learned") + "</span>" + (enabled(skill) ? "" : '<span class="fi-badge">Off</span>') + (skill.version ? '<span class="fi-skill-version">v' + esc(skill.version) + "</span>" : "") + '</div><p class="fi-skill-desc">' + esc(skill.description || "") + "</p>" + (editable(skill) ? '<div class="fi-skill-actions"><label class="fi-skill-toggle"><input type="checkbox" data-input="skill-enabled" data-name="' + esc(skill.name) + '"' + (enabled(skill) ? " checked" : "") + "> Enabled</label>" + button("skill-edit", "Edit", "edit", "fi-text-btn", 'data-name="' + esc(skill.name) + '"') + "</div>" : "") + "</div>").join("") + "</div>";
-	}
-	function queueHTML(rows) {
-		const list = (Array.isArray(rows) ? rows : []).filter((row) => row && row.name);
-		if (!list.length) return '<div class="fi-queue-empty">' + icon("check") + "<strong>No pending approvals</strong><span>Requests from any of your conversations will appear here.</span></div>";
-		return '<div class="fi-queue-list" role="list">' + list.map((row) => {
-			const data = row.preview_json != null ? parsed(row.preview_json, {}) : row.preview && typeof row.preview === "object" ? row.preview : {};
-			const target = data && typeof data.target === "object" && data.target ? data.target : {};
-			const summary = data && (data.summary || data.description) || "", requested = stamp(row.creation);
-			return '<article class="fi-queue-row" role="listitem"><div class="fi-queue-head"><span class="fi-queue-icon">' + icon("lock") + '</span><div class="fi-queue-title"><strong>' + esc(row.tool_name) + "</strong>" + (requested ? '<span class="fi-queue-meta">Requested ' + esc(requested) + "</span>" : "") + '</div><span class="fi-pill">' + esc(row.status || "pending") + "</span></div>" + (target.doctype || target.name ? '<div class="fi-queue-target">' + icon("file") + "<span>" + esc(target.doctype || "") + (target.name ? '<span class="fi-context-divider">/</span>' + esc(target.name) : "") + "</span></div>" : "") + (summary ? '<p class="fi-queue-summary">' + esc(summary) + "</p>" : "") + (row.expires_at ? '<p class="fi-queue-expiry">Expires ' + esc(stamp(row.expires_at)) + "</p>" : "") + '<div class="fi-queue-actions">' + button("queue-open", "Open conversation", "chevron", "fi-text-btn", 'data-name="' + esc(row.conversation || "") + '"') + '<span class="fi-queue-spacer"></span>' + button("queue-deny", "Deny", null, "", 'data-name="' + esc(row.name) + '"') + button("queue-approve", "Approve", "check", "fi-primary", 'data-name="' + esc(row.name) + '"') + "</div></article>";
-		}).join("") + "</div>";
 	}
 	function lines(value) { return Array.from(new Set(String(value || "").split("\n").map((line) => line.trim()).filter(Boolean))); }
 	function scopeState(settings, skills) {
@@ -215,23 +247,58 @@
 	class App {
 		constructor(options) {
 			this.api = options && options.api || request; this.doc = options && options.document || global.document;
-			this.boot = null; this.conversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map();
-			this.visible = false; this.archived = false; this.search = ""; this.provider = ""; this.context = null; this.loading = false; this.online = true; this.error = ""; this.notice = ""; this.selectVersion = 0; this.listVersion = 0; this.lastList = 0; this.failures = 0; this.messageSignature = "";
+			this.boot = null; this.conversations = []; this.sharedConversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map();
+			this.visible = false; this.archived = false; this.search = ""; this.provider = ""; this.context = null; this.loading = false; this.online = true; this.error = ""; this.notice = ""; this.selectVersion = 0; this.listVersion = 0; this.lastList = 0; this.failures = 0; this.messageSignature = ""; this.renaming = false;
 			this.poller = new Poller(() => this.poll()); this.root = this.doc.createElement("section"); this.root.className = "fi-app"; this.root.setAttribute("aria-label", "Intelligence workspace");
 			this.root.innerHTML = this.shell(); this.bind(); this.render();
 		}
-		shell() { return '<aside class="fi-sidebar" aria-label="Private conversations">' + button("new", "New conversation", "plus", "fi-new") + '<label class="fi-search">' + icon("search") + '<input type="search" data-input="search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off"><kbd>⌘ K</kbd></label><div class="fi-sidebar-label"><span data-slot="list-label">Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + '</div><nav class="fi-conversation-list" data-slot="conversations" aria-label="Conversation list"></nav><footer class="fi-sidebar-footer">' + button("approvals", "Approvals", "queue") + button("skills", "Skills", "grid") + button("memory", "Memory", "memory") + button("settings", "Providers & models", "settings") + button("scope", "Scope", "target") + '<div class="fi-private-note">' + icon("lock") + '<span>Only you can see your conversations</span></div></footer></aside><div class="fi-main"><header class="fi-header"><div class="fi-header-left">' + iconButton("sidebar", "Toggle conversations", "panel", 'aria-expanded="false"') + '<div class="fi-heading"><h2 data-slot="title">New conversation</h2><span data-slot="subtitle">Your private workspace</span></div></div><div class="fi-header-actions">' + iconButton("rename", "Rename conversation", "edit") + iconButton("archive", "Archive conversation", "archive") + iconButton("expand", "Open full workspace", "expand") + iconButton("close", "Close Intelligence", "close") + '</div></header><div class="fi-banner" data-slot="banner" role="status" hidden></div><div class="fi-thread" data-slot="thread" tabindex="0" aria-label="Messages"><div class="fi-thread-inner" data-slot="messages"></div></div><div class="fi-bottom"><div class="fi-run" data-slot="run" aria-live="polite" hidden></div><div class="fi-context-list" data-slot="context"></div><form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form><div class="fi-composer-caption"><span>' + icon("lock") + ' You approve every tool action</span><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>'; }
+		shell() {
+			return '<aside class="fi-sidebar" aria-label="Conversations">'
+				+ '<div class="fi-sidebar-top">' + button("new", "New conversation", "plus", "fi-new") + '<div class="fi-search form-group">' + icon("search") + '<input type="search" class="form-control" data-input="search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off"><kbd>⌘ K</kbd></div></div>'
+				+ '<div class="fi-sidebar-label"><span data-slot="list-label">Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + "</div>"
+				+ '<nav class="fi-conversation-list" data-slot="conversations" aria-label="Conversation list"></nav>'
+				+ '<div class="fi-sidebar-label fi-shared-label" data-slot="shared-label" hidden><span>Shared with me</span></div>'
+				+ '<nav class="fi-conversation-list fi-shared-list" data-slot="shared" aria-label="Shared with me" hidden></nav>'
+				+ '<footer class="fi-sidebar-footer"><div class="fi-private-note">' + icon("lock") + "<span>Only you can see your conversations</span></div></footer></aside>"
+				+ '<div class="fi-main"><header class="fi-header"><div class="fi-header-left">'
+				+ iconButton("sidebar", "Toggle conversations", "panel", 'aria-expanded="true"')
+				+ '<div class="fi-heading"><button type="button" class="fi-title-btn" data-action="rename-title" title="Rename conversation"><h2 data-slot="title">New conversation</h2></button><span data-slot="subtitle" class="fi-subtitle"></span></div></div>'
+				+ '<div class="fi-header-actions">'
+				+ '<span data-slot="shared-chip"></span>'
+				+ iconButton("share", "Share conversation", "share")
+				+ iconButton("archive", "Archive conversation", "archive")
+				+ '<div class="fi-menu-wrap">' + iconButton("menu", "Providers, memory, skills and scope", "menu", 'aria-haspopup="menu" aria-expanded="false"')
+				+ '<div class="fi-menu" data-slot="menu" role="menu" hidden>'
+				+ '<button type="button" role="menuitem" data-action="settings">' + icon("settings") + "<span>Providers &amp; models</span></button>"
+				+ '<button type="button" role="menuitem" data-action="memory">' + icon("memory") + "<span>Memory</span></button>"
+				+ '<button type="button" role="menuitem" data-action="skills">' + icon("grid") + "<span>Skills</span></button>"
+				+ '<button type="button" role="menuitem" data-action="scope">' + icon("target") + "<span>Scope</span></button>"
+				+ "</div></div>"
+				+ iconButton("expand", "Open full workspace", "expand") + iconButton("close", "Close Intelligence", "close")
+				+ '</div></header>'
+				+ '<div class="fi-banner" data-slot="banner" role="status" hidden></div>'
+				+ '<div class="fi-thread" data-slot="thread" tabindex="0" aria-label="Messages"><div class="fi-thread-inner" data-slot="messages"></div></div>'
+				+ '<div class="fi-bottom"><div class="fi-run" data-slot="run" aria-live="polite" hidden></div><div class="fi-context-list" data-slot="context"></div>'
+				+ '<div class="fi-readonly" data-slot="readonly" hidden></div>'
+				+ '<form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form>'
+				+ '<div class="fi-composer-caption"><span>' + icon("lock") + ' <span data-slot="approval-mode">You approve every tool action</span></span><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>';
+		}
 		$(selector) { return this.root.querySelector(selector); }
 		slot(name) { return this.$('[data-slot="' + name + '"]'); }
 		draft() { const key = this.selected || "new"; if (!this.drafts.has(key)) this.drafts.set(key, { text: "", attachments: [] }); return this.drafts.get(key); }
 		isActive() { return !!(this.snapshot && this.snapshot.run && ACTIVE.has(this.snapshot.run.state)); }
+		readOnly() { return !!(this.snapshot && this.snapshot.can_post === false) || !!(this.snapshot && Number(this.snapshot.conversation.archived)); }
 		busy(key, work) {
 			if (this.pending.has(key)) return Promise.resolve();
 			this.pending.add(key); this.renderControls();
 			return Promise.resolve().then(work).catch((error) => { this.error = userError(error); this.renderBanner(); }).finally(() => { this.pending.delete(key); this.renderControls(); });
 		}
 		bind() {
-			this.root.addEventListener("click", (event) => { const target = event.target.closest("[data-action]"); if (target && this.root.contains(target) && !target.disabled) this.action(target.dataset.action, target); });
+			this.root.addEventListener("click", (event) => {
+				const menu = this.slot("menu");
+				if (menu && !menu.hidden && !event.target.closest(".fi-menu-wrap")) { menu.hidden = true; this.$('[data-action="menu"]').setAttribute("aria-expanded", "false"); }
+				const target = event.target.closest("[data-action]"); if (target && this.root.contains(target) && !target.disabled) this.action(target.dataset.action, target);
+			});
 			this.root.addEventListener("input", (event) => {
 				if (event.target.dataset.input === "message") { this.draft().text = event.target.value; this.resizeComposer(); this.renderControls(); }
 				if (event.target.dataset.input === "search") { this.search = event.target.value; global.clearTimeout(this.searchTimer); this.searchTimer = global.setTimeout(() => this.refreshList().catch((error) => { this.error = userError(error); this.renderBanner(); }), 250); }
@@ -239,7 +306,6 @@
 			this.root.addEventListener("change", (event) => { if (event.target.dataset.input === "provider") this.provider = event.target.value; });
 			this.$("form").addEventListener("submit", (event) => { event.preventDefault(); this.send(); });
 			this.$("textarea").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); this.send(); } });
-			this.root.addEventListener("keydown", (event) => { if (event.key === "Escape" && this.root.classList.contains("fi-sidebar-open")) { event.preventDefault(); event.stopPropagation(); this.root.classList.remove("fi-sidebar-open"); const toggle = this.$('[data-action="sidebar"]'); toggle.setAttribute("aria-expanded", "false"); toggle.focus(); } });
 		}
 		async init() {
 			if (this.initializing) return this.initializing;
@@ -254,12 +320,18 @@
 			this.visible = true; this.mode = mode || "page"; this.root.classList.toggle("fi-drawer-app", this.mode === "drawer"); host.appendChild(this.root); this.render();
 			if (!this.boot) this.init(); else this.poller.start(0);
 		}
-		hide() { this.visible = false; this.root.classList.remove("fi-sidebar-open"); global.clearTimeout(this.searchTimer); this.poller.stop(); if (this.watched.size) this.poller.start(1000); }
+		hide() { this.visible = false; this.closeMenu(); global.clearTimeout(this.searchTimer); this.poller.stop(); if (this.watched.size) this.poller.start(1000); }
+		closeMenu() { const menu = this.slot("menu"); if (menu) menu.hidden = true; const trigger = this.$('[data-action="menu"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 		async refreshList() {
 			const version = ++this.listVersion;
-			const list = await this.api("list_conversations", { search: this.search, archived: this.archived ? 1 : 0 });
+			const results = await Promise.all([
+				this.api("list_conversations", { search: this.search, archived: this.archived ? 1 : 0 }),
+				this.api("list_conversations", { shared: 1 })
+			]);
 			if (version !== this.listVersion) return;
-			this.conversations = Array.isArray(list) ? list : []; this.lastList = Date.now();
+			this.conversations = Array.isArray(results[0]) ? results[0] : [];
+			this.sharedConversations = Array.isArray(results[1]) ? results[1] : [];
+			this.lastList = Date.now();
 			for (const row of this.conversations) if (row.active_run && !this.watched.has(row.name)) this.watched.set(row.name, { name: typeof row.active_run === "object" ? row.active_run.name : row.active_run, state: "running" });
 			this.renderSidebar();
 		}
@@ -267,12 +339,28 @@
 			if (this.inflight.has(name)) return this.inflight.get(name);
 			const promise = this.api("get_conversation", { conversation: name }).finally(() => this.inflight.delete(name)); this.inflight.set(name, promise); return promise;
 		}
+		navigate(name) {
+			const frappe = global.frappe;
+			if (!frappe || !frappe.set_route || !frappe.get_route || this.mode !== "page") return;
+			const route = frappe.get_route();
+			const current = route && route[0] === PAGE ? route[1] || "" : null;
+			if (current === null || current === (name || "")) return;
+			if (name) frappe.set_route(PAGE, name); else frappe.set_route(PAGE);
+		}
 		async select(name) {
-			if (this.pending.has("send") || this.pending.has("upload")) return;
-			const version = ++this.selectVersion; this.selected = name; this.snapshot = null; this.error = ""; this.notice = ""; this.messageSignature = ""; this.loadingConversation = true; this.root.classList.remove("fi-sidebar-open"); this.render(); this.syncDraft();
+			if (this.pending.has("send") || this.pending.has("upload")) { this.navigate(this.selected); return; }
+			const version = ++this.selectVersion; this.selected = name; this.snapshot = null; this.error = ""; this.notice = ""; this.messageSignature = ""; this.loadingConversation = true; this.renaming = false; this.navigate(name); this.render(); this.syncDraft();
 			try { const data = await this.fetchConversation(name); if (version !== this.selectVersion) return; this.accept(name, data); }
-			catch (error) { if (version === this.selectVersion) this.error = userError(error); }
+			catch (error) {
+				// A bogus or revoked conversation name must not linger in the URL or the
+				// poll loop: fall back to the home view instead of retrying forever.
+				if (version === this.selectVersion) { this.selected = null; this.snapshot = null; this.navigate(null); this.watched.delete(name); this.error = userError(error); }
+			}
 			finally { if (version === this.selectVersion) { this.loadingConversation = false; this.render(); this.poller.start(0); } }
+		}
+		newConversation() {
+			if (this.pending.has("send") || this.pending.has("upload")) { this.navigate(this.selected); return; }
+			this.selectVersion++; this.selected = null; this.snapshot = null; this.loadingConversation = false; this.error = ""; this.notice = ""; this.renaming = false; this.navigate(null); this.render(); this.syncDraft(); this.$("textarea").focus();
 		}
 		accept(name, data) {
 			if (!data || !data.conversation) return;
@@ -315,28 +403,54 @@
 		}
 		refresh() { this.error = ""; if (!this.boot) return this.init(); this.poller.start(0); this.renderBanner(); }
 		render() { this.renderSidebar(); this.renderHeader(); this.renderMessages(); this.renderRun(); this.renderContext(); this.renderAttachments(); this.renderProviders(); this.renderControls(); this.renderBanner(); }
-		renderHeader() {
-			this.slot("title").textContent = this.snapshot && this.snapshot.conversation.title || (this.selected ? "Conversation" : "New conversation");
-			this.slot("subtitle").textContent = this.snapshot && this.snapshot.conversation.archived ? "Archived · read only" : "Private · only you";
-			for (const action of ["rename", "archive"]) this.$('[data-action="' + action + '"]').hidden = !this.selected;
-			this.$('[data-action="expand"]').hidden = this.mode !== "drawer"; this.$('[data-action="close"]').hidden = this.mode !== "drawer";
-			const archive = this.$('[data-action="archive"]'); const archived = !!(this.snapshot && this.snapshot.conversation.archived); archive.setAttribute("aria-label", archived ? "Restore conversation" : "Archive conversation"); archive.title = archived ? "Restore conversation" : "Archive conversation";
+		providerRow() {
+			const providers = this.boot && this.boot.providers || [];
+			return providers.find((provider) => provider.name === this.provider) || null;
 		}
-		conversationRowsHTML() {
-			return this.conversations.length ? this.conversations.map((row) => '<button type="button" class="fi-conversation ' + (this.selected === row.name ? "is-active" : "") + '" data-action="select" data-name="' + esc(row.name) + '" ' + (this.selected === row.name ? 'aria-current="true"' : "") + '><span class="fi-conversation-icon">' + icon("chat") + '</span><span class="fi-conversation-info"><span class="fi-conversation-title">' + esc(row.title || "Untitled conversation") + '</span><span class="fi-conversation-meta">' + esc(time(row.modified)) + (row.active_run ? '<span class="fi-list-status">In progress</span>' : "") + '</span></span>' + (row.active_run ? '<span class="fi-status-dot" aria-label="Active run"></span>' : "") + '</button>').join("") : '<div class="fi-list-empty">' + (this.loading ? "Loading conversations…" : this.search ? "No conversations match your search." : this.archived ? "No archived conversations." : "Your conversations will appear here.") + '</div>';
+		renderHeader() {
+			const title = this.snapshot && this.snapshot.conversation.title || (this.selected ? "Conversation" : "New conversation");
+			if (!this.renaming) this.slot("title").textContent = title;
+			const row = this.providerRow();
+			const effort = row && EFFORTS.includes(row.thinking_effort) ? row.thinking_effort : "Auto";
+			let subtitle;
+			if (this.snapshot && Number(this.snapshot.conversation.archived)) subtitle = "Archived · read only";
+			else if (this.snapshot && this.snapshot.can_post === false) subtitle = "Shared by " + (this.snapshot.conversation.owner || "another user") + " · read only";
+			else if (row) subtitle = row.title + " · " + row.model + " · effort " + effort;
+			else subtitle = "Private · only you";
+			this.slot("subtitle").textContent = subtitle;
+			const shared = !!(this.snapshot && Number(this.snapshot.conversation.shared));
+			const chip = this.slot("shared-chip");
+			chip.innerHTML = shared ? '<span class="fi-shared-chip">' + icon("share") + "<span>Shared</span></span>" : "";
+			const selected = !!this.selected;
+			for (const action of ["share", "archive"]) this.$('[data-action="' + action + '"]').hidden = !selected;
+			this.$('[data-action="rename-title"]').hidden = !selected || !!(this.snapshot && this.snapshot.can_post === false);
+			this.$('[data-action="share"]').hidden = !selected || !this.snapshot || this.snapshot.can_post === false;
+			this.$('[data-action="expand"]').hidden = this.mode !== "drawer"; this.$('[data-action="close"]').hidden = this.mode !== "drawer";
+			const archive = this.$('[data-action="archive"]'); const archived = !!(this.snapshot && Number(this.snapshot.conversation.archived));
+			archive.setAttribute("aria-label", archived ? "Restore conversation" : "Archive conversation"); archive.title = archived ? "Restore conversation" : "Archive conversation";
+			const share = this.$('[data-action="share"]'); share.setAttribute("aria-label", shared ? "Stop sharing this conversation" : "Share conversation (read only link)"); share.title = share.getAttribute("aria-label");
+			const mode = this.boot && this.boot.defaults && this.boot.defaults.approval_mode;
+			this.slot("approval-mode").textContent = mode ? "Approval mode: " + mode : "You approve every tool action";
+		}
+		conversationRowsHTML(rows) {
+			const list = Array.isArray(rows) ? rows : this.conversations;
+			return list.length ? list.map((row) => '<button type="button" class="fi-conversation ' + (this.selected === row.name ? "is-active" : "") + '" data-action="select" data-name="' + esc(row.name) + '" ' + (this.selected === row.name ? 'aria-current="true"' : "") + '><span class="fi-conversation-icon">' + icon("chat") + '</span><span class="fi-conversation-info"><span class="fi-conversation-title">' + esc(row.title || "Untitled conversation") + '</span><span class="fi-conversation-meta">' + esc(time(row.modified)) + (row.shared ? '<span class="fi-list-status">Shared</span>' : "") + (row.active_run ? '<span class="fi-list-status">In progress</span>' : "") + '</span></span>' + (row.active_run ? '<span class="fi-status-dot" aria-label="Active run"></span>' : "") + '</button>').join("") : "";
 		}
 		renderSidebar() {
-			const signature = JSON.stringify([this.conversations, this.selected, this.archived, this.loading, this.search]);
+			const signature = JSON.stringify([this.conversations, this.sharedConversations, this.selected, this.archived, this.loading, this.search]);
 			if (signature === this.sidebarSignature) return; this.sidebarSignature = signature;
 			this.slot("list-label").textContent = this.archived ? "Archived conversations" : "Conversations";
 			const filter = this.$('[data-action="archive-filter"]'); filter.setAttribute("aria-pressed", String(this.archived)); filter.title = this.archived ? "Show active conversations" : "Show archived conversations";
-			const rows = this.conversationRowsHTML();
-			this.slot("conversations").innerHTML = rows;
-			paintDesk(this, rows);
+			const empty = '<div class="fi-list-empty">' + (this.loading ? "Loading conversations…" : this.search ? "No conversations match your search." : this.archived ? "No archived conversations." : "Your conversations will appear here.") + "</div>";
+			this.slot("conversations").innerHTML = this.loading && !this.conversations.length ? '<div class="fi-skel-list">' + '<span class="fi-skel-line"></span>'.repeat(4) + "</div>" : this.conversationRowsHTML() || empty;
+			const sharedSlot = this.slot("shared"), sharedLabel = this.slot("shared-label");
+			const showShared = !this.archived && this.sharedConversations.length > 0;
+			sharedSlot.hidden = !showShared; sharedLabel.hidden = !showShared;
+			sharedSlot.innerHTML = showShared ? this.conversationRowsHTML(this.sharedConversations) : "";
 		}
 		renderProviders() {
 			const select = this.$('[data-input="provider"]'); const providers = this.boot && this.boot.providers || [];
-			let options = providers.map((provider) => '<option value="' + esc(provider.name) + '">' + esc(provider.title + " · " + provider.model) + '</option>').join("");
+			let options = providers.map((provider) => '<option value="' + esc(provider.name) + '">' + esc(provider.title + " · " + provider.model) + "</option>").join("");
 			if (this.selected && !providers.some((provider) => provider.name === this.provider)) options += '<option value="' + esc(this.provider) + '">Provider unavailable</option>';
 			if (select.dataset.options !== options) { select.innerHTML = options || '<option value="">Set up a provider</option>'; select.dataset.options = options; }
 			select.value = this.provider;
@@ -346,37 +460,63 @@
 			const banner = this.slot("banner"); const message = this.error || (!this.online ? "Connection interrupted. Reconnecting automatically; your run continues on the server." : this.notice);
 			const signature = JSON.stringify([message, !!this.error]); if (signature === this.bannerSignature) return; this.bannerSignature = signature;
 			banner.hidden = !message; banner.classList.toggle("is-error", !!this.error); banner.setAttribute("role", this.error ? "alert" : "status");
-			banner.innerHTML = message ? icon(this.error ? "info" : "retry") + '<span>' + esc(message) + '</span>' + button("refresh", "Refresh", null, "fi-text-btn") + iconButton("dismiss", "Dismiss notification", "close") : "";
+			banner.innerHTML = message ? icon(this.error ? "info" : "retry") + "<span>" + esc(message) + "</span>" + button("refresh", "Refresh", null, "fi-text-btn") + iconButton("dismiss", "Dismiss notification", "close") : "";
+		}
+		thinkingHTML() {
+			return '<div class="fi-thinking" role="status" aria-label="Intelligence is working"><span class="fi-avatar fi-avatar-ai"><img class="fi-avatar-logo" src="' + LOGO + '" alt=""></span><span class="fi-thinking-dots"><i></i><i></i><i></i></span></div>';
 		}
 		renderMessages() {
 			const slot = this.slot("messages"), thread = this.slot("thread");
-			const signature = JSON.stringify([this.loading, this.loadingConversation, this.selected, this.snapshot && this.snapshot.messages, this.snapshot && this.snapshot.approvals, this.snapshot && this.snapshot.has_earlier_messages, this.boot && this.boot.providers]);
+			const signature = JSON.stringify([this.loading, this.loadingConversation, this.selected, this.snapshot && this.snapshot.messages, this.snapshot && this.snapshot.approvals, this.snapshot && this.snapshot.files, this.snapshot && this.snapshot.run, this.snapshot && this.snapshot.has_earlier_messages, this.snapshot && this.snapshot.can_post, this.boot && this.boot.providers]);
 			if (signature === this.messageSignature) return; this.messageSignature = signature;
 			const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
-			if (this.loading || this.loadingConversation) { slot.innerHTML = '<div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading your workspace…</div>'; return; }
+			if (this.loading || this.loadingConversation) { slot.innerHTML = '<div class="fi-skel-thread" role="status" aria-label="Loading"><span class="fi-skel-line fi-skel-wide"></span><span class="fi-skel-line"></span><span class="fi-skel-line fi-skel-short"></span><span class="fi-skel-line fi-skel-wide"></span><span class="fi-skel-line"></span></div>'; return; }
 			const messages = this.snapshot && this.snapshot.messages || [];
 			const approvals = this.snapshot && this.snapshot.approvals || [];
+			const files = this.snapshot && this.snapshot.files || [];
 			if (!messages.length && !approvals.length) {
 				const noProviders = this.boot && !(this.boot.providers || []).length;
 				const hour = new Date().getHours();
 				const daypart = hour < 5 || hour >= 18 ? "evening" : hour < 12 ? "morning" : "afternoon";
 				const userName = this.boot && this.boot.user_name || "";
 				const greeting = userName ? "Good " + daypart + ", " + esc(userName) + "." : "How can I help?";
-				slot.innerHTML = '<div class="fi-welcome"><div class="fi-welcome-symbol" aria-hidden="true"><img class="fi-welcome-logo" src="' + LOGO + '" alt=""></div><h2>' + greeting + '</h2><p>Ask about your business. Find the right records.<br>Take the next step, with you in control.</p>' + (noProviders ? '<div class="fi-setup-note"><strong>Connect a provider to get started</strong><p>Use your own API key and choose the model that works for you.</p>' + button("settings", "Set up a provider", "plus", "fi-primary") + '</div>' : '<div class="fi-starters"><button type="button" data-action="starter" data-prompt="Give me my briefing for today: what needs my attention across my companies, invoices, emails and tasks?"><span class="fi-starter-icon">' + icon("sun") + '</span><strong>Today&rsquo;s briefing</strong><span>What needs your attention right now</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me find the records I need to review today."><span class="fi-starter-icon">' + icon("search") + '</span><strong>Find what matters</strong><span>Explore records you can access</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me understand this workflow before making any changes."><span class="fi-starter-icon">' + icon("chat") + '</span><strong>Think it through</strong><span>Understand a process or next step</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Review an attached document and help me identify the next steps."><span class="fi-starter-icon">' + icon("file") + '</span><strong>Start with a document</strong><span>Work with a private PDF or text file</span>' + icon("chevron") + '</button></div>') + '<div class="fi-welcome-foot">' + icon("lock") + ' Private conversations. Explicit approvals. Your permissions.</div></div>';
+				slot.innerHTML = '<div class="fi-welcome"><div class="fi-welcome-symbol" aria-hidden="true"><img class="fi-welcome-logo" src="' + LOGO + '" alt=""></div><h2>' + greeting + '</h2><p>Ask about your business. Find the right records.<br>Take the next step, with you in control.</p>' + (noProviders ? '<div class="fi-setup-note"><strong>Connect a provider to get started</strong><p>Use your own API key and choose the model that works for you.</p>' + button("settings", "Set up a provider", "plus", "fi-primary") + "</div>" : '<div class="fi-starters"><button type="button" data-action="starter" data-prompt="Give me my briefing for today: what needs my attention across my companies, invoices, emails and tasks?"><span class="fi-starter-icon">' + icon("sun") + '</span><strong>Today&rsquo;s briefing</strong><span>What needs your attention right now</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me find the records I need to review today."><span class="fi-starter-icon">' + icon("search") + '</span><strong>Find what matters</strong><span>Explore records you can access</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me understand this workflow before making any changes."><span class="fi-starter-icon">' + icon("chat") + '</span><strong>Think it through</strong><span>Understand a process or next step</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Review an attached document and help me identify the next steps."><span class="fi-starter-icon">' + icon("file") + '</span><strong>Start with a document</strong><span>Work with a private PDF or text file</span>' + icon("chevron") + "</button></div>") + '<div class="fi-welcome-foot">' + icon("lock") + " Private conversations. Explicit approvals. Your permissions.</div></div>";
 			} else {
 				// Merge messages and tool cards into one chronological feed: cards
 				// grouped after all messages would bury the final answer mid-thread.
-				const feed = messages.filter((message) => ["user", "assistant"].includes(message.role) && message.content).map((message) => ({ creation: message.creation || "", html: this.messageHTML(message) })).concat(approvals.map((approval) => ({ creation: approval.creation || "", html: this.approvalHTML(approval) }))).sort((a, b) => (a.creation < b.creation ? -1 : a.creation > b.creation ? 1 : 0));
-				slot.innerHTML = (this.snapshot.has_earlier_messages ? '<div class="fi-history-more">' + button("earlier", "Load earlier messages", "retry", "fi-text-btn") + '</div>' : '') + '<div class="fi-thread-start">' + icon("lock") + ' This conversation is private to you</div>' + feed.map((item) => item.html).join("");
+				const canPost = !this.readOnly();
+				const feed = messages.filter((message) => ["user", "assistant"].includes(message.role) && message.content).map((message) => ({ creation: message.creation || "", html: this.messageHTML(message) })).concat(approvals.map((approval) => ({ creation: approval.creation || "", html: this.approvalHTML(approval, canPost) }))).sort((a, b) => (a.creation < b.creation ? -1 : a.creation > b.creation ? 1 : 0));
+				const run = this.snapshot && this.snapshot.run;
+				const thinking = run && ["queued", "running"].includes(run.state) ? this.thinkingHTML() : "";
+				const selected = new Set(this.draft().attachments.map((file) => file.name));
+				const fileCards = files.length ? '<div class="fi-file-cards" aria-label="Conversation files">' + files.map((file) => fileCardHTML(file, canPost && !selected.has(file.name) ? { attach: true, attachLabel: "Attach to next message" } : canPost ? { attach: true, attachLabel: "Attached" } : null)).join("") + "</div>" : "";
+				slot.innerHTML = (this.snapshot.has_earlier_messages ? '<div class="fi-history-more">' + button("earlier", "Load earlier messages", "retry", "fi-text-btn") + "</div>" : "") + '<div class="fi-thread-start">' + icon("lock") + (this.snapshot.conversation && Number(this.snapshot.conversation.shared) ? " This conversation is shared read only" : " This conversation is private to you") + "</div>" + feed.map((item) => item.html).join("") + thinking + fileCards;
+				this.bindFileCards(slot);
 			}
 			if (nearBottom || !this.snapshot || this.snapshot.messages && this.snapshot.messages.length < 2) thread.scrollTop = thread.scrollHeight;
 		}
-		messageHTML(message) {
-			return '<article class="fi-message fi-message-' + esc(message.role) + '" data-message="' + esc(message.name) + '"><div class="fi-message-heading"><span class="fi-avatar ' + (message.role === "assistant" ? "fi-avatar-ai" : "") + '">' + (message.role === "assistant" ? '<img class="fi-avatar-logo" src="' + LOGO + '" alt="">' : "Y") + '</span><strong>' + (message.role === "assistant" ? "Intelligence" : "You") + '</strong><span>' + esc(time(message.creation)) + '</span>' + (message.status === "interrupted" ? '<span class="fi-message-interrupted">Interrupted</span>' : "") + '</div><div class="fi-message-content">' + markdown(message.content) + '</div></article>';
+		bindFileCards(slot) {
+			for (const element of slot.querySelectorAll('[data-action="reuse-file"]')) {
+				if (element.dataset.bound) continue; element.dataset.bound = "1";
+				element.addEventListener("click", () => {
+					const files = this.snapshot && this.snapshot.files || [];
+					const file = files.find((entry) => entry.name === element.dataset.name);
+					if (!file || this.readOnly() || this.draft().attachments.some((entry) => entry.name === file.name)) return;
+					this.draft().attachments.push(file); this.renderAttachments(); this.renderControls();
+					element.disabled = true; const label = element.querySelector("span"); if (label) label.textContent = "Attached";
+				});
+			}
 		}
-		approvalHTML(approval) {
+		messageHTML(message) {
+			return '<article class="fi-message fi-message-' + esc(message.role) + '" data-message="' + esc(message.name) + '"><div class="fi-message-heading"><span class="fi-avatar ' + (message.role === "assistant" ? "fi-avatar-ai" : "") + '">' + (message.role === "assistant" ? '<img class="fi-avatar-logo" src="' + LOGO + '" alt="">' : "Y") + "</span><strong>" + (message.role === "assistant" ? "Intelligence" : "You") + "</strong><span>" + esc(time(message.creation)) + "</span>" + (message.status === "interrupted" ? '<span class="fi-message-interrupted">Interrupted</span>' : "") + '</div><div class="fi-message-content">' + markdown(message.content) + "</div></article>";
+		}
+		approvalHTML(approval, canPost) {
 			const pending = approval.status === "pending", locked = this.pending.has("approval:" + approval.name);
-			return '<section class="fi-approval ' + (pending ? "is-pending" : "") + '" aria-label="Tool approval"><div class="fi-approval-top"><span class="fi-approval-icon">' + icon(pending ? "lock" : "check") + '</span><div><span class="fi-eyebrow">' + (pending ? "YOUR APPROVAL IS REQUIRED" : "TOOL ACTION") + '</span><h3>' + esc(approval.tool_name) + '</h3></div><span class="fi-pill">' + esc(approval.status) + '</span></div>' + previewHTML(approval.preview) + (approval.expires_at && pending ? '<p class="fi-approval-expiry">Expires ' + esc(approval.expires_at) + '</p>' : "") + (pending ? '<div class="fi-approval-footer"><span>Nothing runs until you approve.</span><div>' + button("deny", "Deny", null, "", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("approve", "Approve action", "check", "fi-primary", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + '</div></div>' : '<div class="fi-approval-result">' + esc({ approved: "Approved; waiting for execution.", denied: "Denied. This request will not run.", executing: "Executing the approved request.", succeeded: "The approved action completed.", failed: "The action failed. Check the run status.", expired: "This approval expired. Start a new request if it is still needed.", uncertain: "The result could not be confirmed. Check the record before trying again." }[approval.status] || "") + '</div>') + '</section>';
+			const status = String(approval.status || "pending");
+			const sentence = actionSentence(approval.preview, approval.tool_name);
+			const link = recordLink(approval.preview);
+			const decisions = pending && canPost !== false && canPost !== 0;
+			return '<section class="fi-approval ' + (pending ? "is-pending" : "") + '" aria-label="Tool action"><div class="fi-approval-top"><span class="fi-approval-icon">' + icon(pending ? "lock" : "check") + '</span><div><span class="fi-eyebrow">' + (pending ? "YOUR APPROVAL IS REQUIRED" : "TOOL ACTION") + "</span><h3>" + esc(sentence) + "</h3>" + (link ? '<div class="fi-approval-link">' + link + "</div>" : "") + '</div><span class="fi-pill fi-pill-' + esc(status) + '">' + esc(status) + "</span></div>" + previewHTML(approval.preview) + (approval.expires_at && pending ? '<p class="fi-approval-expiry">Expires ' + esc(approval.expires_at) + "</p>" : "") + (pending ? (decisions ? '<div class="fi-approval-footer"><span>Nothing runs until you approve.</span><div>' + button("deny", "Deny", null, "", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("approve", "Approve action", "check", "fi-primary", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + "</div></div>" : '<div class="fi-approval-result">Waiting for the owner to decide.</div>') : '<div class="fi-approval-result">' + esc({ approved: "Approved; waiting for execution.", denied: "Denied. This request will not run.", executing: "Executing the approved request.", succeeded: "The approved action completed.", failed: "The action failed. Check the run status.", expired: "This approval expired. Start a new request if it is still needed.", uncertain: "The result could not be confirmed. Check the record before trying again." }[status] || "") + "</div>") + "</section>";
 		}
 		renderRun() {
 			const run = this.snapshot && this.snapshot.run, slot = this.slot("run");
@@ -387,29 +527,35 @@
 			if (!run || quiet) { slot.innerHTML = ""; return; }
 			const active = ACTIVE.has(run.state), warning = ["failed", "needs_reconciliation"].includes(run.state);
 			slot.classList.toggle("is-warning", warning);
-			slot.innerHTML = '<span class="' + (active && run.state !== "awaiting_approval" ? "fi-spinner" : "fi-run-icon") + '">' + (active && run.state !== "awaiting_approval" ? "" : icon(warning ? "info" : run.state === "awaiting_approval" ? "lock" : "check")) + '</span><div class="fi-run-copy"><strong>' + esc(LABELS[run.state] || run.state) + '</strong><span>' + esc(run.error || (run.cancel_requested ? "Cancellation requested. An action already in progress may finish." : run.state === "awaiting_approval" ? "You can leave and return. This request is waiting for your decision." : active ? "You can leave this page. Your run is saved and continues in the background." : run.state === "cancelled" ? "Any previously completed actions are not reversed." : run.state === "needs_reconciliation" ? "Check the affected records before trying again." : "This run is saved with your conversation.")) + '</span></div>' + (active ? button("cancel", run.cancel_requested ? "Stopping…" : "Stop", "stop", "fi-text-btn", run.cancel_requested || this.pending.has("cancel") ? "disabled" : "") : "");
+			slot.innerHTML = '<span class="' + (active && run.state !== "awaiting_approval" ? "fi-spinner" : "fi-run-icon") + '">' + (active && run.state !== "awaiting_approval" ? "" : icon(warning ? "info" : run.state === "awaiting_approval" ? "lock" : "check")) + '</span><div class="fi-run-copy"><strong>' + esc(LABELS[run.state] || run.state) + "</strong><span>" + esc(run.error || (run.cancel_requested ? "Cancellation requested. An action already in progress may finish." : run.state === "awaiting_approval" ? "You can leave and return. This request is waiting for your decision." : active ? "You can leave this page. Your run is saved and continues in the background." : run.state === "cancelled" ? "Any previously completed actions are not reversed." : run.state === "needs_reconciliation" ? "Check the affected records before trying again." : "This run is saved with your conversation.")) + "</span></div>" + (active && !this.readOnly() ? button("cancel", run.cancel_requested ? "Stopping…" : "Stop", "stop", "fi-text-btn", run.cancel_requested || this.pending.has("cancel") ? "disabled" : "") : "");
 		}
 		renderContext() {
 			const context = this.context;
 			const signature = JSON.stringify(context); if (signature === this.contextSignature) return; this.contextSignature = signature;
-			this.slot("context").innerHTML = context ? '<span class="fi-context-caption">Context for your next message</span><span class="fi-context-chip">' + icon("file") + '<span>' + esc(context.doctype) + (context.name ? '<span class="fi-context-divider">/</span>' + esc(context.name) : "") + '</span>' + iconButton("remove-context", "Remove page context", "close") + '</span>' : "";
+			this.slot("context").innerHTML = context ? '<span class="fi-context-caption">Context for your next message</span><span class="fi-context-chip">' + icon("file") + "<span>" + esc(context.doctype) + (context.name ? '<span class="fi-context-divider">/</span>' + esc(context.name) : "") + "</span>" + iconButton("remove-context", "Remove page context", "close") + "</span>" : "";
 		}
 		renderAttachments() {
-			const files = this.snapshot && this.snapshot.files || [];
-			const signature = JSON.stringify([this.draft().attachments, files, this.pending.has("upload")]); if (signature === this.attachmentSignature) return; this.attachmentSignature = signature;
-			this.slot("attachments").innerHTML = this.draft().attachments.map((file) => '<span class="fi-file-chip">' + icon("file") + '<span>' + esc(file.file_name) + '</span>' + iconButton("remove-file", "Remove " + file.file_name + " from this message", "close", 'data-name="' + esc(file.name) + '"') + '</span>').join("") + (this.pending.has("upload") ? '<span class="fi-file-chip"><span class="fi-spinner"></span>Uploading privately…</span>' : "") + (files.length ? button("files", files.length + " saved " + (files.length === 1 ? "file" : "files"), "attach", "fi-text-btn fi-saved-files") : "");
+			const signature = JSON.stringify([this.draft().attachments, this.pending.has("upload")]); if (signature === this.attachmentSignature) return; this.attachmentSignature = signature;
+			this.slot("attachments").innerHTML = this.draft().attachments.map((file) => '<span class="fi-file-chip">' + icon("file") + "<span>" + esc(file.file_name) + "</span>" + iconButton("remove-file", "Remove " + file.file_name + " from this message", "close", 'data-name="' + esc(file.name) + '"') + "</span>").join("") + (this.pending.has("upload") ? '<span class="fi-file-chip"><span class="fi-spinner"></span>Uploading privately…</span>' : "");
 		}
 		renderControls() {
-			const busy = this.pending.has("send") || this.pending.has("upload"), archived = !!(this.snapshot && this.snapshot.conversation.archived);
-			const unavailable = !this.boot || !this.boot.enabled || this.loading || this.loadingConversation;
+			const busy = this.pending.has("send") || this.pending.has("upload");
+			const readOnly = this.readOnly();
+			const unavailable = !this.boot || !this.boot.enabled || this.loading || this.loadingConversation || !!(this.selected && !this.snapshot);
 			const providerAvailable = !!(this.boot && (this.boot.providers || []).some((provider) => provider.name === this.provider));
 			const cancel = this.$('[data-action="cancel"]'); if (cancel) cancel.disabled = this.pending.has("cancel") || !!(this.snapshot && this.snapshot.run && this.snapshot.run.cancel_requested);
-			this.$("textarea").disabled = !!(unavailable || archived || this.pending.has("send"));
-			this.$(".fi-send").disabled = !!(unavailable || busy || archived || this.isActive() || !providerAvailable || !this.draft().text.trim());
+			const notice = this.slot("readonly"), form = this.$("form"), caption = this.$(".fi-composer-caption");
+			const shared = !!(this.snapshot && this.snapshot.conversation && this.snapshot.can_post === false && !Number(this.snapshot.conversation.archived));
+			const showNotice = !!this.snapshot && shared;
+			notice.hidden = !showNotice;
+			notice.innerHTML = showNotice ? icon("lock") + "<span>Shared by " + esc(this.snapshot.conversation.owner || "another user") + " · read only</span>" : "";
+			form.hidden = showNotice; caption.hidden = showNotice;
+			this.$("textarea").disabled = !!(unavailable || readOnly || this.pending.has("send"));
+			this.$(".fi-send").disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || !this.draft().text.trim());
 			this.$(".fi-send").setAttribute("aria-label", this.pending.has("send") ? "Sending message" : this.isActive() ? "Wait for this run to finish" : "Send message");
-			this.$('[data-action="attach"]').disabled = !!(unavailable || busy || archived || this.isActive() || !providerAvailable || this.boot && this.boot.capabilities && this.boot.capabilities.attachments === false);
+			this.$('[data-action="attach"]').disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || this.boot && this.boot.capabilities && this.boot.capabilities.attachments === false);
 			this.$('[data-input="provider"]').disabled = !!(unavailable || busy || this.selected);
-			for (const action of ["new", "archive", "rename"]) this.$('[data-action="' + action + '"]').disabled = !!(unavailable || busy || this.pending.has(action));
+			for (const action of ["new", "archive", "share"]) this.$('[data-action="' + action + '"]').disabled = !!(unavailable || busy || this.pending.has(action));
 			for (const element of this.root.querySelectorAll('[data-action="select"]')) element.disabled = busy;
 			for (const element of this.root.querySelectorAll('[data-action="approve"], [data-action="deny"]')) element.disabled = this.pending.has("approval:" + element.dataset.name);
 			for (const element of this.root.querySelectorAll('[data-action="remove-file"], [data-action="remove-context"]')) element.disabled = this.pending.has("send");
@@ -422,7 +568,7 @@
 			if (this.selected) return this.selected;
 			const draft = this.draft(); const conversation = await this.api("create_conversation", { provider: this.provider });
 			if (!conversation || !conversation.name) throw { userMessage: "The server did not return a conversation. Refresh before trying again." };
-			this.selected = conversation.name; this.selectVersion++; this.drafts.set(conversation.name, draft); this.drafts.delete("new"); this.snapshot = { conversation, messages: [], approvals: [], files: [], run: null }; this.lastList = 0; this.render(); return conversation.name;
+			this.selected = conversation.name; this.selectVersion++; this.drafts.set(conversation.name, draft); this.drafts.delete("new"); this.snapshot = { conversation, messages: [], approvals: [], files: [], run: null, can_post: true }; this.lastList = 0; this.navigate(conversation.name); this.render(); return conversation.name;
 		}
 		send() {
 			if (this.$(".fi-send").disabled || this.pending.has("send")) return Promise.resolve();
@@ -431,41 +577,83 @@
 				const name = await this.ensureConversation();
 				try { const run = await this.api("send_message", { conversation: name, content, context: context ? JSON.stringify(context) : null, attachments: JSON.stringify(attachments) });
 					if (!run || !run.name) throw { userMessage: "No run was returned. Refresh before trying again; your message may have been saved." };
-					draft.text = ""; draft.attachments = []; this.watched.set(name, run); this.snapshot.run = run; this.syncDraft(); this.renderRun(); this.poller.start(0);
+					draft.text = ""; draft.attachments = []; this.watched.set(name, run); this.snapshot.run = run; this.syncDraft(); this.renderRun(); this.renderMessages(); this.poller.start(0);
 					const data = await this.fetchConversation(name); this.accept(name, data); this.lastList = 0;
+					// Server auto-titles from the first message; pick it up right away.
+					this.refreshList().catch(() => {});
 				} catch (error) { this.poller.start(0); throw error; }
 			});
 		}
+		startRename() {
+			if (!this.snapshot || this.renaming || this.snapshot.can_post === false) return;
+			this.renaming = true;
+			const titleSlot = this.slot("title"), current = this.snapshot.conversation.title || "";
+			const input = this.doc.createElement("input");
+			input.className = "form-control fi-title-input"; input.value = current; input.maxLength = 140; input.setAttribute("aria-label", "Rename conversation");
+			const h2 = titleSlot; h2.replaceWith ? h2.replaceWith(input) : titleSlot.parentNode.replaceChild(input, h2);
+			input.focus(); input.select();
+			let done = false;
+			const commit = async (save) => {
+				if (done) return; done = true; this.renaming = false;
+				const title = input.value.trim(); const name = this.selected;
+				const restore = this.doc.createElement("h2"); restore.setAttribute("data-slot", "title"); restore.textContent = title || current;
+				input.replaceWith ? input.replaceWith(restore) : input.parentNode.replaceChild(restore, input);
+				if (save && title && title !== current && name === this.selected) {
+					try { await this.api("rename_conversation", { conversation: name, title }); if (this.selected === name && this.snapshot) this.snapshot.conversation.title = title; await this.refreshList(); }
+					catch (error) { this.error = userError(error); }
+				}
+				this.renderHeader();
+			};
+			input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); commit(true); } if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); commit(false); } });
+			input.addEventListener("blur", () => commit(true));
+		}
 		action(action, target) {
 			if (action === "select") return this.select(target.dataset.name);
-			if (action === "new") { if (this.pending.has("send") || this.pending.has("upload")) return; this.selectVersion++; this.selected = null; this.snapshot = null; this.loadingConversation = false; this.error = ""; this.notice = ""; this.root.classList.remove("fi-sidebar-open"); this.render(); this.syncDraft(); this.$("textarea").focus(); return; }
-			if (action === "sidebar") { const open = this.root.classList.toggle("fi-sidebar-open"); target.setAttribute("aria-expanded", String(open)); if (open) this.$('[data-input="search"]').focus(); return; }
+			if (action === "new") return this.newConversation();
+			if (action === "sidebar") { const collapsed = this.root.classList.toggle("fi-sidebar-collapsed"); target.setAttribute("aria-expanded", String(!collapsed)); return; }
+			if (action === "menu") { const menu = this.slot("menu"); menu.hidden = !menu.hidden; target.setAttribute("aria-expanded", String(!menu.hidden)); return; }
 			if (action === "archive-filter") { this.archived = !this.archived; this.refreshList().catch((error) => { this.error = userError(error); this.renderBanner(); }); return; }
 			if (action === "starter") { this.draft().text = target.dataset.prompt; this.syncDraft(); this.$("textarea").focus(); return; }
 			if (action === "remove-context") { this.context = null; this.renderContext(); return; }
-			if (action === "remove-file") { this.draft().attachments = this.draft().attachments.filter((file) => file.name !== target.dataset.name); this.renderAttachments(); return; }
+			if (action === "remove-file") { this.draft().attachments = this.draft().attachments.filter((file) => file.name !== target.dataset.name); this.renderAttachments(); this.messageSignature = ""; this.renderMessages(); return; }
 			if (action === "dismiss") { this.error = ""; this.notice = ""; this.renderBanner(); return; }
 			if (action === "refresh") return this.refresh();
 			if (action === "earlier") return this.loadEarlier();
 			if (action === "close") return this.onClose && this.onClose();
 			if (action === "expand") return this.onExpand && this.onExpand();
-			if (action === "settings") return this.providerDialog();
-			if (action === "memory") return this.memoryDialog();
-			if (action === "skills") return this.skillsDialog();
-			if (action === "approvals") return this.approvalsDialog();
-			if (action === "scope") return this.scopeDialog();
-			if (action === "rename") return this.renameDialog();
+			if (action === "settings") { this.closeMenu(); return this.providerDialog(); }
+			if (action === "memory") { this.closeMenu(); return this.memoryDialog(); }
+			if (action === "skills") { this.closeMenu(); return this.skillsDialog(); }
+			if (action === "scope") { this.closeMenu(); return this.scopeDialog(); }
+			if (action === "rename-title") return this.startRename();
 			if (action === "archive") return this.archiveDialog();
+			if (action === "share") return this.shareDialog();
 			if (action === "attach") return this.chooseFile();
-			if (action === "files") return this.filesDialog();
 			if (action === "copy-code") { const text = target.closest(".fi-code").querySelector("code").textContent; if (!global.navigator || !global.navigator.clipboard) { this.error = "Clipboard access is unavailable. Select and copy the code directly."; this.renderBanner(); return; } return global.navigator.clipboard.writeText(text).then(() => { target.textContent = "Copied"; global.setTimeout(() => { target.textContent = "Copy"; }, 1800); }).catch(() => { this.error = "Could not copy. Select and copy the code directly."; this.renderBanner(); }); }
 			if (action === "cancel") return this.busy("cancel", async () => { const name = this.selected; await this.api("cancel", { run: this.snapshot.run.name }); this.accept(name, await this.fetchConversation(name)); this.poller.start(0); });
 			if (["approve", "deny"].includes(action)) { const name = this.selected; return this.busy("approval:" + target.dataset.name, async () => { await this.api("approve", { approval: target.dataset.name, decision: action }); this.accept(name, await this.fetchConversation(name)); this.poller.start(0); }); }
 		}
 		dialog(title, body, options) {
 			if (this.modal) this.modal.close();
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) return this.nativeDialog(frappe, title, body, options);
+			return this.fallbackDialog(title, body, options);
+		}
+		nativeDialog(frappe, title, body, options) {
+			const previous = this.doc.activeElement;
+			const instance = new frappe.ui.Dialog({ title: title, size: "large" });
+			const host = instance.$body && instance.$body[0] || instance.body || null;
+			if (host) host.innerHTML = body;
+			const element = instance.$wrapper && instance.$wrapper[0] || instance.wrapper || host;
+			const modal = { element, busy: false, closed: false, close: () => { if (modal.busy) return; modal.closed = true; try { instance.hide(); } catch (_) { /* already hidden */ } if (this.modal === modal) this.modal = null; if (previous && previous.isConnected) previous.focus(); }, error: (error) => { let node = element.querySelector(".fi-modal-error"); if (!node) { node = this.doc.createElement("div"); node.className = "fi-modal-error"; node.setAttribute("role", "alert"); element.appendChild(node); } node.hidden = false; node.textContent = userError(error); }, run: async (work) => { if (modal.busy || modal.closed) return; modal.busy = true; const controls = Array.from(element.querySelectorAll("button, input, select, textarea")); const disabled = controls.map((node) => node.disabled); controls.forEach((node) => { node.disabled = true; }); const errorNode = element.querySelector(".fi-modal-error"); if (errorNode) errorNode.hidden = true; try { await work(); } catch (error) { modal.error(error); } finally { modal.busy = false; controls.forEach((node, index) => { node.disabled = disabled[index]; }); } } };
+			this.modal = modal;
+			try { instance.show(); } catch (_) { /* test hosts */ }
+			global.setTimeout(() => { if (!modal.closed) { const first = element.querySelector(options && options.focus || "input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled])"); if (first) first.focus(); } }, 0);
+			return modal;
+		}
+		fallbackDialog(title, body, options) {
 			const previous = this.doc.activeElement, overlay = this.doc.createElement("div"); overlay.className = "fi-modal-overlay";
-			overlay.innerHTML = '<section class="fi-modal" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><header><div><h2>' + esc(title) + '</h2></div>' + iconButton("modal-close", "Close dialog", "close") + '</header><div class="fi-modal-body">' + body + '</div><div class="fi-modal-error" role="alert" hidden></div></section>';
+			overlay.innerHTML = '<section class="fi-modal" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><header><div><h2>' + esc(title) + "</h2></div>" + iconButton("modal-close", "Close dialog", "close") + '</header><div class="fi-modal-body">' + body + '</div><div class="fi-modal-error" role="alert" hidden></div></section>';
 			this.doc.body.appendChild(overlay);
 			const modal = { element: overlay, busy: false, closed: false, close: () => { if (modal.busy) return; modal.closed = true; overlay.remove(); if (this.modal === modal) this.modal = null; if (previous && previous.isConnected) previous.focus(); }, error: (error) => { const node = overlay.querySelector(".fi-modal-error"); node.hidden = false; node.textContent = userError(error); }, run: async (work) => { if (modal.busy || modal.closed) return; modal.busy = true; const focused = this.doc.activeElement, controls = Array.from(overlay.querySelectorAll("button, input, select, textarea")); const disabled = controls.map((node) => node.disabled); controls.forEach((node) => { node.disabled = true; }); overlay.querySelector(".fi-modal-error").hidden = true; try { await work(); } catch (error) { modal.error(error); } finally { modal.busy = false; controls.forEach((node, index) => { node.disabled = disabled[index]; }); if (!modal.closed && !overlay.contains(this.doc.activeElement)) { const next = focused && focused.isConnected && !focused.disabled ? focused : overlay.querySelector("input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled])"); if (next) next.focus(); } } } };
 			this.modal = modal;
@@ -474,32 +662,33 @@
 			global.setTimeout(() => { if (!modal.closed) { const first = overlay.querySelector(options && options.focus || "input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled])"); if (first) first.focus(); } }, 0);
 			return modal;
 		}
-		renameDialog() {
-			if (!this.snapshot) return; const name = this.selected;
-			const modal = this.dialog("Rename conversation", '<form data-form="rename"><label class="fi-field control-label">Conversation title<input class="form-control" name="title" maxlength="140" required value="' + esc(this.snapshot.conversation.title) + '"></label><footer>' + button("modal-close", "Cancel") + '<button class="btn btn-primary btn-sm fi-btn fi-primary" type="submit">Save title</button></footer></form>');
-			modal.element.querySelector("form").addEventListener("submit", (event) => { event.preventDefault(); const title = event.target.elements.title.value.trim(); if (!title) return; modal.run(async () => { await this.api("rename_conversation", { conversation: name, title }); if (this.selected === name) this.snapshot.conversation.title = title; await this.refreshList(); this.renderHeader(); modal.busy = false; modal.close(); }); });
-		}
 		archiveDialog() {
-			if (!this.snapshot) return; const name = this.selected, restore = !!this.snapshot.conversation.archived;
-			const modal = this.dialog(restore ? "Restore this conversation?" : "Archive this conversation?", '<p class="fi-dialog-copy">' + (restore ? "Move this conversation back to your active list." : "Your messages and approvals will remain saved. Archiving does not cancel a running task.") + '</p><footer>' + button("modal-close", "Keep it here") + button("confirm-archive", restore ? "Restore conversation" : "Archive conversation", "archive", "fi-primary") + '</footer>');
+			if (!this.snapshot) return; const name = this.selected, restore = !!Number(this.snapshot.conversation.archived);
+			const modal = this.dialog(restore ? "Restore this conversation?" : "Archive this conversation?", '<p class="fi-dialog-copy">' + (restore ? "Move this conversation back to your active list." : "Your messages and approvals will remain saved. Archiving does not cancel a running task.") + "</p><footer>" + button("modal-close", "Keep it here") + button("confirm-archive", restore ? "Restore conversation" : "Archive conversation", "archive", "fi-primary") + "</footer>");
 			modal.element.querySelector('[data-action="confirm-archive"]').addEventListener("click", () => modal.run(async () => { await this.api("archive_conversation", { conversation: name, archived: restore ? 0 : 1 }); this.accept(name, await this.fetchConversation(name)); await this.refreshList(); modal.busy = false; modal.close(); }));
 		}
-		filesDialog() {
-			const files = this.snapshot && this.snapshot.files || [], name = this.selected;
-			const readOnly = this.pending.has("send") || this.pending.has("upload") || this.isActive() || !!(this.snapshot && Number(this.snapshot.conversation.archived));
-			const selected = new Set(this.draft().attachments.map((file) => file.name));
-			const modal = this.dialog("Conversation files", '<p class="fi-dialog-copy">Files stay private to this conversation. Add a file to your next message to reference it. Reading its contents still requires your approval.</p><div class="fi-saved-file-list">' + files.map((file) => {
-				const url = safeURL(file.file_url), link = url && url.startsWith("/private/files/") ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open file</a>' : '';
-				return '<div class="fi-saved-file-row">' + icon("file") + '<div><strong>' + esc(file.file_name) + '</strong>' + link + '</div>' + button("reuse-file", selected.has(file.name) ? "Added" : "Add to message", "plus", "", 'data-name="' + esc(file.name) + '" ' + (readOnly || selected.has(file.name) ? "disabled" : "")) + '</div>';
-			}).join("") + '</div>');
-			modal.element.addEventListener("click", (event) => { const target = event.target.closest('[data-action="reuse-file"]'); if (!target || target.disabled || this.selected !== name || this.pending.has("send")) return; const file = files.find((entry) => entry.name === target.dataset.name); if (!file || this.draft().attachments.some((entry) => entry.name === file.name)) return; this.draft().attachments.push(file); this.renderAttachments(); target.disabled = true; target.querySelector("span").textContent = "Added"; });
+		shareLink() {
+			const origin = global.location && global.location.origin ? global.location.origin : "";
+			return origin + "/desk/" + PAGE + "/" + this.selected;
+		}
+		shareDialog() {
+			if (!this.snapshot) return; const name = this.selected, shared = !!Number(this.snapshot.conversation.shared);
+			const link = this.shareLink();
+			const modal = this.dialog(shared ? "Conversation is shared" : "Share this conversation?", '<p class="fi-dialog-copy">' + (shared ? "Anyone with the link and Intelligence access can read this conversation. Only you can post or approve." : "Sharing gives colleagues a read only view of this conversation, including files and tool actions. Only you can post or approve.") + '</p><label class="fi-field control-label">Read only link<input class="form-control" readonly value="' + esc(link) + '" data-share-link onfocus="this.select()"></label><footer>' + (shared ? "" : button("modal-close", "Cancel")) + (shared ? button("confirm-unshare", "Stop sharing", null, "fi-danger") : "") + button("copy-share-link", "Copy link", "link", shared ? "" : "fi-text-btn") + (shared ? "" : button("confirm-share", "Share conversation", "share", "fi-primary")) + "</footer>");
+			modal.element.addEventListener("click", (event) => {
+				const target = event.target.closest("[data-action]"); if (!target || modal.busy) return;
+				if (target.dataset.action === "copy-share-link") { if (global.navigator && global.navigator.clipboard) global.navigator.clipboard.writeText(link).then(() => { const label = target.querySelector("span"); if (label) { label.textContent = "Copied"; global.setTimeout(() => { label.textContent = "Copy link"; }, 1800); } }).catch(() => {}); return; }
+				const next = target.dataset.action === "confirm-share" ? 1 : target.dataset.action === "confirm-unshare" ? 0 : null;
+				if (next === null) return;
+				modal.run(async () => { await this.api("share_conversation", { conversation: name, shared: next }); this.accept(name, await this.fetchConversation(name)); await this.refreshList(); modal.busy = false; modal.close(); this.notice = next ? "Conversation shared. Anyone with the link can read it." : "Sharing turned off."; this.renderBanner(); });
+			});
 		}
 		chooseFile() {
 			const input = this.doc.createElement("input"); input.type = "file"; input.accept = ".pdf,.txt,.csv,.md,.json,text/plain,text/csv,application/pdf";
 			input.addEventListener("change", () => { const file = input.files && input.files[0]; if (file) this.upload(file); }); input.click();
 		}
 		upload(file) {
-			if (this.pending.has("upload") || this.pending.has("send") || this.isActive()) return Promise.resolve();
+			if (this.pending.has("upload") || this.pending.has("send") || this.isActive() || this.readOnly()) return Promise.resolve();
 			const max = Number(this.boot && this.boot.defaults && this.boot.defaults.max_upload_mb) || 10;
 			if (!/\.(pdf|txt|csv|md|json)$/i.test(file.name) || file.size > max * 1024 * 1024) { this.error = "Choose a PDF or text file up to " + max + " MB."; this.renderBanner(); return Promise.resolve(); }
 			return this.busy("upload", async () => {
@@ -513,32 +702,58 @@
 				if (!response.ok || data.exc) throw Object.assign({ status: response.status }, data);
 				const attachment = data.message;
 				if (!attachment || !attachment.name || !Number(attachment.is_private)) throw { userMessage: "The server did not confirm a private attachment. It was not added to your message." };
-				this.draft().attachments.push(attachment); this.notice = "File uploaded privately. Its contents are only read after you approve a tool request."; this.renderBanner();
+				this.draft().attachments.push(attachment); this.messageSignature = ""; this.notice = "File uploaded privately. Its contents are only read after you approve a tool request."; this.renderBanner(); this.renderMessages();
 			}).finally(() => this.renderAttachments());
 		}
 		providerDialog() {
 			if (!this.boot) return;
-			const providers = this.boot.managed_providers || this.boot.providers || [], modal = this.dialog("Providers & models", '<p class="fi-dialog-copy">Bring your own provider. Credentials stay on the server and are never shown here.</p><div class="fi-provider-settings"><nav class="fi-provider-list" aria-label="Configured providers">' + providers.map((provider) => '<button type="button" data-provider="' + esc(provider.name) + '"><strong>' + esc(provider.title) + '</strong><span>' + esc(provider.kind + " · " + provider.model) + '</span></button>').join("") + '<button type="button" data-provider="">' + icon("plus") + ' Add provider</button></nav><form class="fi-provider-form"><h3 data-provider-heading>Add a provider</h3><input type="hidden" name="name"><label class="fi-field control-label">Name<input class="form-control" name="title" required maxlength="140" placeholder="My work provider" autocomplete="off"></label><div class="fi-field-row fi-field-row-3"><label class="fi-field control-label">Provider<select class="form-control" name="kind">' + KINDS.map((kind) => '<option>' + esc(kind) + '</option>').join("") + '</select></label><label class="fi-field control-label">Model ID<input class="form-control" name="model" required maxlength="140" placeholder="Enter your provider’s model ID" autocomplete="off"></label><label class="fi-field control-label">Thinking effort<select class="form-control" name="thinking_effort" aria-label="Thinking effort">' + effortOptions() + '</select></label></div><label class="fi-field control-label">API key<input class="form-control" name="api_key" type="password" autocomplete="new-password" placeholder="Enter API key"><span>Leave blank when editing to keep the saved key.</span></label><label class="fi-field" data-base-url hidden>Custom endpoint URL<input class="form-control" name="base_url" type="url" placeholder="https://api.example.com/v1" autocomplete="off"><span>HTTPS only. The hostname must be allowlisted by your administrator.</span></label><div class="fi-checkbox-row"><label><input type="checkbox" name="enabled" checked> Enabled</label>' + (this.boot.is_manager ? '<label><input type="checkbox" name="is_shared"> Shared with this site</label>' : '') + '</div><label class="fi-field" data-allowed-roles hidden>Allowed roles<textarea class="form-control" name="allowed_roles" rows="2" placeholder="One Frappe role per line"></textarea><span>For shared providers. Leave blank to allow all authorized Intelligence users.</span></label><div class="fi-field-row"><label class="fi-field control-label">Output token limit<input class="form-control" name="max_tokens" type="number" min="128" max="32768" value="4096" required></label><label class="fi-field control-label">Timeout (seconds)<input class="form-control" name="timeout" type="number" min="5" max="120" value="60" required></label></div><p class="fi-field-help" data-provider-note>Saving stores this configuration; it does not test a paid provider request.</p><footer><button type="button" class="fi-btn fi-danger" data-delete-provider hidden>Delete provider</button><button type="submit" class="btn btn-primary btn-sm fi-btn fi-primary">Save provider</button></footer></form></div>');
+			const providers = this.boot.managed_providers || this.boot.providers || [];
+			const modal = this.dialog("Providers & models", '<p class="fi-dialog-copy">Bring your own provider. Credentials stay on the server and are never shown here.</p><div class="fi-provider-settings"><nav class="fi-provider-list" aria-label="Configured providers">' + providers.map((provider) => '<button type="button" data-provider="' + esc(provider.name) + '"><strong>' + esc(provider.title) + "</strong><span>" + esc(provider.kind + " · " + provider.model) + "</span></button>").join("") + '<button type="button" data-provider="">' + icon("plus") + " Add provider</button></nav><form class=\"fi-provider-form\"><h3 data-provider-heading>Add a provider</h3><input type=\"hidden\" name=\"name\"><label class=\"fi-field control-label\">Name<input class=\"form-control\" name=\"title\" required maxlength=\"140\" placeholder=\"My work provider\" autocomplete=\"off\"></label><div class=\"fi-field-row fi-field-row-3\"><label class=\"fi-field control-label\">Provider<select class=\"form-control\" name=\"kind\">" + KINDS.map((kind) => "<option>" + esc(kind) + "</option>").join("") + '</select></label><label class="fi-field control-label">Model ID<input class="form-control" name="model" required maxlength="140" placeholder="Enter your provider\'s model ID" autocomplete="off"><button type="button" class="fi-btn fi-text-btn fi-fetch-models" data-action="fetch-models">Fetch models</button></label><label class="fi-field control-label">Thinking effort<select class="form-control" name="thinking_effort" aria-label="Thinking effort">' + effortOptions() + '</select></label></div><label class="fi-field control-label">API key<input class="form-control" name="api_key" type="password" autocomplete="new-password" placeholder="Enter API key"><span>Stored keys are never shown; leave blank to keep the current key.</span></label><label class="fi-field" data-base-url hidden>Custom endpoint URL<input class="form-control" name="base_url" type="url" placeholder="https://api.example.com/v1" autocomplete="off"><span>HTTPS only. The hostname must be allowlisted by your administrator.</span></label><div class="fi-checkbox-row"><label><input type="checkbox" name="enabled" checked> Enabled</label>' + (this.boot.is_manager ? '<label><input type="checkbox" name="is_shared"> Shared with this site</label>' : "") + '</div><label class="fi-field" data-allowed-roles hidden>Allowed roles<textarea class="form-control" name="allowed_roles" rows="2" placeholder="One Frappe role per line"></textarea><span>For shared providers. Leave blank to allow all authorized Intelligence users.</span></label><div class="fi-field-row"><label class="fi-field control-label">Output token limit<input class="form-control" name="max_tokens" type="number" min="128" max="32768" value="4096" required></label><label class="fi-field control-label">Timeout (seconds)<input class="form-control" name="timeout" type="number" min="5" max="120" value="60" required></label></div><label class="fi-field control-label">Model catalog<textarea class="form-control" name="models" rows="3" placeholder="One model ID per line. Leave blank to allow any model."></textarea><span>Advanced: the allowed catalog for this provider. If set, the model must be in this list.</span></label><p class="fi-field-help" data-provider-note>Saving stores this configuration; it does not test a paid provider request.</p><footer><button type="button" class="fi-btn fi-danger" data-delete-provider hidden>Delete provider</button><button type="submit" class="btn btn-primary btn-sm fi-btn fi-primary">Save provider</button></footer></form></div>');
 			const form = modal.element.querySelector("form"), fields = form.elements;
-			const kindChanged = () => { form.querySelector('[data-base-url]').hidden = fields.kind.value !== "Custom"; fields.base_url.required = fields.kind.value === "Custom"; };
+			let awesomplete = null;
+			const modelList = () => lines(fields.models.value);
+			const syncAwesomplete = () => {
+				const list = modelList();
+				if (global.Awesomplete) { if (!awesomplete) awesomplete = new global.Awesomplete(fields.model, { list, minChars: 0 }); else awesomplete.list = list; }
+				else { let datalist = form.querySelector("datalist"); if (!datalist) { datalist = this.doc.createElement("datalist"); datalist.id = "fi-model-catalog"; fields.model.setAttribute("list", "fi-model-catalog"); form.appendChild(datalist); } datalist.innerHTML = list.map((model) => "<option value=\"" + esc(model) + "\"></option>").join(""); }
+			};
+			const kindChanged = () => { form.querySelector("[data-base-url]").hidden = fields.kind.value !== "Custom"; fields.base_url.required = fields.kind.value === "Custom"; };
 			fields.kind.addEventListener("change", kindChanged);
-			const sharedChanged = () => { form.querySelector('[data-allowed-roles]').hidden = !(fields.is_shared && fields.is_shared.checked); };
+			fields.models.addEventListener("input", syncAwesomplete);
+			const sharedChanged = () => { form.querySelector("[data-allowed-roles]").hidden = !(fields.is_shared && fields.is_shared.checked); };
 			if (fields.is_shared) fields.is_shared.addEventListener("change", sharedChanged);
 			let loadVersion = 0;
-			const load = async (name) => { const version = ++loadVersion; await modal.run(async () => { const data = name ? await this.api("provider_details", { name }) : {}; if (version !== loadVersion || modal.closed) return; form.reset(); fields.name.value = data.name || ""; fields.title.value = data.title || ""; fields.kind.value = data.kind || "OpenAI"; fields.model.value = data.model || ""; fields.base_url.value = data.base_url || ""; fields.api_key.value = ""; fields.allowed_roles.value = data.allowed_roles || ""; fields.max_tokens.value = data.max_tokens || 4096; fields.timeout.value = data.timeout || 60; fields.thinking_effort.value = EFFORTS.includes(data.thinking_effort) ? data.thinking_effort : "Auto"; fields.enabled.checked = name ? !!Number(data.enabled) : true; if (fields.is_shared) fields.is_shared.checked = !!Number(data.is_shared); form.querySelector('[data-provider-heading]').textContent = name ? "Edit provider" : "Add a provider"; form.querySelector('[data-delete-provider]').hidden = !name; form.querySelector('[data-delete-provider]').dataset.confirm = ""; form.querySelector('[data-delete-provider]').textContent = "Delete provider"; kindChanged(); sharedChanged(); const readOnly = data.can_edit === false || !!(Number(data.is_shared) && !this.boot.is_manager); form.dataset.readOnly = String(readOnly); form.querySelector('[data-provider-note]').textContent = readOnly ? "You cannot edit this provider. Ask its owner or your system manager." : name ? "For a provider used by an existing conversation, create a new configuration to change its kind, model, or endpoint. Blank API key preserves the saved key." : "Saving stores this configuration; it does not test a paid provider request."; }); if (!modal.closed) for (const node of form.querySelectorAll("input,select,button")) node.disabled = form.dataset.readOnly === "true"; };
+			const load = async (name) => { const version = ++loadVersion; await modal.run(async () => { const data = name ? await this.api("provider_details", { name }) : {}; if (version !== loadVersion || modal.closed) return; form.reset(); fields.name.value = data.name || ""; fields.title.value = data.title || ""; fields.kind.value = data.kind || "OpenAI"; fields.model.value = data.model || ""; fields.base_url.value = data.base_url || ""; fields.api_key.value = ""; fields.allowed_roles.value = data.allowed_roles || ""; fields.models.value = data.models || ""; fields.max_tokens.value = data.max_tokens || 4096; fields.timeout.value = data.timeout || 60; fields.thinking_effort.value = EFFORTS.includes(data.thinking_effort) ? data.thinking_effort : "Auto"; fields.enabled.checked = name ? !!Number(data.enabled) : true; if (fields.is_shared) fields.is_shared.checked = !!Number(data.is_shared); form.querySelector("[data-provider-heading]").textContent = name ? "Edit provider" : "Add a provider"; form.querySelector("[data-delete-provider]").hidden = !name; form.querySelector("[data-delete-provider]").dataset.confirm = ""; form.querySelector("[data-delete-provider]").textContent = "Delete provider"; kindChanged(); sharedChanged(); syncAwesomplete(); const readOnly = data.can_edit === false || !!(Number(data.is_shared) && !this.boot.is_manager); form.dataset.readOnly = String(readOnly); form.querySelector("[data-provider-note]").textContent = readOnly ? "You cannot edit this provider. Ask its owner or your system manager." : name ? "For a provider used by an existing conversation, create a new configuration to change its kind, model, or endpoint. Blank API key preserves the saved key." : "Saving stores this configuration; it does not test a paid provider request."; }); if (!modal.closed) for (const node of form.querySelectorAll("input,select,textarea,button")) node.disabled = form.dataset.readOnly === "true"; };
 			modal.element.querySelectorAll("[data-provider]").forEach((element) => element.addEventListener("click", () => load(element.dataset.provider)));
-			form.addEventListener("submit", (event) => { event.preventDefault(); if (form.dataset.readOnly === "true") return; const values = { name: fields.name.value || null, title: fields.title.value.trim(), kind: fields.kind.value, model: fields.model.value.trim(), thinking_effort: fields.thinking_effort.value, api_key: fields.api_key.value || null, base_url: fields.kind.value === "Custom" ? fields.base_url.value.trim() : "", enabled: fields.enabled.checked ? 1 : 0, is_shared: fields.is_shared && fields.is_shared.checked ? 1 : 0, allowed_roles: fields.allowed_roles.value, max_tokens: Number(fields.max_tokens.value), timeout: Number(fields.timeout.value) }; modal.run(async () => { await this.api("save_provider", values); fields.api_key.value = ""; this.boot = await this.api("bootstrap"); if (!this.selected && !(this.boot.providers || []).some((provider) => provider.name === this.provider)) this.provider = this.boot.providers[0] && this.boot.providers[0].name || ""; this.render(); modal.busy = false; modal.close(); this.notice = "Provider saved."; this.renderBanner(); }); });
-			form.querySelector('[data-delete-provider]').addEventListener("click", () => { if (!fields.name.value || form.dataset.readOnly === "true") return; const element = form.querySelector('[data-delete-provider]'); if (element.dataset.confirm !== fields.name.value) { element.dataset.confirm = fields.name.value; element.textContent = "Confirm delete"; return; } modal.run(async () => { await this.api("delete_provider", { name: fields.name.value }); this.boot = await this.api("bootstrap"); this.provider = this.selected ? this.provider : this.boot.providers[0] && this.boot.providers[0].name || ""; this.render(); modal.busy = false; modal.close(); this.notice = "Provider deleted."; this.renderBanner(); }); });
+			form.querySelector('[data-action="fetch-models"]').addEventListener("click", () => {
+				if (form.dataset.readOnly === "true") return;
+				modal.run(async () => {
+					const frappe = global.frappe;
+					if (frappe && frappe.ui && frappe.ui.freeze) frappe.ui.freeze("Fetching models…");
+					try {
+						const result = await this.api("fetch_provider_models", { name: fields.name.value || null, kind: fields.kind.value, base_url: fields.kind.value === "Custom" ? fields.base_url.value.trim() : null, api_key: fields.api_key.value || null });
+						const models = result && Array.isArray(result.models) ? result.models : [];
+						if (models.length) fields.models.value = models.join("\n");
+						syncAwesomplete();
+						if (frappe && frappe.show_alert) frappe.show_alert({ message: models.length ? models.length + " models fetched." : "No models returned by the provider.", indicator: models.length ? "green" : "orange" });
+						else { this.notice = models.length ? models.length + " models fetched." : "No models returned by the provider."; this.renderBanner(); }
+					} finally { if (frappe && frappe.ui && frappe.ui.unfreeze) frappe.ui.unfreeze(); }
+				});
+			});
+			form.addEventListener("submit", (event) => { event.preventDefault(); if (form.dataset.readOnly === "true") return; const values = { name: fields.name.value || null, title: fields.title.value.trim(), kind: fields.kind.value, model: fields.model.value.trim(), thinking_effort: fields.thinking_effort.value, api_key: fields.api_key.value || null, base_url: fields.kind.value === "Custom" ? fields.base_url.value.trim() : "", enabled: fields.enabled.checked ? 1 : 0, is_shared: fields.is_shared && fields.is_shared.checked ? 1 : 0, allowed_roles: fields.allowed_roles.value, max_tokens: Number(fields.max_tokens.value), timeout: Number(fields.timeout.value), models: fields.models.value }; modal.run(async () => { await this.api("save_provider", values); fields.api_key.value = ""; this.boot = await this.api("bootstrap"); if (!this.selected && !(this.boot.providers || []).some((provider) => provider.name === this.provider)) this.provider = this.boot.providers[0] && this.boot.providers[0].name || ""; this.render(); modal.busy = false; modal.close(); this.notice = "Provider saved."; this.renderBanner(); }); });
+			form.querySelector("[data-delete-provider]").addEventListener("click", () => { if (!fields.name.value || form.dataset.readOnly === "true") return; const element = form.querySelector("[data-delete-provider]"); if (element.dataset.confirm !== fields.name.value) { element.dataset.confirm = fields.name.value; element.textContent = "Confirm delete"; return; } modal.run(async () => { await this.api("delete_provider", { name: fields.name.value }); this.boot = await this.api("bootstrap"); this.provider = this.selected ? this.provider : this.boot.providers[0] && this.boot.providers[0].name || ""; this.render(); modal.busy = false; modal.close(); this.notice = "Provider deleted."; this.renderBanner(); }); });
+			// First provider auto-selected; the add form when none exist.
+			load(providers.length ? providers[0].name : "");
 		}
 		memoryDialog() {
 			if (!this.boot) return; const conversation = this.selected;
-			const modal = this.dialog("Memory", '<p class="fi-dialog-copy">Keep useful preferences and context. Memories are only read by the assistant after you approve a recall request.</p><label class="fi-field control-label">Scope<select class="form-control" data-memory-scope><option value="personal">Personal · only you</option>' + (conversation ? '<option value="conversation">This conversation</option>' : '') + '<option value="site">Site · shared with all users</option></select></label><div class="fi-memory-list" data-memory-list role="list"></div><form class="fi-memory-form"><input type="hidden" name="name"><label class="fi-field control-label"><span data-memory-heading>Add a memory</span><textarea class="form-control" name="content" rows="4" maxlength="5000" required placeholder="For example: use our fiscal year when comparing reports."></textarea></label><p class="fi-field-help" data-memory-help>Never store passwords, API keys, or other secrets in memory.</p><footer><button type="button" class="fi-btn" data-memory-reset>Clear editor</button><button type="submit" class="btn btn-primary btn-sm fi-btn fi-primary">Save memory</button></footer></form>');
-			const scope = modal.element.querySelector('[data-memory-scope]'), list = modal.element.querySelector('[data-memory-list]'), form = modal.element.querySelector("form"); let memories = [];
-			const reset = () => { form.reset(); form.elements.name.value = ""; form.querySelector('[data-memory-heading]').textContent = "Add a memory"; };
-			const refresh = async () => { list.innerHTML = '<div class="fi-list-empty">Loading memories…</div>'; memories = await this.api("list_memories", { scope: scope.value, conversation: scope.value === "conversation" ? conversation : null }); if (modal.closed) return; const readOnly = scope.value === "site" && !this.boot.is_manager; form.hidden = readOnly; list.innerHTML = (Array.isArray(memories) && memories.length ? memories.map((memory) => '<article class="fi-memory-item" role="listitem"><p>' + esc(memory.content) + '</p>' + (!readOnly ? '<div>' + button("memory-edit", "Edit", "edit", "fi-text-btn", 'data-name="' + esc(memory.name) + '"') + button("memory-delete", "Delete", null, "fi-text-btn fi-danger", 'data-name="' + esc(memory.name) + '"') + '</div>' : '') + '</article>').join("") : '<div class="fi-memory-empty">' + icon("memory") + '<strong>No memories in this scope</strong><span>' + (readOnly ? "Site memories are managed by your administrator." : "Save a useful preference to make future work more consistent.") + '</span></div>'); };
+			const modal = this.dialog("Memory", '<p class="fi-dialog-copy">Keep useful preferences and context. Memories are only read by the assistant after you approve a recall request.</p><label class="fi-field control-label">Scope<select class="form-control" data-memory-scope><option value="personal">Personal · only you</option>' + (conversation ? '<option value="conversation">This conversation</option>' : "") + '<option value="site">Site · shared with all users</option></select></label><div class="fi-memory-list" data-memory-list role="list"></div><form class="fi-memory-form"><input type="hidden" name="name"><label class="fi-field control-label"><span data-memory-heading>Add a memory</span><textarea class="form-control" name="content" rows="4" maxlength="5000" required placeholder="For example: use our fiscal year when comparing reports."></textarea></label><p class="fi-field-help" data-memory-help>Never store passwords, API keys, or other secrets in memory.</p><footer><button type="button" class="fi-btn" data-memory-reset>Clear editor</button><button type="submit" class="btn btn-primary btn-sm fi-btn fi-primary">Save memory</button></footer></form>');
+			const scope = modal.element.querySelector("[data-memory-scope]"), list = modal.element.querySelector("[data-memory-list]"), form = modal.element.querySelector("form"); let memories = [];
+			const reset = () => { form.reset(); form.elements.name.value = ""; form.querySelector("[data-memory-heading]").textContent = "Add a memory"; };
+			const refresh = async () => { list.innerHTML = '<div class="fi-list-empty">Loading memories…</div>'; memories = await this.api("list_memories", { scope: scope.value, conversation: scope.value === "conversation" ? conversation : null }); if (modal.closed) return; const readOnly = scope.value === "site" && !this.boot.is_manager; form.hidden = readOnly; list.innerHTML = (Array.isArray(memories) && memories.length ? memories.map((memory) => '<article class="fi-memory-item" role="listitem"><p>' + esc(memory.content) + "</p>" + (!readOnly ? "<div>" + button("memory-edit", "Edit", "edit", "fi-text-btn", 'data-name="' + esc(memory.name) + '"') + button("memory-delete", "Delete", null, "fi-text-btn fi-danger", 'data-name="' + esc(memory.name) + '"') + "</div>" : "") + "</article>").join("") : '<div class="fi-memory-empty">' + icon("memory") + "<strong>No memories in this scope</strong><span>" + (readOnly ? "Site memories are managed by your administrator." : "Save a useful preference to make future work more consistent.") + "</span></div>"); };
 			scope.addEventListener("change", () => { reset(); modal.run(refresh); });
-			modal.element.querySelector('[data-memory-reset]').addEventListener("click", reset);
-			list.addEventListener("click", (event) => { const target = event.target.closest('[data-action]'); if (!target || modal.busy) return; const memory = memories.find((entry) => entry.name === target.dataset.name); if (!memory) return; if (target.dataset.action === "memory-edit") { form.elements.name.value = memory.name; form.elements.content.value = memory.content; form.querySelector('[data-memory-heading]').textContent = "Edit memory"; form.elements.content.focus(); } else if (target.dataset.action === "memory-delete") { if (target.dataset.confirm !== "yes") { target.dataset.confirm = "yes"; target.querySelector("span").textContent = "Confirm delete"; return; } modal.run(async () => { await this.api("delete_memory", { name: memory.name }); if (form.elements.name.value === memory.name) reset(); await refresh(); }); } });
+			modal.element.querySelector("[data-memory-reset]").addEventListener("click", reset);
+			list.addEventListener("click", (event) => { const target = event.target.closest("[data-action]"); if (!target || modal.busy) return; const memory = memories.find((entry) => entry.name === target.dataset.name); if (!memory) return; if (target.dataset.action === "memory-edit") { form.elements.name.value = memory.name; form.elements.content.value = memory.content; form.querySelector("[data-memory-heading]").textContent = "Edit memory"; form.elements.content.focus(); } else if (target.dataset.action === "memory-delete") { if (target.dataset.confirm !== "yes") { target.dataset.confirm = "yes"; target.querySelector("span").textContent = "Confirm delete"; return; } modal.run(async () => { await this.api("delete_memory", { name: memory.name }); if (form.elements.name.value === memory.name) reset(); await refresh(); }); } });
 			form.addEventListener("submit", (event) => { event.preventDefault(); const content = form.elements.content.value.trim(); if (!content) return; const values = { name: form.elements.name.value || null, content, scope: scope.value, conversation: scope.value === "conversation" ? conversation : null }; modal.run(async () => { await this.api("save_memory", values); reset(); await refresh(); }); }); modal.run(refresh);
 		}
 		skillsDialog() {
@@ -588,29 +803,6 @@
 			});
 			modal.run(load);
 		}
-		approvalsDialog() {
-			if (!this.boot) return;
-			const modal = this.dialog("Approvals", '<p class="fi-dialog-copy">Requests waiting across all of your conversations. A decision here resumes or stops the work in its own conversation.</p><div class="fi-queue-toolbar">' + button("queue-refresh", "Refresh", "retry", "fi-text-btn") + '</div><div data-queue-body></div>');
-			const body = modal.element.querySelector("[data-queue-body]");
-			const load = async () => {
-				body.innerHTML = '<div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading approvals…</div>';
-				try {
-					const rows = await this.api("frappe.client.get_list", { doctype: "Intelligence Approval", filters: { status: "pending" }, fields: ["name", "conversation", "tool_name", "preview_json", "status", "expires_at", "creation"], order_by: "creation asc", limit_page_length: 100 });
-					if (modal.closed) return; body.innerHTML = queueHTML(rows);
-				} catch (error) { if (modal.closed) return; body.innerHTML = '<div class="fi-inline-error" role="alert"><p>' + esc(userError(error)) + "</p>" + button("queue-retry", "Try again", "retry") + "</div>"; }
-			};
-			modal.element.addEventListener("click", (event) => {
-				const target = event.target.closest("[data-action]");
-				if (!target || target.disabled || modal.busy) return;
-				const action = target.dataset.action;
-				if (action === "queue-refresh" || action === "queue-retry") return modal.run(load);
-				if (action === "queue-open") { const name = target.dataset.name; modal.close(); if (name) this.select(name); return; }
-				if (action === "queue-approve" || action === "queue-deny") {
-					modal.run(async () => { await this.api("approve", { approval: target.dataset.name, decision: action === "queue-approve" ? "approve" : "deny" }); await load(); this.poller.start(0); });
-				}
-			});
-			modal.run(load);
-		}
 		scopeDialog() {
 			if (!this.boot) return;
 			const readOnly = !this.boot.is_manager;
@@ -645,7 +837,7 @@
 				}
 				if (action === "scope-save") {
 					const problem = scopeProblem(state);
-					if (problem) { const box = modal.element.querySelector(".fi-modal-error"); box.hidden = false; box.textContent = problem; return; }
+					if (problem) { const box = modal.element.querySelector(".fi-modal-error"); if (box) { box.hidden = false; box.textContent = problem; } return; }
 					modal.run(async () => {
 						await this.api("frappe.client.set_value", { doctype: "Intelligence Settings", name: "Intelligence Settings", fieldname: { enabled_tools: state.tools.filter((tool) => tool.enabled).map((tool) => tool.name).join("\n"), allowed_read_doctypes: state.read.join("\n"), allowed_write_doctypes: state.write.join("\n") } });
 						modal.busy = false; modal.close(); this.notice = "Scope saved."; this.renderBanner();
@@ -673,77 +865,48 @@
 	}
 	let singleton, installed = false, drawer, pageHost, toggle, drawerFocus;
 	function getApp() {
-		if (!singleton) { singleton = new App(); singleton.onClose = closeDrawer; singleton.onExpand = () => { closeDrawer(); global.frappe.set_route("intelligence-chat"); }; singleton.onBackground = (name, message) => { if (toggle) { toggle.classList.add("has-update"); toggle.title = message; toggle.setAttribute("aria-label", "Open Intelligence. " + message); } }; }
+		if (!singleton) { singleton = new App(); singleton.onClose = closeDrawer; singleton.onExpand = () => { closeDrawer(); global.frappe.set_route(PAGE); }; }
 		return singleton;
 	}
 	function deskReady() { return !!(global.document && global.frappe && global.frappe.boot && global.frappe.session && global.frappe.session.user && global.frappe.session.user !== "Guest" && global.frappe.get_route); }
-	function routeIsPage() { const route = global.frappe.get_route(); return route && route[0] === "intelligence-chat"; }
-	// While the Intelligence page is active, conversations and the nav live in the
-	// Desk sidebar itself, so the in-page sidebar stays hidden and the thread gets
-	// the full width. The section is plain DOM injected next to the native blocks;
-	// Desk re-renders its sidebar on workspace changes, so syncDesk re-injects
-	// idempotently (route hook below plus a light interval guard in install()).
-	function deskSection() { return global.document && global.document.querySelector("[data-fi-desk]"); }
-	function deskSectionHTML() {
-		return '<div class="fi-desk-new-row">' + button("new", "New conversation", "plus", "fi-desk-new") + '</div>'
-			+ '<div class="fi-sidebar-label fi-desk-label"><span data-fi-desk-label>Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + '</div>'
-			+ '<nav class="fi-desk-conversations" data-fi-desk-list aria-label="Conversation list"></nav>'
-			+ '<div class="fi-sidebar-label fi-desk-label"><span>Intelligence</span></div>'
-			+ '<nav class="fi-desk-nav">' + button("approvals", "Approvals", "queue") + button("skills", "Skills", "grid") + button("memory", "Memory", "memory") + button("settings", "Providers & models", "settings") + button("scope", "Scope", "target") + '</nav>';
-	}
-	function paintDesk(app, rowsHTML) {
-		const section = deskSection(); if (!section) return;
-		const list = section.querySelector("[data-fi-desk-list]"); if (list) list.innerHTML = rowsHTML;
-		const label = section.querySelector("[data-fi-desk-label]"); if (label) label.textContent = app.archived ? "Archived conversations" : "Conversations";
-		const filter = section.querySelector('[data-action="archive-filter"]'); if (filter) { filter.setAttribute("aria-pressed", String(app.archived)); filter.title = app.archived ? "Show active conversations" : "Show archived conversations"; }
-	}
+	function pageRoute() { const route = global.frappe.get_route(); return route && route[0] === PAGE ? route : null; }
+	function routeIsPage() { return !!pageRoute(); }
+	// The floating pill stays available across Desk except on the Intelligence page
+	// itself, where the full app already fills the content area. syncDesk is called
+	// on install, on every route change and from the page lifecycle.
 	function syncDesk() {
 		if (!deskReady()) return;
-		const active = routeIsPage();
-		const sidebar = global.document.querySelector(".body-sidebar");
-		if (!active || !sidebar) {
-			if (global.document.body) global.document.body.classList.remove("fi-desk-active");
-			const stale = deskSection(); if (stale) stale.remove();
-			return;
-		}
-		let section = sidebar.querySelector("[data-fi-desk]");
-		if (!section) {
-			section = global.document.createElement("div");
-			section.className = "fi-desk-section";
-			section.setAttribute("data-fi-desk", "");
-			section.innerHTML = deskSectionHTML();
-			section.addEventListener("click", (event) => {
-				const target = event.target.closest("[data-action]");
-				if (!target || target.disabled || !section.contains(target)) return;
-				event.preventDefault();
-				getApp().action(target.dataset.action, target);
-			});
-			const anchor = sidebar.querySelector(".standard-items-sections");
-			if (anchor && anchor.parentNode === sidebar) anchor.after(section); else sidebar.appendChild(section);
-		}
-		if (global.document.body) global.document.body.classList.add("fi-desk-active");
-		if (singleton) paintDesk(singleton, singleton.conversationRowsHTML());
+		if (toggle) toggle.hidden = routeIsPage();
+		const stale = global.document.querySelector("[data-fi-desk]"); if (stale) stale.remove();
+		if (global.document.body) global.document.body.classList.toggle("fi-desk-active", routeIsPage());
+	}
+	function syncRouteSelection() {
+		if (!singleton) return;
+		const route = pageRoute();
+		if (!route) return;
+		const name = route[1] || null;
+		if (name && name !== singleton.selected) singleton.select(name);
+		else if (!name && singleton.selected) singleton.newConversation();
 	}
 	function openDrawer() {
 		if (!deskReady()) return; const app = getApp(); if (drawer && !drawer.hidden) { closeDrawer(); return; }
 		if (!drawer) { drawer = global.document.createElement("div"); drawer.className = "fi-drawer-shell"; drawer.hidden = true; drawer.setAttribute("role", "dialog"); drawer.setAttribute("aria-modal", "true"); drawer.setAttribute("aria-label", "Intelligence contextual drawer"); drawer.tabIndex = -1; drawer.addEventListener("keydown", (event) => { if (event.key === "Tab") trapFocus(event, drawer); if (event.key === "Escape" && !app.modal) { event.preventDefault(); closeDrawer(); } }); global.document.body.appendChild(drawer); }
-		drawerFocus = global.document.activeElement; drawer.hidden = false; app.context = contextFromRoute(global.frappe.get_route()); app.show(drawer, "drawer"); if (toggle) { toggle.classList.remove("has-update"); toggle.setAttribute("aria-expanded", "true"); } drawer.focus(); global.setTimeout(() => { if (!drawer.hidden) app.$("textarea").focus(); }, 0);
+		drawerFocus = global.document.activeElement; drawer.hidden = false; app.context = contextFromRoute(global.frappe.get_route()); app.show(drawer, "drawer"); if (toggle) toggle.setAttribute("aria-expanded", "true"); drawer.focus(); global.setTimeout(() => { if (!drawer.hidden) app.$("textarea").focus(); }, 0);
 	}
 	function closeDrawer() { if (!drawer || drawer.hidden) return; drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); if (singleton) { if (pageHost && routeIsPage()) singleton.show(pageHost, "page"); else singleton.hide(); } if (drawerFocus && drawerFocus.isConnected) drawerFocus.focus(); }
-	function showPage(host) { if (!deskReady()) return; pageHost = host.jquery ? host[0] : host; if (drawer) drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); getApp().show(pageHost, "page"); syncDesk(); }
+	function showPage(host) { if (!deskReady()) return; pageHost = host.jquery ? host[0] : host; if (drawer) drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); const app = getApp(); app.show(pageHost, "page"); syncDesk(); syncRouteSelection(); }
 	function install() {
 		if (installed || !deskReady()) return; installed = true;
-		toggle = global.document.createElement("button"); toggle.type = "button"; toggle.className = "fi-global-toggle"; toggle.setAttribute("aria-label", "Open Intelligence"); toggle.setAttribute("aria-expanded", "false"); toggle.title = "Intelligence · Ctrl/⌘ Shift I"; toggle.innerHTML = '<img class="fi-toggle-logo" src="' + LOGO + '" alt="" aria-hidden="true"><span>Intelligence</span><span class="fi-toggle-dot" aria-hidden="true"></span>'; toggle.addEventListener("click", openDrawer); global.document.body.appendChild(toggle);
-		global.document.addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") { event.preventDefault(); openDrawer(); } if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "k" && singleton && singleton.visible && !singleton.modal) { event.preventDefault(); singleton.root.classList.add("fi-sidebar-open"); singleton.$('[data-input="search"]').focus(); } });
-		const routeChange = () => { syncDesk(); if (!singleton) return; if (drawer && !drawer.hidden) { singleton.context = contextFromRoute(global.frappe.get_route()); singleton.renderContext(); } else if (!routeIsPage()) singleton.hide(); };
+		toggle = global.document.createElement("button"); toggle.type = "button"; toggle.className = "fi-global-toggle"; toggle.setAttribute("aria-label", "Open Intelligence"); toggle.setAttribute("aria-expanded", "false"); toggle.title = "Intelligence · Ctrl/⌘ Shift I"; toggle.innerHTML = '<img class="fi-toggle-logo" src="' + LOGO + '" alt="" aria-hidden="true"><span>Intelligence</span>'; toggle.addEventListener("click", openDrawer); global.document.body.appendChild(toggle);
+		global.document.addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") { event.preventDefault(); openDrawer(); } if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "k" && singleton && singleton.visible && !singleton.modal) { event.preventDefault(); singleton.$('[data-input="search"]').focus(); } });
+		const routeChange = () => { syncDesk(); if (!singleton) return; if (drawer && !drawer.hidden) { singleton.context = contextFromRoute(global.frappe.get_route()); singleton.renderContext(); } else if (routeIsPage()) syncRouteSelection(); else singleton.hide(); };
 		if (global.frappe.router && global.frappe.router.on) global.frappe.router.on("change", routeChange);
 		syncDesk();
-		if (global.setInterval) global.setInterval(syncDesk, 2000);
 		if (global.frappe.realtime && global.frappe.realtime.on) global.frappe.realtime.on("intelligence_update", (event) => { if (!singleton || !event || !event.conversation) return; if (singleton.visible || singleton.watched.has(event.conversation)) { singleton.lastList = 0; singleton.poller.start(100); } });
 		global.addEventListener("online", () => { if (singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
 		global.document.addEventListener("visibilitychange", () => { if (!global.document.hidden && singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
 		global.addEventListener("pagehide", () => { if (singleton) singleton.poller.stop(); });
 		global.addEventListener("pageshow", () => { if (singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
 	}
-	return { install, showPage, syncDesk, toggle: openDrawer, close: closeDrawer, App, Poller, utils: { esc, safeURL, markdown, contextFromRoute, userError, previewHTML, skillsHTML, learnedSkillsHTML, effortOptions, queueHTML, scopeState, scopeProblem, scopeHTML, stamp }, request };
+	return { install, showPage, syncDesk, toggle: openDrawer, close: closeDrawer, App, Poller, utils: { esc, safeURL, markdown, contextFromRoute, userError, previewHTML, actionSentence, recordLink, fileCardHTML, skillsHTML, learnedSkillsHTML, effortOptions, scopeState, scopeProblem, scopeHTML, stamp }, request };
 });

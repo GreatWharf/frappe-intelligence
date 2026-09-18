@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const client = require('../../frappe_intelligence/public/js/intelligence.js');
-const { skillsHTML, learnedSkillsHTML, effortOptions, queueHTML, scopeState, scopeProblem, scopeHTML, stamp } = client.utils;
+const { skillsHTML, learnedSkillsHTML, effortOptions, scopeState, scopeProblem, scopeHTML, stamp } = client.utils;
 const source = fs.readFileSync(path.resolve(__dirname, '../../frappe_intelligence/public/js/intelligence.js'), 'utf8');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -19,10 +19,6 @@ const skillsFixture = {
   never_allow: ['User', 'DocType'],
 };
 const settingsFixture = { name: 'Intelligence Settings', enabled_tools: 'search_records\ncreate_todo', allowed_read_doctypes: 'Customer\nToDo', allowed_write_doctypes: 'ToDo' };
-const queueFixture = [
-  { name: 'a1', conversation: 'c1', tool_name: 'create_todo', preview_json: JSON.stringify({ summary: 'Create a follow-up ToDo.', target: { doctype: 'ToDo' } }), status: 'pending', expires_at: '2026-09-18 14:05:00', creation: '2026-09-16 14:05:00' },
-  { name: 'a2', conversation: 'c2', tool_name: 'read_document', preview_json: JSON.stringify({ summary: 'Read Customer C-001.', target: { doctype: 'Customer', name: 'C-001' } }), status: 'pending', expires_at: '', creation: '2026-09-17 09:30:00' },
-];
 function fixture() {
   return { conversation: { name: 'c1', title: 'Private chat', provider: 'p1', archived: 0 }, messages: [{ name: 'm1', role: 'user', content: 'Hello', status: 'complete' }], approvals: [], files: [], run: null };
 }
@@ -65,31 +61,6 @@ test('skillsHTML escapes hostile content and tolerates malformed payloads', () =
   assert.ok(fallback.includes('off-limits'));
   assert.ok(fallback.includes('No tools'));
 });
-test('queueHTML renders tool, target, summary and requested time per pending approval', () => {
-  const html = queueHTML(queueFixture);
-  assert.ok(html.includes('create_todo'));
-  assert.ok(html.includes('Read Customer C-001.'));
-  assert.ok(html.includes('Customer'));
-  assert.ok(html.includes('C-001'));
-  assert.ok(html.includes('Requested '));
-  assert.ok(html.includes('data-action="queue-approve"'));
-  assert.ok(html.includes('data-name="a2"'));
-  assert.ok(html.includes('data-name="c2"'));
-});
-test('queueHTML escapes hostile previews and survives malformed rows', () => {
-  const html = queueHTML([
-    { name: 'a9', conversation: 'c9', tool_name: '<img src=x onerror=alert(1)>', preview_json: '{"summary":"<script>alert(2)</script>"}', status: 'pending', creation: '2026-09-17 10:00:00' },
-    null,
-    { name: '' },
-    { name: 'a10', conversation: 'c1', tool_name: 'noop', preview_json: '{broken json', status: 'pending' },
-  ]);
-  assert.ok(!html.includes('<img'));
-  assert.ok(!html.includes('<script>'));
-  assert.ok(html.includes('&lt;img'));
-  assert.ok(html.includes('noop'));
-  assert.ok(queueHTML('nope').includes('No pending approvals'));
-  assert.ok(queueHTML([]).includes('No pending approvals'));
-});
 test('stamp renders a short date with time, or empty text for missing or invalid values', () => {
   assert.equal(stamp(''), '');
   assert.equal(stamp('not-a-date'), '');
@@ -129,9 +100,26 @@ test('request prefixes app API methods but passes absolute Frappe client methods
   assert.deepEqual(seen, ['frappe_intelligence.api.skills', 'frappe.client.get_list']);
   t.after(() => dom.window.close());
 });
-test('sidebar exposes skills, approvals and scope entries', (t) => {
+test('the header menu exposes providers, memory, skills and scope entries', (t) => {
   const { app } = harness(t);
-  for (const action of ['approvals', 'skills', 'scope']) assert.ok(app.$('[data-action="' + action + '"]'), action);
+  app.$('[data-action="menu"]').click();
+  const menu = app.slot('menu');
+  assert.equal(menu.hidden, false);
+  for (const action of ['settings', 'memory', 'skills', 'scope']) assert.ok(menu.querySelector('[data-action="' + action + '"]'), action);
+  assert.equal(menu.querySelector('[data-action="approvals"]'), null, 'no approvals entry point remains');
+});
+test('the providers dialog offers fetch models, a model catalog field and the effort select', async (t) => {
+  const { app, document, calls } = harness(t, { provider_details: () => copy(boot.providers[0]), fetch_provider_models: () => ({ models: ['model-a', 'model-b'] }) });
+  app.providerDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  const form = modal.querySelector('form');
+  assert.ok(form.elements.models, 'catalog textarea');
+  assert.ok(form.querySelector('[data-action="fetch-models"]'), 'fetch button');
+  assert.ok(form.elements.api_key.getAttribute('placeholder').toLowerCase().includes('api key'));
+  form.querySelector('[data-action="fetch-models"]').click(); await tick(); await tick();
+  const fetch = calls.find((call) => call.method === 'fetch_provider_models');
+  assert.ok(fetch);
+  assert.equal(form.elements.models.value, 'model-a\nmodel-b');
 });
 test('skills dialog fetches the pinned contract and renders tools, scopes and the off-limits note', async (t) => {
   const { app, document } = harness(t, { skills: () => copy(skillsFixture) });
@@ -152,36 +140,6 @@ test('skills dialog shows an inline error on fetch failure and retries in place'
   modal.querySelector('[data-action="skills-retry"]').click(); await tick();
   assert.ok(modal.textContent.includes('search_records'));
   assert.equal(modal.querySelector('.fi-inline-error'), null);
-});
-test('approval queue lists pending approvals across conversations and approves through the existing endpoint', async (t) => {
-  const { app, document, calls } = harness(t, { 'frappe.client.get_list': () => copy(queueFixture), approve: () => ({}) });
-  app.approvalsDialog(); await tick();
-  const modal = document.querySelector('.fi-modal-overlay');
-  assert.ok(modal.textContent.includes('create_todo'));
-  assert.ok(modal.textContent.includes('Read Customer C-001.'));
-  Array.from(modal.querySelectorAll('[data-action="queue-approve"]')).find((node) => node.dataset.name === 'a2').click();
-  await tick();
-  const decision = calls.find((call) => call.method === 'approve');
-  assert.deepEqual(copy(decision.args), { approval: 'a2', decision: 'approve' });
-  assert.equal(calls.filter((call) => call.method === 'frappe.client.get_list').length, 2);
-});
-test('approval queue deny uses the exact inline decision contract', async (t) => {
-  const { app, document, calls } = harness(t, { 'frappe.client.get_list': () => copy(queueFixture), approve: () => ({}) });
-  app.approvalsDialog(); await tick();
-  const modal = document.querySelector('.fi-modal-overlay');
-  Array.from(modal.querySelectorAll('[data-action="queue-deny"]')).find((node) => node.dataset.name === 'a1').click();
-  await tick();
-  const decision = calls.find((call) => call.method === 'approve');
-  assert.deepEqual(copy(decision.args), { approval: 'a1', decision: 'deny' });
-});
-test('approval queue can jump into the owning conversation', async (t) => {
-  const { app, document } = harness(t, { 'frappe.client.get_list': () => copy(queueFixture) });
-  app.approvalsDialog(); await tick();
-  const modal = document.querySelector('.fi-modal-overlay');
-  Array.from(modal.querySelectorAll('[data-action="queue-open"]')).find((node) => node.dataset.name === 'c2').click();
-  await tick();
-  assert.equal(document.querySelector('.fi-modal-overlay'), null);
-  assert.equal(app.selected, 'c2');
 });
 test('scope editor saves joined newline lists through the Frappe client single-value API', async (t) => {
   const { app, window, document, calls } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'frappe.client.set_value': () => ({}) });
@@ -391,7 +349,7 @@ test('learned skill rows hide every edit control from non-manager non-owners', a
 });
 test('provider dialog includes thinking_effort in the save payload', async (t) => {
   const { app, window, document, calls } = harness(t, { save_provider: () => ({}), bootstrap: () => copy(boot) });
-  app.providerDialog();
+  app.providerDialog(); await tick();
   const modal = document.querySelector('.fi-modal-overlay');
   const form = modal.querySelector('form');
   assert.ok(form.elements.thinking_effort);
