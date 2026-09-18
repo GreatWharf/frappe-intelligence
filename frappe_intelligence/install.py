@@ -283,21 +283,63 @@ def _navigation():
         _v15_workspace()
         return
     _v16_sidebar()
-    if not frappe.db.exists("Desktop Icon", "Intelligence"):
+    _v16_icon()
+
+
+# Canonical Desktop Icon: the apps screen offers exactly one way in, labeled
+# after the app rather than the module.
+ICON_FIELDS = {
+    "label": "Intelligence",
+    "icon_type": "App",
+    "standard": 1,
+    "app": "frappe_intelligence",
+    "link_type": "Workspace Sidebar",
+    "link_to": "Intelligence",
+    "logo_url": "/assets/frappe_intelligence/images/intelligence.svg",
+    "hidden": 0,
+}
+
+
+def _replace_roles(doc):
+    wanted = list(USER_ROLES)
+    if [row.get("role") for row in doc.get("roles") or []] == wanted:
+        return False
+    doc.set("roles", [])
+    for role in wanted:
+        doc.append("roles", {"role": role})
+    return True
+
+
+def _v16_icon():
+    if frappe.db.exists("Desktop Icon", "Intelligence"):
+        icon = frappe.get_doc("Desktop Icon", "Intelligence")
+        # The icon named after this app is its identity: converge app-owned
+        # rows, and claim legacy untagged rows, which otherwise shadow the app
+        # on the apps screen (pre-0.4 seeds were neither tagged nor standard,
+        # so the grid fell back to the module name "Frappe Intelligence").
+        if icon.get("app") in (None, "", "frappe_intelligence"):
+            changed = _replace_roles(icon)
+            for field, value in ICON_FIELDS.items():
+                if icon.get(field) != value:
+                    icon.set(field, value)
+                    changed = True
+            if changed:
+                icon.save(ignore_permissions=True)
+    else:
         frappe.get_doc(
             {
                 "doctype": "Desktop Icon",
-                "label": "Intelligence",
-                "icon_type": "App",
-                "standard": 1,
-                "app": "frappe_intelligence",
-                "link_type": "Workspace Sidebar",
-                "link_to": "Intelligence",
-                "logo_url": "/assets/frappe_intelligence/images/intelligence.svg",
-                "hidden": 0,
+                **ICON_FIELDS,
                 "roles": [{"role": role} for role in USER_ROLES],
             }
         ).insert(ignore_permissions=True)
+    # The module-named auto app icon predates the Intelligence branding; left
+    # visible it renders a second, wrongly labeled way in on the apps screen.
+    if frappe.db.exists("Desktop Icon", MODULE):
+        legacy = frappe.get_doc("Desktop Icon", MODULE)
+        if legacy.get("app") == "frappe_intelligence" and not legacy.get("hidden"):
+            legacy.set("hidden", 1)
+            legacy.save(ignore_permissions=True)
 
 
 def _global_search():

@@ -280,7 +280,6 @@ def test_navigation_preserves_existing_and_user_owned_entries(migrator):
     sidebar = fake.get_doc(
         {"doctype": "Workspace Sidebar", "name": "Intelligence", "title": "Customized"}
     ).insert()
-    icon = fake.get_doc({"doctype": "Desktop Icon", "name": "Intelligence", "hidden": 1}).insert()
     fake.get_doc({"doctype": "Workspace", "name": "Intelligence", "for_user": "alice"}).insert()
     module.after_migrate()
     sidebars = navigation_docs(store, "Workspace Sidebar")
@@ -288,8 +287,56 @@ def test_navigation_preserves_existing_and_user_owned_entries(migrator):
     assert any(doc.title == "Frappe Intelligence" and not doc.items for doc in sidebars), (
         "the module-name sentinel still suppresses the auto-generated sidebar"
     )
-    assert navigation_docs(store, "Desktop Icon") == [icon]
     assert ("Workspace", "Intelligence") in store, "a user's own workspace is left untouched"
+
+
+def test_navigation_claims_a_same_named_legacy_desktop_icon(migrator):
+    """Pre-0.4 seeds left an untagged icon that shadowed the app on the apps screen."""
+    module, fake, store = migrator
+    icon = fake.get_doc({"doctype": "Desktop Icon", "name": "Intelligence", "hidden": 1}).insert()
+    module.after_migrate()
+    icons = navigation_docs(store, "Desktop Icon")
+    assert icons == [icon], "the legacy icon is claimed in place, never duplicated"
+    assert icon.label == "Intelligence"
+    assert icon.icon_type == "App" and icon.standard == 1
+    assert icon.app == "frappe_intelligence"
+    assert icon.link_type == "Workspace Sidebar" and icon.link_to == "Intelligence"
+    assert icon.logo_url == "/assets/frappe_intelligence/images/intelligence.svg"
+    assert icon.hidden == 0
+    assert [row["role"] for row in icon.roles] == list(module.USER_ROLES)
+    module.after_migrate()
+    assert navigation_docs(store, "Desktop Icon") == [icon], "convergence is idempotent"
+
+
+def test_navigation_hides_the_legacy_module_named_app_icon(migrator):
+    """The auto module icon is a second, wrongly labeled way in; it goes hidden."""
+    module, fake, store = migrator
+    legacy = fake.get_doc(
+        {
+            "doctype": "Desktop Icon",
+            "name": "Frappe Intelligence",
+            "label": "Frappe Intelligence",
+            "icon_type": "App",
+            "app": "frappe_intelligence",
+            "hidden": 0,
+        }
+    ).insert()
+    module.after_migrate()
+    assert store[("Desktop Icon", "Frappe Intelligence")] is legacy
+    assert legacy.hidden == 1
+    visible = [doc for doc in navigation_docs(store, "Desktop Icon") if not doc.get("hidden")]
+    assert [doc.label for doc in visible] == ["Intelligence"]
+
+
+def test_navigation_never_touches_another_apps_icon(migrator):
+    module, fake, store = migrator
+    foreign = fake.get_doc(
+        {"doctype": "Desktop Icon", "name": "Intelligence", "app": "other_app", "hidden": 0}
+    ).insert()
+    module.after_migrate()
+    assert foreign.hidden == 0 and foreign.get("standard") is None, (
+        "an icon named Intelligence owned by another app is left alone"
+    )
 
 
 def test_v15_workspace_links_chat_and_manage_groups(migrator):
