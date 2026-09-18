@@ -1063,7 +1063,14 @@ def _maybe_generate_title(run):
         )
         if not first_user:
             return
-        config = replace(get_provider_config(run.provider), max_tokens=24, effort="")
+        config = get_provider_config(run.provider)
+        # A reasoning model burns a tiny budget on thinking before any visible
+        # text, then finishes "length": the title silently never landed on
+        # kimi-k3 (24 tokens, default thinking). Give the call room and ask for
+        # minimal reasoning where the wire takes it; Anthropic/Gemini keep
+        # thinking off, so their budget stays small either way.
+        effort = "low" if config.kind in ("openai", "custom", "xai", "openrouter") else ""
+        config = replace(config, max_tokens=400, effort=effort)
         reply_text = (first_reply[0].get("content") or "").strip()[:300]
         user_text = (first_user[0].get("content") or "").strip()[:2000]
         if not user_text:

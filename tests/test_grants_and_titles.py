@@ -229,9 +229,9 @@ class TitleConfig:
     effort: str = ""
 
 
-def use_real_config(env, monkeypatch):
+def use_real_config(env, monkeypatch, kind="openai"):
     """Title generation needs a real dataclass config; the run turn tolerates it too."""
-    monkeypatch.setattr(env.engine, "get_provider_config", lambda provider, user=None: TitleConfig())
+    monkeypatch.setattr(env.engine, "get_provider_config", lambda provider, user=None: TitleConfig(kind=kind))
     seen = []
     complete = sys.modules["frappe_intelligence.providers"].complete
 
@@ -258,11 +258,25 @@ def test_the_first_completed_run_replaces_the_placeholder_title(env, monkeypatch
     doc = env.frappe.get_doc("Intelligence Conversation", "titled")
     assert doc.title == "Unpaid invoice review", "quotes, punctuation and whitespace are stripped"
     assert len(seen) == 2, "the run turn, then the tiny title call"
-    assert seen[-1].max_tokens == 24 and seen[-1].effort == "", "a tiny, thinking-free title call"
+    assert seen[-1].max_tokens == 400 and seen[-1].effort == "low", (
+        "reasoning models need room for thinking plus the few visible words"
+    )
     assert env.calls[-1][0]["role"] == "system" and "3 to 6 words" in env.calls[-1][0]["content"]
     assert "Show my unpaid invoices" in env.calls[-1][-1]["content"]
     assert "Here are your unpaid invoices." in env.calls[-1][-1]["content"]
     assert env.frappe.events[-1][1]["state"] == "completed", "the rename pushes the usual snapshot"
+
+
+def test_the_title_call_keeps_thinking_off_for_anthropic_and_gemini(env, monkeypatch):
+    seen = use_real_config(env, monkeypatch, kind="anthropic")
+    name = submit_titled(env)
+    env.replies.append(reply(text="Answer."))
+    env.replies.append(title_reply("Quiet review"))
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "completed"
+    assert seen[-1].max_tokens == 400 and seen[-1].effort == "", (
+        "Anthropic thinking budgets must exceed max_tokens, so thinking stays off"
+    )
 
 
 def test_later_runs_never_regenerate_the_title(env, monkeypatch):
