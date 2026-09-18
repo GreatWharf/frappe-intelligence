@@ -80,9 +80,9 @@ Captured from a live ERPNext v16 site running the flows recorded in [the verific
 | --- | --- |
 | ![Daily briefing](docs/screenshots/daily-briefing.png) | ![Skills](docs/screenshots/skills.png) |
 
-| User-controlled memory | The approvals queue |
+| User-controlled memory | An approved tool action with record links |
 | --- | --- |
-| ![Memory](docs/screenshots/memory.png) | ![Approvals](docs/screenshots/approvals.png) |
+| ![Memory](docs/screenshots/memory.png) | ![Approved search tool and linked records](docs/screenshots/conversation-answer.png) |
 
 Recorded sessions: [welcome tour](docs/screenshots/welcome-tour.webm) and [bank reconciliation end to end](docs/screenshots/bank-reconciliation.webm).
 
