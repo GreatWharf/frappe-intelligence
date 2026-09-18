@@ -97,6 +97,10 @@ Image `ghcr.io/greatwharf/frappe-intelligence:0.3.2` (commit `8fedcdf`) was depl
 
 Every write in these runs went through an approval card; the assistant holds no service-account privileges.
 
+## Live verification of 0.5.0, 18 September 2026
+
+Image `ghcr.io/greatwharf/frappe-intelligence:0.5.0` (tag `v0.5.0`, commit `2df801a`) was deployed to the same disposable ERPNext v16 site and driven through a real Chromium session. Verified end to end: a single "Intelligence" entry on the apps screen and in the Desk sidebar, same-tab navigation into `/desk/intelligence`, the composer pinned to the viewport at desktop and phone widths, the inline provider picker, approval cards with **Always allow** (the standing grant auto-approved the repeat search in the follow-up run with zero further prompts), collapsed tool groups with narration between steps, and an AI-generated conversation title ("Unpaid Sales Invoices Overview") replacing the placeholder after the first reply. Captures: [screenshots/approval-waiting.png](screenshots/approval-waiting.png), [screenshots/conversation-answer.png](screenshots/conversation-answer.png), [screenshots/follow-up-answer.png](screenshots/follow-up-answer.png).
+
 ## Remaining validation boundaries
 
 - Actual Frappe/ERPNext install, migration, native permission dispatch and RQ/realtime behavior on the target site.
