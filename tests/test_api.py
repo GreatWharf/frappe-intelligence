@@ -105,3 +105,118 @@ def test_bootstrap_returns_first_name_only(api):
     assert out["user_name"] == "Rishi"
     fake.db.get_value = lambda *a, **kw: None
     assert module.bootstrap()["user_name"] == ""
+
+
+def test_get_settings_returns_the_full_policy_without_secrets(api, monkeypatch):
+    module, fake, _ = api
+    settings = Row(
+        enabled=1,
+        approval_mode="Approve Writes Only",
+        max_steps=30,
+        allowed_read_doctypes="Customer\nSupplier",
+        allowed_write_doctypes="ToDo",
+        enabled_tools="search_records",
+        api_key="never-exposed",
+    )
+    fake.get_single = lambda kind: settings
+    out = module.get_settings()
+    assert out["approval_mode"] == "Approve Writes Only"
+    assert out["allowed_read_doctypes"] == "Customer\nSupplier"
+    assert out["allowed_write_doctypes"] == "ToDo"
+    assert out["enabled_tools"] == "search_records"
+    assert out["enabled"] == 1
+    assert out["max_steps"] == 30
+    assert set(out) == set(module.SETTINGS_FIELDS)
+    assert "never-exposed" not in str(out)
+
+
+def test_save_settings_is_manager_only_and_normalizes_lines(api):
+    module, fake, _ = api
+    settings = Row(approval_mode="Approve Every Step", allowed_read_doctypes="")
+    fake.get_single = lambda kind: settings
+    with pytest.raises(PermissionError):
+        module.save_settings(approval_mode="Automatic")
+    fake.get_roles = lambda user=None: ["System Manager"]
+    out = module.save_settings(
+        approval_mode="Automatic",
+        allowed_read_doctypes=["Customer", " Supplier ", "Customer", ""],
+    )
+    assert settings.approval_mode == "Automatic"
+    assert out["allowed_read_doctypes"] == "Customer\nSupplier"
+    out = module.save_settings(enabled_tools="search_records\nsearch_records\nread_record\n")
+    assert out["enabled_tools"] == "search_records\nread_record"
+
+
+def test_save_settings_rejects_bad_input_and_noops(api):
+    module, fake, _ = api
+    fake.get_roles = lambda user=None: ["System Manager"]
+    fake.get_single = lambda kind: Row()
+    with pytest.raises(ValueError, match="Unknown approval mode"):
+        module.save_settings(approval_mode="Trust the model")
+    with pytest.raises(ValueError, match="Invalid settings value"):
+        module.save_settings(allowed_read_doctypes=42)
+    with pytest.raises(ValueError, match="Nothing to save"):
+        module.save_settings()
+    with pytest.raises(ValueError, match="Unknown settings field"):
+        module.save_settings(approval_expiry_days=3)
+    with pytest.raises(ValueError, match="Invalid numeric"):
+        module.save_settings(max_steps="many")
+
+
+def test_save_settings_round_trips_ints_and_checks(api):
+    module, fake, _ = api
+    settings = Row(enabled=1, max_steps=30)
+    fake.get_single = lambda kind: settings
+    fake.get_roles = lambda user=None: ["System Manager"]
+    out = module.save_settings(enabled="0", max_steps="12", daily_run_limit=50)
+    assert settings.enabled == 0
+    assert out["max_steps"] == 12
+    assert out["daily_run_limit"] == 50
+
+
+def test_list_grants_shows_own_rows_or_everything_for_managers(api):
+    module, fake, store = api
+    store["g1"] = Row(
+        doctype="Intelligence Tool Grant",
+        name="g1",
+        user="owner@example.test",
+        tool="write",
+        scope_doctype="",
+    )
+    store["g2"] = Row(
+        doctype="Intelligence Tool Grant",
+        name="g2",
+        user="other@example.test",
+        tool="read",
+        scope_doctype="Customer",
+    )
+    out = module.list_grants()
+    assert [row["name"] for row in out] == ["g1"], "users see only their own grants"
+    assert out[0]["scope_doctype"] == ""
+    fake.get_roles = lambda user=None: ["Intelligence Manager"]
+    out = module.list_grants()
+    assert {row["name"] for row in out} == {"g1", "g2"}
+    assert {row["name"]: row["scope_doctype"] for row in out}["g2"] == "Customer"
+
+
+def test_revoke_grant_is_owner_or_manager_only(api):
+    module, fake, store = api
+    store["g1"] = Row(doctype="Intelligence Tool Grant", name="g1", user="owner@example.test")
+    store["g2"] = Row(doctype="Intelligence Tool Grant", name="g2", user="other@example.test")
+    with pytest.raises(PermissionError):
+        module.revoke_grant("g2"), "users cannot revoke another user's grant"
+    assert module.revoke_grant("g1") == {"deleted": True}
+    assert "g1" not in store
+    fake.get_roles = lambda user=None: ["Intelligence Manager"]
+    module.revoke_grant("g2")
+    assert "g2" not in store, "managers can revoke any grant"
+
+
+def test_rename_conversation_marks_the_title_as_manual(api):
+    module, _, store = api
+    store["c"] = Row(
+        doctype="Intelligence Conversation", name="c", owner="owner@example.test", title="New chat"
+    )
+    module.rename_conversation("c", "Quarterly close")
+    assert store["c"].title == "Quarterly close"
+    assert store["c"].title_manually_set == 1, "generated titles must never overwrite this name"

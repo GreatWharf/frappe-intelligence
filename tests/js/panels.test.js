@@ -100,13 +100,45 @@ test('request prefixes app API methods but passes absolute Frappe client methods
   assert.deepEqual(seen, ['frappe_intelligence.api.skills', 'frappe.client.get_list']);
   t.after(() => dom.window.close());
 });
-test('the header menu exposes providers, memory, skills and scope entries', (t) => {
+test('settings live in the sidebar footer menu, not the conversation header', (t) => {
   const { app } = harness(t);
-  app.$('[data-action="menu"]').click();
+  assert.equal(app.$('.fi-header').querySelector('.fi-menu-wrap'), null, 'no menu in the conversation header');
+  const footer = app.$('.fi-sidebar-footer');
+  assert.ok(footer, 'sidebar footer present');
+  footer.querySelector('[data-action="menu"]').click();
   const menu = app.slot('menu');
   assert.equal(menu.hidden, false);
-  for (const action of ['settings', 'memory', 'skills', 'scope']) assert.ok(menu.querySelector('[data-action="' + action + '"]'), action);
+  for (const action of ['settings', 'memory', 'skills', 'scope', 'app-settings']) assert.ok(menu.querySelector('[data-action="' + action + '"]'), action);
   assert.equal(menu.querySelector('[data-action="approvals"]'), null, 'no approvals entry point remains');
+});
+const settingsDoc = { enabled: 1, approval_mode: 'Approve Writes Only', max_steps: 12, max_run_seconds: 600, approval_expiry_minutes: 1440, max_upload_mb: 10, max_file_chars: 120000, daily_run_limit: 40, allowed_reports: '', allowed_custom_hosts: '' };
+test('the fallback settings dialog loads and saves through the settings API', async (t) => {
+  const { app, window, document, calls } = harness(t, { get_settings: () => copy(settingsDoc), save_settings: (args) => Object.assign(copy(settingsDoc), args), bootstrap: () => copy(boot) });
+  app.settingsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  assert.ok(modal, 'fallback overlay when frappe.ui.Dialog is absent');
+  const form = modal.querySelector('form.fi-settings-form');
+  assert.ok(form, 'settings form rendered');
+  assert.equal(form.elements.approval_mode.value, 'Approve Writes Only', 'select shows the current mode');
+  assert.ok(form.elements.allowed_custom_hosts, 'custom hosts textarea');
+  form.elements.approval_mode.value = 'Automatic';
+  form.elements.max_steps.value = '7';
+  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick(); await tick();
+  const save = calls.find((call) => call.method === 'save_settings');
+  assert.ok(save, 'settings saved through the API');
+  assert.equal(save.args.approval_mode, 'Automatic');
+  assert.equal(save.args.max_steps, 7, 'integer fields submit as numbers');
+  assert.equal(save.args.enabled, 1, 'checks submit as 1 or 0');
+  assert.equal(document.querySelector('.fi-modal-overlay'), null, 'closed after save');
+  assert.ok(calls.some((call) => call.method === 'bootstrap'), 'bootstrap refreshed after save');
+});
+test('the fallback settings dialog is read-only for non-managers', async (t) => {
+  const { app, document } = harness(t, { get_settings: () => copy(settingsDoc) });
+  app.boot.is_manager = false;
+  app.settingsDialog(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  assert.equal(modal.querySelector('button[type="submit"]'), null, 'no save button');
+  assert.ok(Array.from(modal.querySelectorAll('input,select,textarea')).every((node) => node.disabled), 'every field disabled');
 });
 test('the providers dialog offers fetch models, a model catalog field and the effort select', async (t) => {
   const { app, document, calls } = harness(t, { provider_details: () => copy(boot.providers[0]), fetch_provider_models: () => ({ models: ['model-a', 'model-b'] }) });
@@ -141,8 +173,8 @@ test('skills dialog shows an inline error on fetch failure and retries in place'
   assert.ok(modal.textContent.includes('search_records'));
   assert.equal(modal.querySelector('.fi-inline-error'), null);
 });
-test('scope editor saves joined newline lists through the Frappe client single-value API', async (t) => {
-  const { app, window, document, calls } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'frappe.client.set_value': () => ({}) });
+test('scope editor saves joined newline lists through the manager settings API', async (t) => {
+  const { app, window, document, calls } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'save_settings': () => ({}) });
   app.scopeDialog(); await tick();
   const modal = document.querySelector('.fi-modal-overlay');
   const todo = Array.from(modal.querySelectorAll('[data-input="scope-tool"]')).find((node) => node.value === 'create_todo');
@@ -150,27 +182,25 @@ test('scope editor saves joined newline lists through the Frappe client single-v
   modal.querySelector('[data-input="scope-add-read"]').value = 'Supplier';
   modal.querySelector('[data-action="scope-add"][data-list="read"]').click();
   modal.querySelector('[data-action="scope-save"]').click(); await tick();
-  const save = calls.find((call) => call.method === 'frappe.client.set_value');
-  assert.equal(save.args.doctype, 'Intelligence Settings');
-  assert.equal(save.args.name, 'Intelligence Settings');
-  assert.equal(save.args.fieldname.enabled_tools, 'search_records');
-  assert.equal(save.args.fieldname.allowed_read_doctypes, 'Customer\nToDo\nSupplier');
-  assert.equal(save.args.fieldname.allowed_write_doctypes, 'ToDo');
+  const save = calls.find((call) => call.method === 'save_settings');
+  assert.equal(save.args.enabled_tools, 'search_records');
+  assert.equal(save.args.allowed_read_doctypes, 'Customer\nToDo\nSupplier');
+  assert.equal(save.args.allowed_write_doctypes, 'ToDo');
   assert.equal(document.querySelector('.fi-modal-overlay'), null);
 });
 test('scope editor blocks a write scope that is not readable before any server call', async (t) => {
-  const { app, document, calls } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'frappe.client.set_value': () => ({}) });
+  const { app, document, calls } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'save_settings': () => ({}) });
   app.scopeDialog(); await tick();
   const modal = document.querySelector('.fi-modal-overlay');
   modal.querySelector('[data-action="scope-remove"][data-list="read"][data-value="ToDo"]').click();
   modal.querySelector('[data-action="scope-save"]').click(); await tick();
-  assert.equal(calls.filter((call) => call.method === 'frappe.client.set_value').length, 0);
+  assert.equal(calls.filter((call) => call.method === 'save_settings').length, 0);
   const error = modal.querySelector('.fi-modal-error');
   assert.equal(error.hidden, false);
   assert.ok(error.textContent.includes('readable'));
 });
 test('scope editor shows server validation errors verbatim on save failure', async (t) => {
-  const { app, document } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'frappe.client.set_value': () => { throw { userMessage: 'Write scope must stay within the read scope.' }; } });
+  const { app, document } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'save_settings': () => { throw { userMessage: 'Write scope must stay within the read scope.' }; } });
   app.scopeDialog(); await tick();
   const modal = document.querySelector('.fi-modal-overlay');
   modal.querySelector('[data-action="scope-save"]').click(); await tick();
@@ -368,4 +398,179 @@ test('provider dialog restores a saved thinking effort when editing', async (t) 
   const form = modal.querySelector('form'); assert.equal(form.elements.thinking_effort.value, 'Max');
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
   assert.equal(calls.find((call) => call.method === 'save_provider').args.thinking_effort, 'Max');
+});
+
+// A minimal frappe.ui.Dialog stand-in that renders declarative fields into the
+// harness DOM, so tests can prove the native Desk path is chosen and works.
+function stubNativeDialogs(window) {
+  const instances = [];
+  const frappe = window.frappe;
+  frappe.ui = frappe.ui || {};
+  frappe.ui.freeze = () => {}; frappe.ui.unfreeze = () => {};
+  frappe.show_alert = () => {};
+  frappe.ui.Dialog = class {
+    constructor(options) {
+      this.options = options; this.values = {}; this.fields_dict = {};
+      const doc = window.document;
+      this.wrapper = doc.createElement('div'); this.wrapper.className = 'fi-native-stub';
+      this.body = doc.createElement('div');
+      this.wrapper.appendChild(this.body);
+      this.$body = [this.body]; this.$wrapper = [this.wrapper];
+      for (const field of options.fields || []) {
+        if (field.fieldtype === 'HTML') { const host = doc.createElement('div'); host.setAttribute('data-fieldname', field.fieldname || ''); host.innerHTML = field.options || ''; this.body.appendChild(host); continue; }
+        if (!field.fieldname) continue;
+        const control = doc.createElement('div'); control.className = 'frappe-control'; control.setAttribute('data-fieldname', field.fieldname); control.setAttribute('data-fieldtype', field.fieldtype);
+        let input;
+        if (field.fieldtype === 'Select') {
+          input = doc.createElement('select');
+          for (const option of field.options || []) { const row = typeof option === 'string' ? { value: option, label: option } : option; const node = doc.createElement('option'); node.value = row.value; node.textContent = row.label; input.appendChild(node); }
+        } else if (field.fieldtype === 'Check') { input = doc.createElement('input'); input.setAttribute('type', 'checkbox'); }
+        else if (field.fieldtype === 'Small Text') input = doc.createElement('textarea');
+        else if (field.fieldtype === 'Button') { input = doc.createElement('button'); input.textContent = field.label || ''; input.addEventListener('click', () => field.click && field.click()); control.appendChild(input); this.body.appendChild(control); this.fields_dict[field.fieldname] = { df: field, input }; continue; }
+        else input = doc.createElement('input');
+        if (field.fieldtype === 'Password') input.setAttribute('type', 'password');
+        input.name = field.fieldname;
+        control.appendChild(input); this.body.appendChild(control);
+        this.fields_dict[field.fieldname] = { df: field, input };
+        if (field.default !== undefined) { this.values[field.fieldname] = field.default; if (field.fieldtype === 'Check') input.checked = !!field.default; else input.value = field.default; }
+        else if (field.fieldtype === 'Select') { const first = input.querySelector('option'); if (first) this.values[field.fieldname] = first.value; }
+        input.addEventListener('change', () => { this.values[field.fieldname] = field.fieldtype === 'Check' ? (input.checked ? 1 : 0) : input.value; if (field.onchange) field.onchange(); });
+      }
+      instances.push(this);
+    }
+    show() { window.document.body.appendChild(this.wrapper); }
+    hide() { this.wrapper.remove(); }
+    get_values() { return Object.assign({}, this.values); }
+    get_value(name) { return this.values[name]; }
+    set_value(name, value) { this.values[name] = value; const entry = this.fields_dict[name]; if (entry && entry.input) { if (entry.df.fieldtype === 'Check') entry.input.checked = !!value; else entry.input.value = value == null ? '' : value; } return Promise.resolve(); }
+    async set_values(values) { for (const key of Object.keys(values || {})) await this.set_value(key, values[key]); }
+    set_df_property(name, prop, value) { const entry = this.fields_dict[name]; if (entry) entry.df[prop] = value; }
+    get_primary_btn() { return { prop: () => {} }; }
+  };
+  return instances;
+}
+const fieldsByName = (dialog) => { const out = {}; for (const field of dialog.options.fields) if (field.fieldname) out[field.fieldname] = field; return out; };
+
+test('providers dialog uses a declarative frappe.ui.Dialog when Desk controls exist', async (t) => {
+  const provider = { name: 'p1', title: 'Work', kind: 'OpenAI', model: 'configured-model', enabled: 1, is_shared: 0, thinking_effort: 'Medium', can_edit: true, models: 'configured-model' };
+  const { app, window, document, calls } = harness(t, { provider_details: () => copy(provider), save_provider: () => ({}), bootstrap: () => copy(boot), fetch_provider_models: () => ({ models: ['model-a'] }) });
+  app.boot.managed_providers = [provider];
+  const dialogs = stubNativeDialogs(window);
+  app.providerDialog(); await tick(); await tick(); await tick();
+  assert.equal(document.querySelector('.fi-modal-overlay'), null, 'no custom overlay on Desk');
+  assert.equal(dialogs.length, 1);
+  const dialog = dialogs[0];
+  assert.equal(dialog.options.title, 'Providers & models');
+  const byField = fieldsByName(dialog);
+  assert.equal(byField.kind.fieldtype, 'Select');
+  assert.deepEqual(copy(byField.kind.options), ['OpenAI', 'Anthropic', 'Gemini', 'OpenRouter', 'xAI', 'Custom']);
+  assert.equal(byField.model.fieldtype, 'Data');
+  assert.equal(byField.api_key.fieldtype, 'Password');
+  assert.equal(byField.thinking_effort.fieldtype, 'Select');
+  assert.deepEqual(copy(byField.thinking_effort.options), ['Auto', 'Low', 'Medium', 'High', 'Max']);
+  assert.equal(byField.base_url.depends_on, 'eval:doc.kind=="Custom"', 'custom endpoint only for Custom providers');
+  assert.equal(dialog.get_value('thinking_effort'), 'Medium', 'saved effort restored');
+  assert.equal(dialog.get_value('title'), 'Work');
+  byField.fetch_models.click(); await tick(); await tick();
+  assert.ok(calls.some((call) => call.method === 'fetch_provider_models'), 'fetch models button calls the API');
+  assert.equal(dialog.get_value('models'), 'model-a', 'fetched catalog lands in the models field');
+  dialog.set_value('title', 'Renamed provider'); dialog.set_value('api_key', 'fixture-key');
+  dialog.options.primary_action(dialog.get_values()); await tick(); await tick(); await tick();
+  const save = calls.find((call) => call.method === 'save_provider');
+  assert.equal(save.args.name, 'p1');
+  assert.equal(save.args.title, 'Renamed provider');
+  assert.equal(save.args.api_key, 'fixture-key');
+  assert.equal(save.args.thinking_effort, 'Medium');
+});
+
+test('the settings dialog on Desk is a native form over get_settings and save_settings', async (t) => {
+  const { app, window, document, calls } = harness(t, { get_settings: () => copy(settingsDoc), save_settings: (args) => Object.assign(copy(settingsDoc), args), bootstrap: () => copy(boot) });
+  const dialogs = stubNativeDialogs(window);
+  await app.settingsDialog(); await tick();
+  assert.equal(document.querySelector('.fi-modal-overlay'), null, 'no custom overlay on Desk');
+  assert.equal(dialogs.length, 1);
+  const dialog = dialogs[0];
+  assert.equal(dialog.options.title, 'Intelligence settings');
+  const byField = fieldsByName(dialog);
+  assert.equal(byField.enabled.fieldtype, 'Check');
+  assert.equal(byField.approval_mode.fieldtype, 'Select');
+  assert.deepEqual(copy(byField.approval_mode.options), ['Approve Every Step', 'Approve Writes Only', 'Automatic']);
+  assert.equal(byField.allowed_reports.fieldtype, 'Small Text');
+  assert.equal(byField.allowed_custom_hosts.fieldtype, 'Small Text');
+  assert.equal(dialog.get_value('approval_mode'), 'Approve Writes Only', 'current value preselected');
+  assert.ok(dialog.options.primary_action, 'managers can save');
+  dialog.set_value('approval_mode', 'Automatic'); dialog.set_value('max_steps', 9);
+  dialog.options.primary_action(dialog.get_values()); await tick(); await tick();
+  const save = calls.find((call) => call.method === 'save_settings');
+  assert.equal(save.args.approval_mode, 'Automatic');
+  assert.equal(save.args.max_steps, 9, 'integer fields submit as numbers');
+  assert.equal(save.args.enabled, 1);
+  assert.ok(calls.some((call) => call.method === 'bootstrap'), 'bootstrap refreshed after save');
+});
+
+test('the native settings dialog drops its save action for non-managers', async (t) => {
+  const { app, window } = harness(t, { get_settings: () => copy(settingsDoc) });
+  app.boot.is_manager = false;
+  const dialogs = stubNativeDialogs(window);
+  await app.settingsDialog(); await tick();
+  const dialog = dialogs[0];
+  assert.equal(dialog.options.primary_action, undefined, 'no save action');
+  assert.ok(dialog.options.fields.every((field) => !field.fieldname || field.fieldtype === 'HTML' || field.read_only), 'every input read-only');
+});
+
+test('the memory dialog on Desk is a native form and saves scoped memories', async (t) => {
+  const rows = [];
+  const { app, window, calls } = harness(t, { list_memories: () => copy(rows), save_memory: (args) => { rows.push(Object.assign({ name: 'mem1' }, args)); return rows[0]; } });
+  app.selected = 'c1';
+  const dialogs = stubNativeDialogs(window);
+  app.memoryDialog(); await tick(); await tick();
+  const dialog = dialogs[0];
+  const byField = fieldsByName(dialog);
+  assert.equal(byField.memory_scope.fieldtype, 'Select');
+  assert.deepEqual(copy(byField.memory_scope.options.map((row) => row.value)), ['personal', 'conversation', 'site']);
+  assert.equal(byField.content.fieldtype, 'Small Text');
+  dialog.set_value('content', 'Use Monday-to-Sunday weeks.');
+  dialog.options.primary_action(dialog.get_values()); await tick(); await tick();
+  const save = calls.find((call) => call.method === 'save_memory');
+  assert.equal(save.args.scope, 'personal');
+  assert.equal(save.args.conversation, null);
+  assert.equal(save.args.content, 'Use Monday-to-Sunday weeks.');
+  const scopeInput = dialog.fields_dict.memory_scope.input;
+  scopeInput.value = 'conversation'; scopeInput.dispatchEvent(new window.Event('change', { bubbles: true })); await tick(); await tick();
+  assert.ok(calls.some((call) => call.method === 'list_memories' && call.args.scope === 'conversation' && call.args.conversation === 'c1'), 'scope switch re-queries the list');
+});
+
+test('the skills dialog on Desk renders learned skills as native checkboxes that save on toggle', async (t) => {
+  const { app, window, calls } = harness(t, { skills: () => copy(skillsWithLearned), 'frappe.client.set_value': () => ({}) });
+  app.boot.user = 'jamie@example.test';
+  const dialogs = stubNativeDialogs(window);
+  await app.skillsDialog(); await tick();
+  const dialog = dialogs[0];
+  assert.equal(dialog.options.title, 'Skills');
+  const byField = fieldsByName(dialog);
+  assert.ok(byField.skill_skill_month_end, 'sanitized check field for the seeded skill');
+  assert.equal(byField.skill_skill_month_end.fieldtype, 'Check');
+  assert.equal(dialog.get_value('skill_skill_month_end'), 1);
+  assert.equal(dialog.get_value('skill_skill_follow_up'), 0, 'disabled skill unchecked');
+  const toggle = dialog.fields_dict.skill_skill_follow_up.input;
+  toggle.checked = true; toggle.dispatchEvent(new window.Event('change', { bubbles: true })); await tick(); await tick();
+  const save = calls.find((call) => call.method === 'frappe.client.set_value');
+  assert.equal(save.args.doctype, 'Intelligence Skill');
+  assert.equal(save.args.name, 'skill-follow-up');
+  assert.deepEqual(copy(save.args.fieldname), { enabled: 1 });
+});
+
+test('the scope dialog on Desk saves tool checks and scope lists through the manager settings API', async (t) => {
+  const { app, window, calls } = harness(t, { skills: () => copy(skillsFixture), 'frappe.client.get': () => copy(settingsFixture), 'save_settings': () => ({}) });
+  const dialogs = stubNativeDialogs(window);
+  await app.scopeDialog(); await tick();
+  const dialog = dialogs[0];
+  const byField = fieldsByName(dialog);
+  assert.ok(byField.tool_search_records && byField.tool_update_event, 'one check per tool');
+  assert.equal(dialog.get_value('tool_update_event'), 0, 'tool outside enabled_tools starts off');
+  assert.equal(byField.allowed_read_doctypes.fieldtype, 'Small Text');
+  dialog.set_value('tool_update_event', 1); dialog.set_value('tool_create_todo', 0);
+  dialog.options.primary_action(dialog.get_values()); await tick(); await tick();
+  const save = calls.find((call) => call.method === 'save_settings');
+  assert.equal(save.args.enabled_tools, 'search_records\nupdate_event');
 });

@@ -939,3 +939,12 @@ def test_settings_write_scope_cannot_include_never_allow(stack):
                 allowed_read_doctypes=f"Customer\nToDo\n{doctype}",
                 allowed_write_doctypes=doctype,
             ).validate()
+
+
+def test_settings_validation_requires_an_intelligence_manager(stack):
+    _, _, fake, _, documents = stack
+    fake.get_roles = lambda user=None: ["Intelligence User"]
+    with pytest.raises(PermissionError):
+        _settings(documents).validate()
+    fake.get_roles = lambda user=None: ["Intelligence Manager"]
+    _settings(documents).validate()

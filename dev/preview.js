@@ -30,6 +30,50 @@
     snapshots['chat-1'].approvals = [{ name: 'approval-1', tool_name: 'create_record', status: 'pending', expires_at: '2026-09-17 10:24:00', creation: timestamp, preview: { action: "Create Supplier 'Acme Corp'", summary: 'Create the fictional supplier record Acme Corp with default payment terms.', doctype: 'Supplier', name: 'Acme Corp', fields: { supplier_name: 'Acme Corp', supplier_group: 'Commercial' }, changes: [{ field: 'supplier_name', label: 'Supplier name', before: '-', after: 'Acme Corp' }], details: { fields: ['supplier_name', 'supplier_group'], limit: 1 } } }];
   }
   const memories = [{ name: 'memory-1', scope: 'personal', content: 'Use a Monday-to-Sunday week when reviewing delivery schedules.' }];
+  const skillsData = {
+    tools: [
+      { name: 'search_records', description: 'Find records you can access.', mutates: false, external: false, version: '1', enabled: 1 },
+      { name: 'create_todo', description: 'Create a private ToDo for yourself.', mutates: true, external: false, version: '2', enabled: 1 }
+    ],
+    scopes: { read: ['Customer', 'ToDo'], write: ['ToDo'] },
+    never_allow: ['User', 'DocType'],
+    learned_skills: [
+      { name: 'skill-month-end-close', title: 'Month-end close helper', description: 'Guides the assistant through the fictional month-end checklist.', instructions: 'Summarize open ToDos before listing overdue invoices.', origin: 'Seeded', enabled: 1, shared: 1, version: 3, can_edit: 1, scope_read: 'ToDo\nSales Invoice', scope_write: 'ToDo' },
+      { name: 'skill-supplier-follow-up', title: 'Supplier follow-up drafts', description: 'Drafts follow-up notes for late suppliers. Nothing is sent.', instructions: 'Draft a short note. Never send anything.', origin: 'Learned', enabled: 0, shared: 0, version: 1, can_edit: 1, scope_read: 'Supplier', scope_write: '' }
+    ]
+  };
+  const settings = {
+    enabled: 1, approval_mode: 'Approve Writes Only', max_steps: 12, max_tokens: 64000, max_run_seconds: 600,
+    approval_expiry_minutes: 1440, max_upload_mb: 10, max_file_chars: 120000, daily_run_limit: 40,
+    allowed_read_doctypes: 'Customer\nToDo', allowed_write_doctypes: 'ToDo', allowed_reports: '',
+    enabled_tools: 'search_records\ncreate_todo', allowed_custom_hosts: ''
+  };
+  if (scene === 'tools' || scene === 'busy') {
+    const t = (minute) => '2026-09-16 10:' + String(minute).padStart(2, '0') + ':00';
+    snapshots['chat-1'].approvals = [
+      { name: 'approval-t1', tool_name: 'search_records', status: 'succeeded', creation: t(25), preview: { summary: 'Search permitted Supplier records.', operation: 'search', target: { doctype: 'Supplier' }, details: { fields: ['name', 'supplier_name'], filters: { supplier_name: ['like', '%Acme%'] }, limit: 5 } } },
+      { name: 'approval-t2', tool_name: 'search_records', status: 'succeeded', creation: t(26), preview: { summary: 'Search permitted Item records.', operation: 'search', target: { doctype: 'Item' }, details: { fields: ['name', 'item_name'], filters: { item_name: ['like', '%valve%'] }, limit: 5 } } },
+      { name: 'approval-t3', tool_name: 'search_records', status: 'succeeded', creation: t(27), preview: { summary: 'Search permitted Purchase Invoice records.', operation: 'search', target: { doctype: 'Purchase Invoice' }, details: { fields: ['name', 'supplier', 'grand_total'], filters: { supplier: 'Acme Corp' }, limit: 5 } } },
+      { name: 'approval-t4', tool_name: 'read_record', status: 'succeeded', creation: t(28), preview: { summary: "Read Supplier 'Acme Corp'.", operation: 'read', target: { doctype: 'Supplier', name: 'Acme Corp' }, details: { fields: ['name', 'supplier_group', 'payment_terms'] } } },
+      { name: 'approval-t5', tool_name: 'read_attachment', status: 'succeeded', creation: t(29), preview: { summary: "Read this conversation's private attachment.", operation: 'read_attachment', target: { doctype: 'File', name: 'file-9d580' }, details: { file_name: 'invoice-acme.pdf', file_size: 48230 } } }
+    ];
+    snapshots['chat-1'].messages.push(
+      { name: 'message-3', role: 'assistant', content: 'I found the fictional supplier **Acme Corp**, checked matching items and purchase invoices, and read the attached invoice. Here is what needs attention:\n\n| Invoice | Date | Amount |\n| --- | --- | --- |\n| PI-DEMO-031 | 02 Sep | 1,240.00 |\n| PI-DEMO-044 | 09 Sep | 860.50 |\n\nAll figures are mock preview data.', status: 'complete', creation: t(30) }
+    );
+    for (let index = 0; index < 8; index++) {
+      snapshots['chat-1'].messages.push(
+        { name: 'message-f' + index + 'u', role: 'user', content: 'Follow-up question ' + (index + 1) + ': break the fictional numbers down by week so the thread stays long enough to scroll.', status: 'complete', creation: t(31 + index * 2) },
+        { name: 'message-f' + index + 'a', role: 'assistant', content: 'Fictional preview answer ' + (index + 1) + '. The figures below exist only to fill the thread so scrolling can be exercised.\n\n| Week | Fictional total |\n| --- | --- |\n| W38 | 402.10 |\n| W39 | 512.75 |', status: 'complete', creation: t(32 + index * 2) }
+      );
+    }
+  }
+  if (scene === 'busy') {
+    for (let index = 5; index <= 40; index++) {
+      const conversation = { name: 'chat-' + index, title: 'Archive review ' + index, provider: 'provider-1', modified: '2026-09-1' + (index % 10) + ' 08:00:00', archived: 0, owner: 'jamie@example.invalid', shared: 0 };
+      conversations.push(conversation);
+      snapshots[conversation.name] = { conversation, messages: [], approvals: [], files: [], run: null, can_post: true };
+    }
+  }
   const handlers = {};
   let sequence = 10, route = ['intelligence'];
   const preview = window.preview = { scene, calls: [], offline: false, providers, conversations, sharedConversations, snapshots, memories, emit: (event) => (handlers.intelligence_update || []).forEach((callback) => callback(event)) };
@@ -70,10 +114,10 @@
       }
       case 'approve': {
         const match = Object.values(snapshots).find((row) => row.approvals.some((approval) => approval.name === args.approval));
-        const approval = match.approvals.find((row) => row.name === args.approval); approval.status = args.decision === 'approve' ? 'approved' : 'denied'; match.run.state = 'running'; changed(match);
+        const approval = match.approvals.find((row) => row.name === args.approval); approval.status = args.decision === 'deny' ? 'denied' : 'approved'; match.run.state = 'running'; changed(match);
         setTimeout(() => {
-          if (args.decision === 'approve') approval.status = 'succeeded';
-          finish(match, 'completed', args.decision === 'approve' ? '### Review complete\n\nThis is **fictional preview data**, not a live report. Your approved request completed in the mock host.\n\n| Order | Customer | Delivery |\n| --- | --- | --- |\n| SO-DEMO-1042 | Northstar Components | 18 Sep |\n| SO-DEMO-1048 | Fieldwork Supply | 21 Sep |\n\nNo records were changed. You can ask a follow-up question or leave this conversation and return later.' : 'The request was denied. No records were read or changed.');
+          if (args.decision !== 'deny') approval.status = 'succeeded';
+          finish(match, 'completed', args.decision !== 'deny' ? '### Review complete\n\nThis is **fictional preview data**, not a live report. Your approved request completed in the mock host.\n\n| Order | Customer | Delivery |\n| --- | --- | --- |\n| SO-DEMO-1042 | Northstar Components | 18 Sep |\n| SO-DEMO-1048 | Fieldwork Supply | 21 Sep |\n\nNo records were changed. You can ask a follow-up question or leave this conversation and return later.' : 'The request was denied. No records were read or changed.');
         }, 750); return match.run;
       }
       case 'cancel': {
@@ -83,18 +127,18 @@
       case 'archive_conversation': snapshot.conversation.archived = args.archived; snapshot.can_post = !args.archived; return snapshot.conversation;
       case 'share_conversation': snapshot.conversation.shared = args.shared; return snapshot.conversation;
       case 'fetch_provider_models': return { models: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'o4-mini'] };
-      case 'skills': return {
-        tools: [
-          { name: 'search_records', description: 'Find records you can access.', mutates: false, external: false, version: '1', enabled: 1 },
-          { name: 'create_todo', description: 'Create a private ToDo for yourself.', mutates: true, external: false, version: '2', enabled: 1 }
-        ],
-        scopes: { read: ['Customer', 'ToDo'], write: ['ToDo'] },
-        never_allow: ['User', 'DocType'],
-        learned_skills: [
-          { name: 'skill-month-end-close', title: 'Month-end close helper', description: 'Guides the assistant through the fictional month-end checklist.', instructions: 'Summarize open ToDos before listing overdue invoices.', origin: 'Seeded', enabled: 1, shared: 1, version: 3, can_edit: 1, scope_read: 'ToDo\nSales Invoice', scope_write: 'ToDo' },
-          { name: 'skill-supplier-follow-up', title: 'Supplier follow-up drafts', description: 'Drafts follow-up notes for late suppliers. Nothing is sent.', instructions: 'Draft a short note. Never send anything.', origin: 'Learned', enabled: 0, shared: 0, version: 1, can_edit: 1, scope_read: 'Supplier', scope_write: '' }
-        ]
-      };
+      case 'skills': return skillsData;
+      case 'get_settings': return settings;
+      case 'save_settings': Object.assign(settings, args); return settings;
+      case 'frappe.client.get': return settings;
+      case 'frappe.client.set_value': {
+        if (args.doctype === 'Intelligence Skill') {
+          const skill = skillsData.learned_skills.find((row) => row.name === args.name);
+          if (!skill) throw { userMessage: 'Skill not found.' };
+          Object.assign(skill, args.fieldname || {}); return skill;
+        }
+        Object.assign(settings, args.fieldname || {}); return settings;
+      }
       case 'provider_details': return providers.find((row) => row.name === args.name);
       case 'save_provider': {
         let provider = providers.find((row) => row.name === args.name); if (!provider) { provider = { name: 'provider-' + (++sequence) }; providers.push(provider); }

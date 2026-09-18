@@ -10,12 +10,15 @@ from . import files, memory, provider_service
 from .access import (
     MANAGER_ROLES,
     can_use_provider,
-    get_settings,
     internal_write,
+    require_manager,
     require_user,
 )
 from .access import (
     get_conversation as owned_conversation,
+)
+from .access import (
+    get_settings as read_settings,
 )
 
 CONVERSATION_FIELDS = (
@@ -70,7 +73,7 @@ def has_permission():
 @_safe
 def bootstrap():
     user = require_user()
-    settings = get_settings()
+    settings = read_settings()
     manager = bool(MANAGER_ROLES.intersection(frappe.get_roles(user)))
     from .limits import upload_limit_bytes
 
@@ -238,6 +241,8 @@ def rename_conversation(conversation, title):
     if not isinstance(title, str) or not title.strip() or len(title) > 140:
         frappe.throw("Conversation titles must be 1–140 characters.")
     doc.title = title.strip()
+    # A user-chosen name beats the generated title, now and on every later run.
+    doc.title_manually_set = 1
     with internal_write():
         doc.save()
     return _conversation(doc)
@@ -353,7 +358,7 @@ def provider_details(name):
 def skills():
     """Read-only catalog of enabled tools, DocType scopes and visible skills; no secrets."""
     user = require_user()
-    settings = get_settings()
+    settings = read_settings()
     from . import engine
     from .tools import skill_scopes
 
@@ -384,3 +389,144 @@ def skills():
         for row in sorted(engine.visible_skills(user), key=lambda row: (row.get("title") or "", row.name))
     ]
     return result
+
+
+SETTINGS_FIELDS = (
+    "enabled",
+    "approval_mode",
+    "max_steps",
+    "max_tokens",
+    "max_run_seconds",
+    "approval_expiry_minutes",
+    "max_upload_mb",
+    "max_file_chars",
+    "daily_run_limit",
+    "allowed_read_doctypes",
+    "allowed_write_doctypes",
+    "allowed_reports",
+    "enabled_tools",
+    "allowed_custom_hosts",
+)
+SETTINGS_INT_FIELDS = (
+    "max_steps",
+    "max_tokens",
+    "max_run_seconds",
+    "approval_expiry_minutes",
+    "max_upload_mb",
+    "max_file_chars",
+    "daily_run_limit",
+)
+SETTINGS_LINE_FIELDS = (
+    "allowed_read_doctypes",
+    "allowed_write_doctypes",
+    "allowed_reports",
+    "enabled_tools",
+    "allowed_custom_hosts",
+)
+APPROVAL_MODES = ("Approve Every Step", "Approve Writes Only", "Automatic")
+
+
+@frappe.whitelist()
+@_safe
+def get_settings():
+    """The site policy any Intelligence user works under; no secrets."""
+    require_user()
+    settings = frappe.get_single("Intelligence Settings")
+    return {
+        field: settings.get(field) if settings.get(field) is not None else "" for field in SETTINGS_FIELDS
+    }
+
+
+def _lines(value):
+    """Normalize a multiline string or list of strings: trimmed, de-duplicated, bounded."""
+    if isinstance(value, str):
+        items = value.splitlines()
+    elif isinstance(value, (list, tuple)):
+        items = value
+    else:
+        frappe.throw("Invalid settings value.")
+    cleaned = []
+    for item in items:
+        if not isinstance(item, str) or len(item) > 200:
+            frappe.throw("Invalid settings value.")
+        item = item.strip()
+        if item and item not in cleaned:
+            cleaned.append(item)
+    if len(cleaned) > 500:
+        frappe.throw("Too many entries.")
+    return "\n".join(cleaned)
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def save_settings(**values):
+    """Manager-only policy update; the doctype's validate() stays the gate."""
+    require_manager()
+    settings = frappe.get_single("Intelligence Settings")
+    updates = {}
+    unknown = set(values) - set(SETTINGS_FIELDS)
+    if unknown:
+        frappe.throw("Unknown settings field.")
+    if "enabled" in values:
+        updates["enabled"] = 1 if str(values["enabled"]) in ("1", "true", "True") else 0
+    if "approval_mode" in values:
+        if values["approval_mode"] not in APPROVAL_MODES:
+            frappe.throw("Unknown approval mode.")
+        updates["approval_mode"] = values["approval_mode"]
+    for field in SETTINGS_INT_FIELDS:
+        if field in values and values[field] is not None:
+            try:
+                updates[field] = int(values[field])
+            except (TypeError, ValueError):
+                frappe.throw("Invalid numeric settings value.")
+    for field in SETTINGS_LINE_FIELDS:
+        if field in values and values[field] is not None:
+            updates[field] = _lines(values[field])
+    if not updates:
+        frappe.throw("Nothing to save.")
+    # Desk write permission on the settings DocType stays System Manager-only;
+    # this endpoint is the manager path, so validation (limits, write scope
+    # subset, never-allow set) runs but role permissions do not re-apply.
+    settings.update(updates)
+    settings.save(ignore_permissions=True)
+    return {
+        field: settings.get(field) if settings.get(field) is not None else "" for field in SETTINGS_FIELDS
+    }
+
+
+@frappe.whitelist()
+@_safe
+def list_grants():
+    """Always-allow grants visible to the caller: own rows, or all for managers."""
+    user = require_user()
+    manager = bool(MANAGER_ROLES.intersection(frappe.get_roles(user)))
+    rows = frappe.get_all(
+        "Intelligence Tool Grant",
+        fields=["name", "user", "tool", "scope_doctype", "creation", "modified"],
+        order_by="modified desc",
+        limit_page_length=500,
+    )
+    return [
+        {
+            "name": row.name,
+            "user": row.get("user"),
+            "tool": row.get("tool"),
+            "scope_doctype": row.get("scope_doctype") or "",
+            "creation": row.get("creation"),
+            "modified": row.get("modified"),
+        }
+        for row in rows
+        if manager or row.get("user") == user
+    ]
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def revoke_grant(name):
+    user = require_user()
+    doc = frappe.get_doc("Intelligence Tool Grant", name, for_update=True)
+    if doc.get("user") != user and not MANAGER_ROLES.intersection(frappe.get_roles(user)):
+        frappe.throw("You cannot revoke this grant.", frappe.PermissionError)
+    with internal_write():
+        frappe.delete_doc("Intelligence Tool Grant", name, ignore_permissions=True)
+    return {"deleted": True}

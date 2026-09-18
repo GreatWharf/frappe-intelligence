@@ -17,7 +17,7 @@
    "label": "Approval Mode",
    "fieldtype": "Select",
    "options": "Approve Every Step\nApprove Writes Only\nAutomatic",
-   "default": "Approve Every Step",
+   "default": "Approve Writes Only",
    "description": "Approve Every Step asks before every tool call. Approve Writes Only auto-runs reads and asks before changes. Automatic runs the reviewed tool set without asking; every action is still recorded."
   },
   {

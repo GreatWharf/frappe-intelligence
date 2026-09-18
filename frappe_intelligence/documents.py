@@ -34,7 +34,12 @@ class ManagedDocument(Document):
 
 class SettingsDocument(Document):
     def validate(self):
-        frappe.only_for("System Manager")
+        from .access import MANAGER_ROLES
+
+        if not MANAGER_ROLES.intersection(frappe.get_roles(frappe.session.user)):
+            frappe.throw(
+                "Only Intelligence Managers may change Intelligence Settings.", frappe.PermissionError
+            )
         limits = {
             "max_steps": (1, 30),
             "max_tokens": (128, 32768),

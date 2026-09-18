@@ -114,6 +114,19 @@ test('production DOM renderer blocks injection in messages, conversation titles 
   assert.equal(app.slot('title').textContent, snapshot.conversation.title);
   assert.ok(!app.root.textContent.includes('MODEL_TOOL_METADATA_MUST_NOT_APPEAR'));
   assert.equal(app.$('[data-action="approve"]').textContent.trim(), 'Approve action');
+  assert.ok(app.$('[data-action="always"]'), 'pending approvals offer Always allow');
+});
+test('always decision is sent to the approve endpoint', async (t) => {
+  const { app, snapshot, calls } = harness(t, { approve: async () => { snapshot.approvals[0].status = 'approved'; snapshot.run.state = 'running'; return {}; } });
+  snapshot.run = { name: 'r1', state: 'awaiting_approval' }; snapshot.approvals = [{ name: 'a1', tool_name: 'read_document', preview: { summary: 'Read a record' }, status: 'pending' }];
+  app.selected = 'c1'; app.accept('c1', copy(snapshot));
+  const button = app.$('[data-action="always"]');
+  assert.ok(button, 'Always allow button rendered');
+  await app.action('always', button);
+  await tick();
+  const call = calls.find((entry) => entry.method === 'approve' && entry.args.decision === 'always');
+  assert.ok(call, 'decision always sent');
+  assert.equal(call.args.approval, button.dataset.name);
 });
 test('sending through real composer creates once, submits once, clears only on acknowledged run', async (t) => {
   const { app, window, calls } = harness(t);
@@ -149,10 +162,10 @@ test('late conversation fetch cannot overwrite a more recent selection', async (
   const first = fixture(); first.conversation.name = 'one'; first.conversation.title = 'First'; releases.one(first); await one;
   assert.equal(app.selected, 'two'); assert.equal(app.slot('title').textContent, 'Second');
 });
-test('search request sequencing ignores a stale server response', async (t) => {
+test('list refresh sequencing ignores a stale server response', async (t) => {
   let call = 0; const resolve = [];
   const { app } = harness(t, { list_conversations: (args) => Number(args && args.shared) ? [] : new Promise((done) => { resolve[call++] = done; }) });
-  app.search = 'old'; const old = app.refreshList(); app.search = 'new'; const current = app.refreshList();
+  const old = app.refreshList(); const current = app.refreshList();
   resolve[1]([{ name: 'new', title: 'New match' }]); await current; resolve[0]([{ name: 'old', title: 'Wrong match' }]); await old;
   assert.equal(app.conversations[0].name, 'new'); assert.ok(!app.slot('conversations').textContent.includes('Wrong match'));
 });
@@ -291,6 +304,103 @@ test('tool action cards interleave chronologically instead of trailing the final
   // after all messages buries it mid-thread.
   assert.ok(text.indexOf('On it') < text.indexOf('Search permitted records'));
   assert.ok(text.indexOf('Search permitted records') < text.indexOf('The final briefing'));
+});
+
+const toolRun = (rows) => rows.map((row, index) => Object.assign({ name: 'a' + (index + 1), status: 'succeeded', creation: '2026-09-17 09:0' + (index + 1) + ':00' }, row));
+
+test('consecutive completed tool actions collapse into one expandable group card', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.messages = [
+    { name: 'm1', role: 'user', content: 'Check Acme', status: 'complete', creation: '2026-09-17 09:00:00' },
+    { name: 'm2', role: 'assistant', content: 'On it', status: 'complete', creation: '2026-09-17 09:00:05' },
+    { name: 'm3', role: 'assistant', content: 'Acme Corp is clean.', status: 'complete', creation: '2026-09-17 09:08:00' },
+  ];
+  snapshot.run = { name: 'r1', state: 'completed' };
+  snapshot.approvals = toolRun([
+    { tool_name: 'search_records', preview: { summary: 'Search permitted Supplier records.', operation: 'search', target: { doctype: 'Supplier' }, details: { limit: 5 } } },
+    { tool_name: 'search_records', preview: { summary: 'Search permitted Item records.', operation: 'search', target: { doctype: 'Item' }, details: { limit: 5 } } },
+    { tool_name: 'read_record', preview: { summary: "Read Supplier 'Acme Corp'.", operation: 'read', target: { doctype: 'Supplier', name: 'Acme Corp' }, details: {} } },
+  ]);
+  app.accept('c1', copy(snapshot));
+  const groups = app.slot('messages').querySelectorAll('.fi-tool-group');
+  assert.equal(groups.length, 1, 'one collapsed group for the consecutive actions');
+  assert.equal(app.slot('messages').querySelectorAll('.fi-approval').length, 0, 'no standalone cards inside a group');
+  const head = groups[0].querySelector('.fi-tool-group-head');
+  assert.ok(head.textContent.includes('Used 3 tools'));
+  assert.equal(head.getAttribute('aria-expanded'), 'false');
+  const body = groups[0].querySelector('.fi-tool-group-body');
+  assert.equal(body.hidden, true, 'collapsed by default');
+  assert.equal(body.querySelectorAll('.fi-tool-row').length, 3);
+  assert.ok(body.querySelector('.fi-group-details'), 'technical details stay one toggle away');
+  head.click();
+  assert.equal(body.hidden, false); assert.equal(head.getAttribute('aria-expanded'), 'true');
+  // Expansion survives polling re-renders.
+  snapshot.messages.push({ name: 'm4', role: 'assistant', content: 'Anything else?', status: 'complete', creation: '2026-09-17 09:09:00' });
+  app.accept('c1', copy(snapshot));
+  const reopened = app.slot('messages').querySelector('.fi-tool-group');
+  assert.equal(reopened.querySelector('.fi-tool-group-body').hidden, false, 'expansion persists across re-renders');
+});
+
+test('pending approvals stay visible and break a tool group', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.run = { name: 'r1', state: 'awaiting_approval' };
+  snapshot.approvals = toolRun([
+    { tool_name: 'search_records', preview: { summary: 'Search permitted Supplier records.', operation: 'search', target: { doctype: 'Supplier' } } },
+    { tool_name: 'create_record', status: 'pending', preview: { action: "Create Supplier 'Acme Corp'", summary: 'Create the supplier.', doctype: 'Supplier', name: 'Acme Corp' } },
+    { tool_name: 'search_records', preview: { summary: 'Search permitted Item records.', operation: 'search', target: { doctype: 'Item' } } },
+  ]);
+  app.accept('c1', copy(snapshot));
+  const messages = app.slot('messages');
+  assert.equal(messages.querySelectorAll('.fi-tool-group').length, 0, 'single resolved actions do not form a group');
+  const pending = messages.querySelector('.fi-approval.is-pending');
+  assert.ok(pending, 'pending approval rendered as its own card');
+  assert.ok(pending.querySelector('[data-action="approve"]'), 'decision controls visible without expanding anything');
+  assert.equal(messages.querySelectorAll('.fi-approval').length, 3, 'each action visible as a single card around the pending one');
+});
+
+test('a group with an in-flight action says so on the header', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.run = { name: 'r1', state: 'running' };
+  snapshot.approvals = toolRun([
+    { tool_name: 'search_records', preview: { summary: 'Search permitted Supplier records.', operation: 'search', target: { doctype: 'Supplier' } } },
+    { tool_name: 'create_record', status: 'approved', preview: { action: "Create Supplier 'Acme Corp'", summary: 'Create the supplier.', doctype: 'Supplier', name: 'Acme Corp' } },
+  ]);
+  app.accept('c1', copy(snapshot));
+  const group = app.slot('messages').querySelector('.fi-tool-group');
+  assert.ok(group.querySelector('.fi-tool-group-head').textContent.includes('Working through 2 steps'));
+  assert.ok(group.querySelector('.fi-tool-group-spinner'), 'spinner while the run is active');
+});
+
+test('file tool actions show the attachment file name, never the raw File ID', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  snapshot.run = { name: 'r1', state: 'completed' };
+  snapshot.approvals = toolRun([
+    { tool_name: 'search_records', preview: { summary: 'Search permitted Supplier records.', operation: 'search', target: { doctype: 'Supplier' } } },
+    { tool_name: 'read_attachment', preview: { summary: "Read this conversation's private attachment.", operation: 'read_attachment', target: { doctype: 'File', name: 'FILE-9D5-8-0' }, details: { file_name: 'invoice-acme.pdf' } } },
+  ]);
+  app.accept('c1', copy(snapshot));
+  const group = app.slot('messages').querySelector('.fi-tool-group');
+  const row = Array.from(group.querySelectorAll('.fi-tool-row')).find((node) => node.textContent.includes('invoice-acme.pdf'));
+  assert.ok(row, 'row shows the file name');
+  assert.ok(row.querySelector('strong').textContent.includes("Read attachment 'invoice-acme.pdf'"));
+  const chip = row.querySelector('.fi-file-ref');
+  assert.ok(chip, 'file chip rendered');
+  assert.equal(chip.tagName, 'span', 'chip is not a link to a raw File route');
+  assert.ok(!row.textContent.includes('FILE-9D5-8-0'), 'raw File ID never rendered in the row');
+});
+
+test('tool sentences come from the preview operation, and file reads name the attachment', () => {
+  assert.equal(actionSentence({ operation: 'search', target: { doctype: 'Customer' } }, 'search_records'), 'Search Customer records');
+  assert.equal(actionSentence({ operation: 'read', target: { doctype: 'Supplier', name: 'Acme Corp' } }, 'read_record'), "Read Supplier 'Acme Corp'");
+  assert.equal(actionSentence({ operation: 'read_attachment', target: { doctype: 'File', name: 'FILE-1' }, details: { file_name: 'invoice.pdf' } }, 'read_attachment'), "Read attachment 'invoice.pdf'");
+  assert.equal(actionSentence({ operation: 'run_report', target: {} }, 'run_report'), 'Run requested action');
+});
+
+test('the client keeps app navigation in-tab and drops the sidebar search box', () => {
+  assert.ok(!source.includes('window.open('), 'no new-tab app navigation');
+  assert.ok(!source.includes('fi-search'), 'custom sidebar search removed');
+  assert.ok(!source.includes('File uploaded privately'), 'no private attachment notice');
+  assert.ok(!source.includes('Frappe Intelligence'), 'user-visible product name is Intelligence');
 });
 
 test('a completed run leaves no status chip: the answer in the thread is the outcome', (t) => {

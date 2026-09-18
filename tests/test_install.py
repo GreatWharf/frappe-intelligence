@@ -71,21 +71,34 @@ def migrator(monkeypatch):
         def set(self, key, value):
             self.__dict__[key] = value
 
+        def append(self, field, value):
+            self.__dict__.setdefault(field, []).append(value)
+
         def save(self, **kwargs):
             store[(self.doctype, self.__dict__.get("name", self.doctype))] = self
             return self
 
         def insert(self, **kwargs):
-            name = self.__dict__.get("name") or self.__dict__.get("role_name") or f"doc-{len(store)}"
+            # Emulate field:title / field:label autoname so exists() sees seeded docs.
+            name = (
+                self.__dict__.get("name")
+                or self.__dict__.get("title")
+                or self.__dict__.get("label")
+                or self.__dict__.get("role_name")
+                or f"doc-{len(store)}"
+            )
             self.__dict__.setdefault("name", name)
             store[(self.doctype, name)] = self
             return self
 
+    jobs = []
     fake.db = SimpleNamespace(
         db_type="mariadb",
         exists=lambda doctype, name: (doctype, name) in store,
         add_index=lambda *args: None,
     )
+    fake.enqueue = lambda method, **kwargs: jobs.append((method, kwargs))
+    fake.jobs = jobs
 
     def get_doc(data, name=None, **kwargs):
         if isinstance(data, dict):
@@ -163,22 +176,103 @@ def navigation_docs(store, doctype):
     return [doc for (dt, _), doc in store.items() if dt == doctype]
 
 
+EXPECTED_SIDEBAR = [
+    {"type": "Link", "label": "Chat", "link_type": "Page", "link_to": "intelligence"},
+    {
+        "type": "Link",
+        "label": "Conversations",
+        "link_type": "DocType",
+        "link_to": "Intelligence Conversation",
+    },
+    {
+        "type": "Link",
+        "label": "Always-allowed tools",
+        "link_type": "DocType",
+        "link_to": "Intelligence Tool Grant",
+    },
+    {"type": "Link", "label": "Providers", "link_type": "DocType", "link_to": "Intelligence Provider"},
+    {"type": "Link", "label": "Skills", "link_type": "DocType", "link_to": "Intelligence Skill"},
+    {"type": "Link", "label": "Memory", "link_type": "DocType", "link_to": "Intelligence Memory"},
+    {"type": "Link", "label": "Settings", "link_type": "DocType", "link_to": "Intelligence Settings"},
+]
+
+EXPECTED_V15_LINKS = [
+    {"label": "Chat", "type": "Card Break"},
+    {"label": "Chat", "type": "Link", "link_type": "Page", "link_to": "intelligence"},
+    {"label": "Manage", "type": "Card Break"},
+    {
+        "label": "Conversations",
+        "type": "Link",
+        "link_type": "DocType",
+        "link_to": "Intelligence Conversation",
+    },
+    {
+        "label": "Always-allowed tools",
+        "type": "Link",
+        "link_type": "DocType",
+        "link_to": "Intelligence Tool Grant",
+    },
+    {"label": "Providers", "type": "Link", "link_type": "DocType", "link_to": "Intelligence Provider"},
+    {"label": "Skills", "type": "Link", "link_type": "DocType", "link_to": "Intelligence Skill"},
+    {"label": "Memory", "type": "Link", "link_type": "DocType", "link_to": "Intelligence Memory"},
+    {"label": "Settings", "type": "Link", "link_type": "DocType", "link_to": "Intelligence Settings"},
+]
+
+
+def by_title(docs):
+    return {doc.title: doc for doc in docs}
+
+
 def test_navigation_creates_sidebar_and_desktop_icon_and_drops_the_legacy_workspace(migrator):
     module, fake, store = migrator
     fake.get_doc({"doctype": "Workspace", "name": "Intelligence", "for_user": None}).insert()
     module.after_migrate()
     assert ("Workspace", "Intelligence") not in store, "the middleman workspace is deleted"
-    sidebars = navigation_docs(store, "Workspace Sidebar")
-    assert len(sidebars) == 1
-    assert sidebars[0].title == "Intelligence" and sidebars[0].standard == 1
-    assert sidebars[0].items == [
-        {"type": "Link", "label": "Conversations", "link_type": "Page", "link_to": "intelligence"}
-    ]
+    sidebars = by_title(navigation_docs(store, "Workspace Sidebar"))
+    assert set(sidebars) == {"Intelligence", "Frappe Intelligence"}
+    sidebar = sidebars["Intelligence"]
+    assert sidebar.standard == 1 and sidebar.app == "frappe_intelligence"
+    assert sidebar.module == "Frappe Intelligence", (
+        "sidebar title labels Desk; module stays the DocType group"
+    )
+    assert sidebar.items == EXPECTED_SIDEBAR
+    sentinel = sidebars["Frappe Intelligence"]
+    assert sentinel.items == [] and sentinel.app == "frappe_intelligence" and sentinel.standard == 1
     icons = navigation_docs(store, "Desktop Icon")
     assert len(icons) == 1
     assert icons[0].label == "Intelligence"
     assert icons[0].logo_url == "/assets/frappe_intelligence/images/intelligence.svg"
     assert icons[0].link_to == "Intelligence"
+
+
+def test_navigation_is_idempotent_across_migrates(migrator):
+    module, _, store = migrator
+    module.after_migrate()
+    module.after_migrate()
+    sidebars = navigation_docs(store, "Workspace Sidebar")
+    assert len(sidebars) == 2
+    assert by_title(sidebars)["Intelligence"].items == EXPECTED_SIDEBAR
+    assert len(navigation_docs(store, "Desktop Icon")) == 1
+
+
+def test_navigation_converges_the_seeded_sidebar_in_place(migrator):
+    module, fake, store = migrator
+    old = fake.get_doc(
+        {
+            "doctype": "Workspace Sidebar",
+            "title": "Intelligence",
+            "standard": 1,
+            "app": "frappe_intelligence",
+            "items": [
+                {"type": "Link", "label": "Conversations", "link_type": "Page", "link_to": "intelligence"}
+            ],
+        }
+    ).insert()
+    module.after_migrate()
+    sidebar = store[("Workspace Sidebar", "Intelligence")]
+    assert sidebar is old, "the seeded sidebar is updated in place, not replaced"
+    assert sidebar.items == EXPECTED_SIDEBAR
+    assert sidebar.module == "Frappe Intelligence"
 
 
 def test_navigation_preserves_existing_and_user_owned_entries(migrator):
@@ -189,6 +283,67 @@ def test_navigation_preserves_existing_and_user_owned_entries(migrator):
     icon = fake.get_doc({"doctype": "Desktop Icon", "name": "Intelligence", "hidden": 1}).insert()
     fake.get_doc({"doctype": "Workspace", "name": "Intelligence", "for_user": "alice"}).insert()
     module.after_migrate()
-    assert navigation_docs(store, "Workspace Sidebar") == [sidebar]
+    sidebars = navigation_docs(store, "Workspace Sidebar")
+    assert sidebar in sidebars and sidebar.get("items") is None, "a site's own sidebar is untouched"
+    assert any(doc.title == "Frappe Intelligence" and not doc.items for doc in sidebars), (
+        "the module-name sentinel still suppresses the auto-generated sidebar"
+    )
     assert navigation_docs(store, "Desktop Icon") == [icon]
     assert ("Workspace", "Intelligence") in store, "a user's own workspace is left untouched"
+
+
+def test_v15_workspace_links_chat_and_manage_groups(migrator):
+    module, fake, store = migrator
+    fake.__version__ = "15.0.0"
+    module.after_migrate()
+    workspace = store[("Workspace", "Intelligence Chat")]
+    assert workspace.module == "Frappe Intelligence"
+    assert workspace.links == EXPECTED_V15_LINKS
+    assert not navigation_docs(store, "Workspace Sidebar"), "v15 has no Workspace Sidebar doctype"
+
+
+def test_v15_workspace_links_converge_on_migrate(migrator):
+    module, fake, store = migrator
+    fake.__version__ = "15.0.0"
+    fake.get_doc(
+        {
+            "doctype": "Workspace",
+            "label": "Intelligence Chat",
+            "title": "Intelligence Chat",
+            "module": "Frappe Intelligence",
+            "public": 1,
+            "links": [
+                {"label": "Conversations", "type": "Link", "link_type": "Page", "link_to": "intelligence"}
+            ],
+        }
+    ).insert()
+    module.after_migrate()
+    assert store[("Workspace", "Intelligence Chat")].links == EXPECTED_V15_LINKS
+    module.after_migrate()
+    assert len(navigation_docs(store, "Workspace")) == 1
+
+
+def test_default_approval_mode_is_writes_only_and_backfill_preserves_choice(migrator):
+    module, fake, _ = migrator
+    assert module.DEFAULTS["approval_mode"] == "Approve Writes Only"
+    settings = fake.get_single("Intelligence Settings")
+    module.after_migrate()
+    assert settings.get("approval_mode") == "Approve Writes Only"
+    settings.set("approval_mode", "Approve Every Step")
+    module.after_migrate()
+    assert settings.get("approval_mode") == "Approve Every Step", "a site's choice is never overwritten"
+
+
+def test_global_search_registers_conversations_once(migrator):
+    module, fake, store = migrator
+    fake.get_doc({"doctype": "DocType", "name": "Intelligence Conversation"}).insert()
+    module.after_migrate()
+    settings = fake.get_single("Global Search Settings")
+    rows = [row["document_type"] for row in settings.get("allowed_in_global_search")]
+    assert rows == ["Intelligence Conversation"]
+    rebuilds = [job for job in fake.jobs if job[0] == "frappe.utils.global_search.rebuild_for_doctype"]
+    assert len(rebuilds) == 1 and rebuilds[0][1]["doctype"] == "Intelligence Conversation"
+    module.after_migrate()
+    rows = [row["document_type"] for row in settings.get("allowed_in_global_search")]
+    assert rows == ["Intelligence Conversation"], "no duplicate row on the next migrate"
+    assert len([job for job in fake.jobs if job[0] == "frappe.utils.global_search.rebuild_for_doctype"]) == 1

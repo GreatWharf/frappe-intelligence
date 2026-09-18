@@ -18,6 +18,22 @@
 	const ACTIVE = new Set(["queued", "running", "awaiting_approval"]);
 	const KINDS = ["OpenAI", "Anthropic", "Gemini", "OpenRouter", "xAI", "Custom"];
 	const EFFORTS = ["Auto", "Low", "Medium", "High", "Max"];
+	const APPROVAL_MODES = ["Approve Every Step", "Approve Writes Only", "Automatic"];
+	// Single source for the Intelligence settings dialog; the native Desk path maps
+	// these onto frappe.ui.Dialog fieldtypes and the mock preview renders the same
+	// spec with plain controls.
+	const SETTINGS_FIELDS = [
+		{ fieldname: "enabled", label: "Enabled", fieldtype: "Check", description: "Turn the assistant on or off for the whole site." },
+		{ fieldname: "approval_mode", label: "Approval mode", fieldtype: "Select", options: APPROVAL_MODES, description: "Approve Every Step asks before every tool call. Approve Writes Only auto-runs reads and asks before changes. Automatic runs the reviewed tool set without asking." },
+		{ fieldname: "max_steps", label: "Max steps per run", fieldtype: "Int" },
+		{ fieldname: "max_run_seconds", label: "Run time limit (seconds)", fieldtype: "Int" },
+		{ fieldname: "approval_expiry_minutes", label: "Approval expiry (minutes)", fieldtype: "Int" },
+		{ fieldname: "max_upload_mb", label: "Upload size limit (MB)", fieldtype: "Int" },
+		{ fieldname: "max_file_chars", label: "File content limit (characters)", fieldtype: "Int" },
+		{ fieldname: "daily_run_limit", label: "Daily run limit per user", fieldtype: "Int" },
+		{ fieldname: "allowed_reports", label: "Allowed reports", fieldtype: "Small Text", description: "One report name per line. Blank means no reports." },
+		{ fieldname: "allowed_custom_hosts", label: "Allowed custom provider hosts", fieldtype: "Small Text", description: "One hostname per line. Required for Custom providers." }
+	];
 	const LABELS = { queued: "Queued", running: "Working", awaiting_approval: "Needs your approval", completed: "Completed", failed: "Run failed", cancelled: "Cancelled", needs_reconciliation: "Needs review" };
 	const PAGE = "intelligence";
 	const icons = {
@@ -40,6 +56,7 @@
 		sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.3 11.3 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.3-11.3 1.4-1.4"/>',
 		grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
 		target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
+		wrench: '<path d="M14.5 6.5a4.2 4.2 0 0 1 5.6-4L17.5 5l1.5 1.5 2.6-2.6a4.2 4.2 0 0 1-5.7 5.6L7.6 18.7a2 2 0 0 1-2.9-2.9l8.2-8.2a4.2 4.2 0 0 1 1.6-1.1Z"/>',
 		menu: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>'
 	};
 	function icon(name) { return '<svg class="fi-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (icons[name] || icons.chat) + '</svg>'; }
@@ -134,31 +151,67 @@
 	function parsed(value, fallback) { if (typeof value !== "string") return value || fallback; try { return JSON.parse(value); } catch (_) { return fallback; } }
 	function dashed(doctype) { return String(doctype || "").trim().toLowerCase().replace(/[\s_]+/g, "-"); }
 	function previewData(preview) { const data = parsed(preview, { summary: String(preview || "") }); return data && typeof data === "object" ? data : { summary: String(data || "") }; }
+	function fileNameOf(data) {
+		const details = data && data.details && typeof data.details === "object" ? data.details : {};
+		return typeof details.file_name === "string" ? details.file_name.trim() : "";
+	}
+	function isFileAction(data) {
+		const target = data && data.target && typeof data.target === "object" ? data.target : {};
+		return (data && (data.doctype || target.doctype)) === "File" || String(data && data.operation || "") === "read_attachment";
+	}
 	function actionSentence(preview, toolName) {
 		const data = previewData(preview);
 		if (data.action) return String(data.action);
+		if (isFileAction(data)) {
+			const fileName = fileNameOf(data);
+			return "Read attachment" + (fileName ? " '" + fileName + "'" : "");
+		}
 		const target = data.target && typeof data.target === "object" ? data.target : {};
 		const doctype = data.doctype || target.doctype || "";
 		const name = data.name || target.name || "";
+		const operation = String(data.operation || "").toLowerCase();
 		const tool = String(toolName || "").toLowerCase();
-		let verb = "Run";
-		if (/create|insert|new/.test(tool)) verb = "Create";
-		else if (/update|edit|set|modify/.test(tool)) verb = "Update";
-		else if (/delete|remove/.test(tool)) verb = "Delete";
-		else if (/submit/.test(tool)) verb = "Submit";
-		else if (/cancel/.test(tool)) verb = "Cancel";
-		else if (/search|list|find/.test(tool)) verb = "Search";
-		else if (/read|get|fetch|open/.test(tool)) verb = "Read";
+		let verb = "";
+		if (operation === "search" || operation === "list") verb = "Search";
+		else if (operation === "read" || operation === "get") verb = "Read";
+		else if (operation === "create") verb = "Create";
+		else if (operation === "update") verb = "Update";
+		else if (operation === "delete") verb = "Delete";
+		else if (operation === "submit") verb = "Submit";
+		else if (operation === "cancel") verb = "Cancel";
+		else if (operation === "report" || operation === "run_report") verb = "Run";
+		if (!verb) {
+			verb = "Run";
+			if (/create|insert|new/.test(tool)) verb = "Create";
+			else if (/update|edit|set|modify/.test(tool)) verb = "Update";
+			else if (/delete|remove/.test(tool)) verb = "Delete";
+			else if (/submit/.test(tool)) verb = "Submit";
+			else if (/cancel/.test(tool)) verb = "Cancel";
+			else if (/search|list|find/.test(tool)) verb = "Search";
+			else if (/read|get|fetch|open/.test(tool)) verb = "Read";
+		}
 		if (!doctype) return verb + " requested action";
 		return verb + " " + doctype + (name ? " '" + name + "'" : verb === "Search" || verb === "Read" && !name ? " records" : "");
 	}
+	function fileChip(preview) {
+		const data = previewData(preview);
+		const fileName = fileNameOf(data);
+		if (!fileName) return "";
+		return '<span class="fi-record-chip fi-file-ref">' + icon("file") + "<span>" + esc(fileName) + "</span></span>";
+	}
 	function recordLink(preview) {
 		const data = previewData(preview);
+		if (isFileAction(data)) return fileChip(data);
 		const target = data.target && typeof data.target === "object" ? data.target : {};
 		const doctype = data.doctype || target.doctype, name = data.name || target.name;
 		if (!doctype || !name) return "";
 		const url = safeURL("/app/" + dashed(doctype) + "/" + encodeURIComponent(name));
 		return url ? '<a class="fi-record-chip" href="' + esc(url) + '">' + icon("link") + "<span>" + esc(doctype) + " / " + esc(name) + "</span></a>" : "";
+	}
+	function toolIcon(preview, toolName) {
+		const sentence = actionSentence(preview, toolName);
+		const verb = sentence.split(" ")[0];
+		return { Search: "search", Read: "file", Create: "plus", Update: "edit", Delete: "close", Submit: "check", Cancel: "close", Run: "grid" }[verb] || "wrench";
 	}
 	function previewHTML(preview) {
 		const data = previewData(preview);
@@ -175,7 +228,7 @@
 		if (Array.isArray(data.changes) && data.changes.length) html += '<div class="fi-change-table"><table><thead><tr><th>Field</th><th>Before</th><th>Proposed</th></tr></thead><tbody>' + data.changes.map((change) => "<tr><th>" + esc(change.label || change.field) + "</th><td>" + value(change.before) + "</td><td>" + value(change.after) + "</td></tr>").join("") + "</tbody></table></div>";
 		// Only the server's purpose-built approval preview is displayed. Never render model tool-call metadata.
 		const details = Object.fromEntries(Object.entries(data).filter(([key]) => !["summary", "description", "metadata", "action", "operation", "target", "changes", "doctype", "name"].includes(key)));
-		if (Object.keys(details).length) html += '<details class="fi-proposal"><summary>Raw request details</summary><pre>' + esc(JSON.stringify(details.details && Object.keys(details).length === 1 ? details.details : details, null, 2)) + "</pre></details>";
+		if (Object.keys(details).length) html += '<details class="fi-proposal"><summary>Technical details</summary><pre>' + esc(JSON.stringify(details.details && Object.keys(details).length === 1 ? details.details : details, null, 2)) + "</pre></details>";
 		return html;
 	}
 	function fileCardHTML(file, options) {
@@ -247,19 +300,28 @@
 	class App {
 		constructor(options) {
 			this.api = options && options.api || request; this.doc = options && options.document || global.document;
-			this.boot = null; this.conversations = []; this.sharedConversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map();
-			this.visible = false; this.archived = false; this.search = ""; this.provider = ""; this.context = null; this.loading = false; this.online = true; this.error = ""; this.notice = ""; this.selectVersion = 0; this.listVersion = 0; this.lastList = 0; this.failures = 0; this.messageSignature = ""; this.renaming = false;
+			this.boot = null; this.conversations = []; this.sharedConversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map(); this.expandedTools = new Set();
+			this.visible = false; this.archived = false; this.provider = ""; this.context = null; this.loading = false; this.online = true; this.error = ""; this.notice = ""; this.selectVersion = 0; this.listVersion = 0; this.lastList = 0; this.failures = 0; this.messageSignature = ""; this.renaming = false;
 			this.poller = new Poller(() => this.poll()); this.root = this.doc.createElement("section"); this.root.className = "fi-app"; this.root.setAttribute("aria-label", "Intelligence workspace");
 			this.root.innerHTML = this.shell(); this.bind(); this.render();
 		}
 		shell() {
 			return '<aside class="fi-sidebar" aria-label="Conversations">'
-				+ '<div class="fi-sidebar-top">' + button("new", "New conversation", "plus", "fi-new") + '<div class="fi-search form-group">' + icon("search") + '<input type="search" class="form-control" data-input="search" placeholder="Search conversations" aria-label="Search conversations" autocomplete="off"><kbd>⌘ K</kbd></div></div>'
+				+ '<div class="fi-sidebar-top">' + button("new", "New conversation", "plus", "fi-new") + '</div>'
 				+ '<div class="fi-sidebar-label"><span data-slot="list-label">Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + "</div>"
 				+ '<nav class="fi-conversation-list" data-slot="conversations" aria-label="Conversation list"></nav>'
 				+ '<div class="fi-sidebar-label fi-shared-label" data-slot="shared-label" hidden><span>Shared with me</span></div>'
 				+ '<nav class="fi-conversation-list fi-shared-list" data-slot="shared" aria-label="Shared with me" hidden></nav>'
-				+ '<footer class="fi-sidebar-footer"><div class="fi-private-note">' + icon("lock") + "<span>Only you can see your conversations</span></div></footer></aside>"
+				+ '<footer class="fi-sidebar-footer"><div class="fi-menu-wrap fi-settings-menu">'
+				+ '<button type="button" class="fi-settings-btn" data-action="menu" aria-haspopup="menu" aria-expanded="false">' + icon("settings") + "<span>Settings</span>" + icon("chevron") + "</button>"
+				+ '<div class="fi-menu fi-menu-up" data-slot="menu" role="menu" hidden>'
+				+ '<button type="button" role="menuitem" data-action="settings">' + icon("settings") + "<span>Providers &amp; models</span></button>"
+				+ '<button type="button" role="menuitem" data-action="memory">' + icon("memory") + "<span>Memory</span></button>"
+				+ '<button type="button" role="menuitem" data-action="skills">' + icon("grid") + "<span>Skills</span></button>"
+				+ '<button type="button" role="menuitem" data-action="scope">' + icon("target") + "<span>Scope</span></button>"
+				+ '<button type="button" role="menuitem" data-action="app-settings">' + icon("settings") + "<span>Intelligence settings</span></button>"
+				+ "</div></div>"
+				+ '<div class="fi-private-note">' + icon("lock") + "<span>Only you can see your conversations</span></div></footer></aside>"
 				+ '<div class="fi-main"><header class="fi-header"><div class="fi-header-left">'
 				+ iconButton("sidebar", "Toggle conversations", "panel", 'aria-expanded="true"')
 				+ '<div class="fi-heading"><button type="button" class="fi-title-btn" data-action="rename-title" title="Rename conversation"><h2 data-slot="title">New conversation</h2></button><span data-slot="subtitle" class="fi-subtitle"></span></div></div>'
@@ -267,17 +329,11 @@
 				+ '<span data-slot="shared-chip"></span>'
 				+ iconButton("share", "Share conversation", "share")
 				+ iconButton("archive", "Archive conversation", "archive")
-				+ '<div class="fi-menu-wrap">' + iconButton("menu", "Providers, memory, skills and scope", "menu", 'aria-haspopup="menu" aria-expanded="false"')
-				+ '<div class="fi-menu" data-slot="menu" role="menu" hidden>'
-				+ '<button type="button" role="menuitem" data-action="settings">' + icon("settings") + "<span>Providers &amp; models</span></button>"
-				+ '<button type="button" role="menuitem" data-action="memory">' + icon("memory") + "<span>Memory</span></button>"
-				+ '<button type="button" role="menuitem" data-action="skills">' + icon("grid") + "<span>Skills</span></button>"
-				+ '<button type="button" role="menuitem" data-action="scope">' + icon("target") + "<span>Scope</span></button>"
-				+ "</div></div>"
 				+ iconButton("expand", "Open full workspace", "expand") + iconButton("close", "Close Intelligence", "close")
 				+ '</div></header>'
 				+ '<div class="fi-banner" data-slot="banner" role="status" hidden></div>'
-				+ '<div class="fi-thread" data-slot="thread" tabindex="0" aria-label="Messages"><div class="fi-thread-inner" data-slot="messages"></div></div>'
+				+ '<div class="fi-thread-wrap"><div class="fi-thread" data-slot="thread" tabindex="0" aria-label="Messages"><div class="fi-thread-inner" data-slot="messages"></div></div>'
+				+ '<button type="button" class="fi-scroll-bottom" data-action="scroll-bottom" hidden aria-label="Scroll to the latest messages">' + icon("down") + "<span>Latest</span></button></div>"
 				+ '<div class="fi-bottom"><div class="fi-run" data-slot="run" aria-live="polite" hidden></div><div class="fi-context-list" data-slot="context"></div>'
 				+ '<div class="fi-readonly" data-slot="readonly" hidden></div>'
 				+ '<form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form>'
@@ -301,9 +357,9 @@
 			});
 			this.root.addEventListener("input", (event) => {
 				if (event.target.dataset.input === "message") { this.draft().text = event.target.value; this.resizeComposer(); this.renderControls(); }
-				if (event.target.dataset.input === "search") { this.search = event.target.value; global.clearTimeout(this.searchTimer); this.searchTimer = global.setTimeout(() => this.refreshList().catch((error) => { this.error = userError(error); this.renderBanner(); }), 250); }
 			});
 			this.root.addEventListener("change", (event) => { if (event.target.dataset.input === "provider") this.provider = event.target.value; });
+			this.slot("thread").addEventListener("scroll", () => this.syncScrollButton());
 			this.$("form").addEventListener("submit", (event) => { event.preventDefault(); this.send(); });
 			this.$("textarea").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); this.send(); } });
 		}
@@ -323,13 +379,27 @@
 			if (this.mode === "page" && global.innerWidth && global.innerWidth <= 760) { this.root.classList.add("fi-sidebar-collapsed"); const trigger = this.$('[data-action="sidebar"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 			this.render();
 			if (!this.boot) this.init(); else this.poller.start(0);
+			this.fitViewport();
+			if (!this.viewportBound && global.addEventListener) { this.viewportBound = true; global.addEventListener("resize", () => this.fitViewport()); }
 		}
-		hide() { this.visible = false; this.closeMenu(); global.clearTimeout(this.searchTimer); this.poller.stop(); if (this.watched.size) this.poller.start(1000); }
+		hide() { this.visible = false; this.closeMenu(); this.poller.stop(); if (this.watched.size) this.poller.start(1000); }
+		// Desk page bodies are not always height-constrained; if the document itself
+		// started scrolling, pin the app to the remaining viewport so the composer
+		// stays visible and only the thread and conversation list scroll.
+		fitViewport() {
+			if (!this.root.isConnected || typeof this.root.getBoundingClientRect !== "function") return;
+			this.root.style.height = "";
+			if (this.mode !== "page") return;
+			const doc = this.doc.documentElement, viewport = Number(global.innerHeight) || 0;
+			if (!doc || !viewport || doc.scrollHeight <= viewport + 4) return;
+			const available = Math.floor(viewport - this.root.getBoundingClientRect().top - 8);
+			if (available >= 320) this.root.style.height = available + "px";
+		}
 		closeMenu() { const menu = this.slot("menu"); if (menu) menu.hidden = true; const trigger = this.$('[data-action="menu"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 		async refreshList() {
 			const version = ++this.listVersion;
 			const results = await Promise.all([
-				this.api("list_conversations", { search: this.search, archived: this.archived ? 1 : 0 }),
+				this.api("list_conversations", { archived: this.archived ? 1 : 0 }),
 				this.api("list_conversations", { shared: 1 })
 			]);
 			if (version !== this.listVersion) return;
@@ -353,7 +423,7 @@
 		}
 		async select(name) {
 			if (this.pending.has("send") || this.pending.has("upload")) { this.navigate(this.selected); return; }
-			const version = ++this.selectVersion; this.selected = name; this.snapshot = null; this.error = ""; this.notice = ""; this.messageSignature = ""; this.loadingConversation = true; this.renaming = false; this.navigate(name); this.render(); this.syncDraft();
+			const version = ++this.selectVersion; this.selected = name; this.snapshot = null; this.error = ""; this.notice = ""; this.messageSignature = ""; this.loadingConversation = true; this.renaming = false; this.expandedTools.clear(); this.navigate(name); this.render(); this.syncDraft();
 			try { const data = await this.fetchConversation(name); if (version !== this.selectVersion) return; this.accept(name, data); }
 			catch (error) {
 				// A bogus or revoked conversation name must not linger in the URL or the
@@ -364,7 +434,7 @@
 		}
 		newConversation() {
 			if (this.pending.has("send") || this.pending.has("upload")) { this.navigate(this.selected); return; }
-			this.selectVersion++; this.selected = null; this.snapshot = null; this.loadingConversation = false; this.error = ""; this.notice = ""; this.renaming = false; this.navigate(null); this.render(); this.syncDraft(); this.$("textarea").focus();
+			this.selectVersion++; this.selected = null; this.snapshot = null; this.loadingConversation = false; this.error = ""; this.notice = ""; this.renaming = false; this.expandedTools.clear(); this.navigate(null); this.render(); this.syncDraft(); this.$("textarea").focus();
 		}
 		accept(name, data) {
 			if (!data || !data.conversation) return;
@@ -441,11 +511,11 @@
 			return list.length ? list.map((row) => '<button type="button" class="fi-conversation ' + (this.selected === row.name ? "is-active" : "") + '" data-action="select" data-name="' + esc(row.name) + '" ' + (this.selected === row.name ? 'aria-current="true"' : "") + '><span class="fi-conversation-icon">' + icon("chat") + '</span><span class="fi-conversation-info"><span class="fi-conversation-title">' + esc(row.title || "Untitled conversation") + '</span><span class="fi-conversation-meta">' + esc(time(row.modified)) + (row.shared ? '<span class="fi-list-status">Shared</span>' : "") + (row.active_run ? '<span class="fi-list-status">In progress</span>' : "") + '</span></span>' + (row.active_run ? '<span class="fi-status-dot" aria-label="Active run"></span>' : "") + '</button>').join("") : "";
 		}
 		renderSidebar() {
-			const signature = JSON.stringify([this.conversations, this.sharedConversations, this.selected, this.archived, this.loading, this.search]);
+			const signature = JSON.stringify([this.conversations, this.sharedConversations, this.selected, this.archived, this.loading]);
 			if (signature === this.sidebarSignature) return; this.sidebarSignature = signature;
 			this.slot("list-label").textContent = this.archived ? "Archived conversations" : "Conversations";
 			const filter = this.$('[data-action="archive-filter"]'); filter.setAttribute("aria-pressed", String(this.archived)); filter.title = this.archived ? "Show active conversations" : "Show archived conversations";
-			const empty = '<div class="fi-list-empty">' + (this.loading ? "Loading conversations…" : this.search ? "No conversations match your search." : this.archived ? "No archived conversations." : "Your conversations will appear here.") + "</div>";
+			const empty = '<div class="fi-list-empty">' + (this.loading ? "Loading conversations…" : this.archived ? "No archived conversations." : "Your conversations will appear here.") + "</div>";
 			this.slot("conversations").innerHTML = this.loading && !this.conversations.length ? '<div class="fi-skel-list">' + '<span class="fi-skel-line"></span>'.repeat(4) + "</div>" : this.conversationRowsHTML() || empty;
 			const sharedSlot = this.slot("shared"), sharedLabel = this.slot("shared-label");
 			const showShared = !this.archived && this.sharedConversations.length > 0;
@@ -489,15 +559,43 @@
 				// Merge messages and tool cards into one chronological feed: cards
 				// grouped after all messages would bury the final answer mid-thread.
 				const canPost = !this.readOnly();
-				const feed = messages.filter((message) => ["user", "assistant"].includes(message.role) && message.content).map((message) => ({ creation: message.creation || "", html: this.messageHTML(message) })).concat(approvals.map((approval) => ({ creation: approval.creation || "", html: this.approvalHTML(approval, canPost) }))).sort((a, b) => (a.creation < b.creation ? -1 : a.creation > b.creation ? 1 : 0));
+				const feed = messages.filter((message) => ["user", "assistant"].includes(message.role) && message.content).map((message) => ({ creation: message.creation || "", type: "message", html: this.messageHTML(message) })).concat(approvals.map((approval) => ({ creation: approval.creation || "", type: "approval", approval }))).sort((a, b) => (a.creation < b.creation ? -1 : a.creation > b.creation ? 1 : 0));
+				// Consecutive resolved tool actions collapse into one card; a pending
+				// approval always breaks the group and stays fully visible.
+				let body = "", group = [];
+				const flush = () => { if (group.length) { body += group.length > 1 ? this.toolGroupHTML(group, canPost) : this.approvalHTML(group[0], canPost); group = []; } };
+				for (const entry of feed) {
+					if (entry.type === "approval" && entry.approval.status !== "pending") { group.push(entry.approval); continue; }
+					flush(); body += entry.type === "approval" ? this.approvalHTML(entry.approval, canPost) : entry.html;
+				}
+				flush();
 				const run = this.snapshot && this.snapshot.run;
 				const thinking = run && ["queued", "running"].includes(run.state) ? this.thinkingHTML() : "";
 				const selected = new Set(this.draft().attachments.map((file) => file.name));
-				const fileCards = files.length ? '<div class="fi-file-cards" aria-label="Conversation files">' + files.map((file) => fileCardHTML(file, canPost && !selected.has(file.name) ? { attach: true, attachLabel: "Attach to next message" } : canPost ? { attach: true, attachLabel: "Attached" } : null)).join("") + "</div>" : "";
-				slot.innerHTML = (this.snapshot.has_earlier_messages ? '<div class="fi-history-more">' + button("earlier", "Load earlier messages", "retry", "fi-text-btn") + "</div>" : "") + '<div class="fi-thread-start">' + icon("lock") + (this.snapshot.conversation && Number(this.snapshot.conversation.shared) ? " This conversation is shared read only" : " This conversation is private to you") + "</div>" + feed.map((item) => item.html).join("") + thinking + fileCards;
+				const fileCards = files.length ? '<div class="fi-file-cards" aria-label="Conversation files">' + files.map((file) => fileCardHTML(file, canPost && !selected.has(file.name) ? { attach: true, attachLabel: "Attach" } : canPost ? { attach: true, attachLabel: "Attached" } : null)).join("") + "</div>" : "";
+				slot.innerHTML = (this.snapshot.has_earlier_messages ? '<div class="fi-history-more">' + button("earlier", "Load earlier messages", "retry", "fi-text-btn") + "</div>" : "") + '<div class="fi-thread-start">' + icon("lock") + (this.snapshot.conversation && Number(this.snapshot.conversation.shared) ? " This conversation is shared read only" : " This conversation is private to you") + "</div>" + body + thinking + fileCards;
 				this.bindFileCards(slot);
 			}
 			if (nearBottom || !this.snapshot || this.snapshot.messages && this.snapshot.messages.length < 2) thread.scrollTop = thread.scrollHeight;
+			this.syncScrollButton();
+		}
+		syncScrollButton() {
+			const thread = this.slot("thread"), trigger = this.$('[data-action="scroll-bottom"]');
+			if (!thread || !trigger) return;
+			trigger.hidden = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 160;
+		}
+		toolGroupHTML(list, canPost) {
+			const key = list.map((approval) => approval.name).join("|"), open = this.expandedTools.has(key);
+			const active = list.some((approval) => ["approved", "executing"].includes(approval.status));
+			const title = active ? "Working through " + list.length + " steps" : "Used " + list.length + " tools";
+			return '<section class="fi-tool-group' + (open ? " is-open" : "") + '" aria-label="Tool actions"><button type="button" class="fi-tool-group-head" data-action="toggle-tools" data-key="' + esc(key) + '" aria-expanded="' + String(open) + '"><span class="fi-tool-group-icon">' + icon("wrench") + '</span><span class="fi-tool-group-title">' + esc(title) + '</span>' + (active ? '<span class="fi-spinner fi-tool-group-spinner" aria-label="Working"></span>' : "") + '<span class="fi-tool-group-chevron">' + icon("down") + "</span></button>" + '<div class="fi-tool-group-body"' + (open ? "" : " hidden") + ">" + list.map((approval) => this.toolRowHTML(approval, canPost)).join("") + '<details class="fi-proposal fi-group-details"><summary>Technical details</summary><pre>' + esc(JSON.stringify(list.map((approval) => ({ tool: approval.tool_name, status: approval.status, preview: previewData(approval.preview) })), null, 2)) + "</pre></details></div></section>";
+		}
+		toolRowHTML(approval, canPost) {
+			const status = String(approval.status || "pending");
+			const sentence = actionSentence(approval.preview, approval.tool_name);
+			const summary = previewData(approval.preview).summary || "";
+			const chip = recordLink(approval.preview);
+			return '<div class="fi-tool-row"><span class="fi-tool-icon">' + icon(toolIcon(approval.preview, approval.tool_name)) + '</span><div class="fi-tool-info"><strong>' + esc(sentence) + "</strong>" + (summary && summary !== sentence ? "<p>" + esc(summary) + "</p>" : "") + (chip ? '<div class="fi-approval-link">' + chip + "</div>" : "") + '</div><span class="fi-pill fi-pill-' + esc(status) + '">' + esc(status) + "</span></div>";
 		}
 		bindFileCards(slot) {
 			for (const element of slot.querySelectorAll('[data-action="reuse-file"]')) {
@@ -520,7 +618,7 @@
 			const sentence = actionSentence(approval.preview, approval.tool_name);
 			const link = recordLink(approval.preview);
 			const decisions = pending && canPost !== false && canPost !== 0;
-			return '<section class="fi-approval ' + (pending ? "is-pending" : "") + '" aria-label="Tool action"><div class="fi-approval-top"><span class="fi-approval-icon">' + icon(pending ? "lock" : "check") + '</span><div><span class="fi-eyebrow">' + (pending ? "YOUR APPROVAL IS REQUIRED" : "TOOL ACTION") + "</span><h3>" + esc(sentence) + "</h3>" + (link ? '<div class="fi-approval-link">' + link + "</div>" : "") + '</div><span class="fi-pill fi-pill-' + esc(status) + '">' + esc(status) + "</span></div>" + previewHTML(approval.preview) + (approval.expires_at && pending ? '<p class="fi-approval-expiry">Expires ' + esc(approval.expires_at) + "</p>" : "") + (pending ? (decisions ? '<div class="fi-approval-footer"><span>Nothing runs until you approve.</span><div>' + button("deny", "Deny", null, "", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("approve", "Approve action", "check", "fi-primary", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + "</div></div>" : '<div class="fi-approval-result">Waiting for the owner to decide.</div>') : '<div class="fi-approval-result">' + esc({ approved: "Approved; waiting for execution.", denied: "Denied. This request will not run.", executing: "Executing the approved request.", succeeded: "The approved action completed.", failed: "The action failed. Check the run status.", expired: "This approval expired. Start a new request if it is still needed.", uncertain: "The result could not be confirmed. Check the record before trying again." }[status] || "") + "</div>") + "</section>";
+			return '<section class="fi-approval ' + (pending ? "is-pending" : "") + '" aria-label="Tool action"><div class="fi-approval-top"><span class="fi-approval-icon">' + icon(pending ? "lock" : "check") + '</span><div><span class="fi-eyebrow">' + (pending ? "YOUR APPROVAL IS REQUIRED" : "TOOL ACTION") + "</span><h3>" + esc(sentence) + "</h3>" + (link ? '<div class="fi-approval-link">' + link + "</div>" : "") + '</div><span class="fi-pill fi-pill-' + esc(status) + '">' + esc(status) + "</span></div>" + previewHTML(approval.preview) + (approval.expires_at && pending ? '<p class="fi-approval-expiry">Expires ' + esc(approval.expires_at) + "</p>" : "") + (pending ? (decisions ? '<div class="fi-approval-footer"><span>Nothing runs until you approve.</span><div>' + button("deny", "Deny", null, "", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("approve", "Approve action", "check", "fi-primary", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("always", "Always allow", null, "fi-text-btn", 'data-name="' + esc(approval.name) + '" title="Approve now and stop asking for this action" ' + (locked ? "disabled" : "")) + "</div></div>" : '<div class="fi-approval-result">Waiting for the owner to decide.</div>') : '<div class="fi-approval-result">' + esc({ approved: "Approved; waiting for execution.", denied: "Denied. This request will not run.", executing: "Executing the approved request.", succeeded: "The approved action completed.", failed: "The action failed. Check the run status.", expired: "This approval expired. Start a new request if it is still needed.", uncertain: "The result could not be confirmed. Check the record before trying again." }[status] || "") + "</div>") + "</section>";
 		}
 		renderRun() {
 			const run = this.snapshot && this.snapshot.run, slot = this.slot("run");
@@ -561,7 +659,7 @@
 			this.$('[data-input="provider"]').disabled = !!(unavailable || busy || this.selected);
 			for (const action of ["new", "archive", "share"]) this.$('[data-action="' + action + '"]').disabled = !!(unavailable || busy || this.pending.has(action));
 			for (const element of this.root.querySelectorAll('[data-action="select"]')) element.disabled = busy;
-			for (const element of this.root.querySelectorAll('[data-action="approve"], [data-action="deny"]')) element.disabled = this.pending.has("approval:" + element.dataset.name);
+			for (const element of this.root.querySelectorAll('[data-action="approve"], [data-action="deny"], [data-action="always"]')) element.disabled = this.pending.has("approval:" + element.dataset.name);
 			for (const element of this.root.querySelectorAll('[data-action="remove-file"], [data-action="remove-context"]')) element.disabled = this.pending.has("send");
 			const earlier = this.$('[data-action="earlier"]'); if (earlier) earlier.disabled = this.pending.has("earlier");
 			this.root.setAttribute("aria-busy", String(!!this.loading));
@@ -629,31 +727,36 @@
 			if (action === "memory") { this.closeMenu(); return this.memoryDialog(); }
 			if (action === "skills") { this.closeMenu(); return this.skillsDialog(); }
 			if (action === "scope") { this.closeMenu(); return this.scopeDialog(); }
+			if (action === "app-settings") { this.closeMenu(); return this.settingsDialog(); }
+			if (action === "toggle-tools") {
+				const card = target.closest(".fi-tool-group"), body = card && card.querySelector(".fi-tool-group-body");
+				if (!body) return;
+				const open = body.hidden; body.hidden = !open; card.classList.toggle("is-open", open); target.setAttribute("aria-expanded", String(open));
+				if (open) this.expandedTools.add(target.dataset.key); else this.expandedTools.delete(target.dataset.key);
+				this.syncScrollButton();
+				return;
+			}
+			if (action === "scroll-bottom") {
+				const thread = this.slot("thread");
+				const reduce = global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches;
+				if (thread.scrollTo) thread.scrollTo({ top: thread.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+				else thread.scrollTop = thread.scrollHeight;
+				return;
+			}
 			if (action === "rename-title") return this.startRename();
 			if (action === "archive") return this.archiveDialog();
 			if (action === "share") return this.shareDialog();
 			if (action === "attach") return this.chooseFile();
 			if (action === "copy-code") { const text = target.closest(".fi-code").querySelector("code").textContent; if (!global.navigator || !global.navigator.clipboard) { this.error = "Clipboard access is unavailable. Select and copy the code directly."; this.renderBanner(); return; } return global.navigator.clipboard.writeText(text).then(() => { target.textContent = "Copied"; global.setTimeout(() => { target.textContent = "Copy"; }, 1800); }).catch(() => { this.error = "Could not copy. Select and copy the code directly."; this.renderBanner(); }); }
 			if (action === "cancel") return this.busy("cancel", async () => { const name = this.selected; await this.api("cancel", { run: this.snapshot.run.name }); this.accept(name, await this.fetchConversation(name)); this.poller.start(0); });
-			if (["approve", "deny"].includes(action)) { const name = this.selected; return this.busy("approval:" + target.dataset.name, async () => { await this.api("approve", { approval: target.dataset.name, decision: action }); this.accept(name, await this.fetchConversation(name)); this.poller.start(0); }); }
+			if (["approve", "deny", "always"].includes(action)) { const name = this.selected; return this.busy("approval:" + target.dataset.name, async () => { await this.api("approve", { approval: target.dataset.name, decision: action }); if (action === "always") { this.notice = "Approved. This action will not ask again."; this.renderBanner(); } this.accept(name, await this.fetchConversation(name)); this.poller.start(0); }); }
 		}
+		// Every Desk-host dialog is a declarative frappe.ui.Dialog via nativeForm;
+		// dialog() only ever runs on hosts without frappe.ui (the mock preview),
+		// so it always builds the fallback overlay.
 		dialog(title, body, options) {
 			if (this.modal) this.modal.close();
-			const frappe = global.frappe;
-			if (frappe && frappe.ui && frappe.ui.Dialog) return this.nativeDialog(frappe, title, body, options);
 			return this.fallbackDialog(title, body, options);
-		}
-		nativeDialog(frappe, title, body, options) {
-			const previous = this.doc.activeElement;
-			const instance = new frappe.ui.Dialog({ title: title, size: "large" });
-			const host = instance.$body && instance.$body[0] || instance.body || null;
-			if (host) host.innerHTML = body;
-			const element = instance.$wrapper && instance.$wrapper[0] || instance.wrapper || host;
-			const modal = { element, busy: false, closed: false, close: () => { if (modal.busy) return; modal.closed = true; try { instance.hide(); } catch (_) { /* already hidden */ } if (this.modal === modal) this.modal = null; if (previous && previous.isConnected) previous.focus(); }, error: (error) => { let node = element.querySelector(".fi-modal-error"); if (!node) { node = this.doc.createElement("div"); node.className = "fi-modal-error"; node.setAttribute("role", "alert"); element.appendChild(node); } node.hidden = false; node.textContent = userError(error); }, run: async (work) => { if (modal.busy || modal.closed) return; modal.busy = true; const controls = Array.from(element.querySelectorAll("button, input, select, textarea")); const disabled = controls.map((node) => node.disabled); controls.forEach((node) => { node.disabled = true; }); const errorNode = element.querySelector(".fi-modal-error"); if (errorNode) errorNode.hidden = true; try { await work(); } catch (error) { modal.error(error); } finally { modal.busy = false; controls.forEach((node, index) => { node.disabled = disabled[index]; }); } } };
-			this.modal = modal;
-			try { instance.show(); } catch (_) { /* test hosts */ }
-			global.setTimeout(() => { if (!modal.closed) { const first = element.querySelector(options && options.focus || "input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled])"); if (first) first.focus(); } }, 0);
-			return modal;
 		}
 		fallbackDialog(title, body, options) {
 			const previous = this.doc.activeElement, overlay = this.doc.createElement("div"); overlay.className = "fi-modal-overlay";
@@ -666,25 +769,107 @@
 			global.setTimeout(() => { if (!modal.closed) { const first = overlay.querySelector(options && options.focus || "input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled])"); if (first) first.focus(); } }, 0);
 			return modal;
 		}
+		// Declarative frappe.ui.Dialog form: every input is a native Frappe control
+		// with native dropdown behavior. Returns the same modal interface the
+		// fallback overlay provides so callers share busy/error handling.
+		nativeForm(frappe, config) {
+			if (this.modal) this.modal.close();
+			const previous = this.doc.activeElement;
+			const options = { title: config.title, size: config.size || "large", fields: config.fields };
+			const modal = {
+				instance: null, element: null, busy: false, closed: false,
+				close: () => {
+					if (modal.busy) return; modal.closed = true;
+					try { modal.instance && modal.instance.hide(); } catch (_) { /* already hidden */ }
+					if (this.modal === modal) this.modal = null;
+					if (previous && previous.isConnected) previous.focus();
+				},
+				error: (error) => {
+					const host = modal.bodyHost() || modal.element;
+					if (!host) return;
+					let node = host.querySelector(".fi-modal-error");
+					if (!node) { node = this.doc.createElement("div"); node.className = "fi-modal-error"; node.setAttribute("role", "alert"); host.appendChild(node); }
+					node.hidden = false; node.textContent = userError(error);
+				},
+				clearError: () => { const host = modal.bodyHost(); const node = host && host.querySelector(".fi-modal-error"); if (node) node.hidden = true; },
+				bodyHost: () => modal.instance && (modal.instance.$body && modal.instance.$body[0] || modal.instance.body) || null,
+				values: () => modal.instance && modal.instance.get_values ? modal.instance.get_values(true) || {} : {},
+				set: (fieldname, value) => modal.instance && modal.instance.set_value ? modal.instance.set_value(fieldname, value) : Promise.resolve(),
+				setReadOnly: (readOnly) => {
+					if (modal.instance && modal.instance.set_df_property) for (const field of config.fields || []) if (field.fieldname && !["HTML", "Button", "Section Break", "Column Break"].includes(field.fieldtype)) modal.instance.set_df_property(field.fieldname, "read_only", readOnly ? 1 : 0);
+				},
+				run: async (work) => {
+					if (modal.busy || modal.closed) return;
+					modal.busy = true; modal.clearError();
+					const root = modal.element;
+					const controls = root ? Array.from(root.querySelectorAll("button, input, select, textarea")) : [];
+					const disabled = controls.map((node) => node.disabled); controls.forEach((node) => { node.disabled = true; });
+					try { await work(); } catch (error) { modal.error(error); }
+					finally { modal.busy = false; controls.forEach((node, index) => { node.disabled = disabled[index]; }); }
+				}
+			};
+			if (config.primary_action_label && config.primary_action) {
+				options.primary_action_label = config.primary_action_label;
+				options.primary_action = (values) => modal.run(() => config.primary_action(values || modal.values(), modal));
+			}
+			if (config.secondary_action_label && config.secondary_action) {
+				options.secondary_action_label = config.secondary_action_label;
+				options.secondary_action = () => { if (!modal.busy) config.secondary_action(modal); };
+			}
+			const instance = new frappe.ui.Dialog(options);
+			modal.instance = instance;
+			modal.element = instance.$wrapper && instance.$wrapper[0] || instance.wrapper || modal.bodyHost();
+			this.modal = modal;
+			try { instance.show(); } catch (_) { /* test hosts */ }
+			return modal;
+		}
 		archiveDialog() {
 			if (!this.snapshot) return; const name = this.selected, restore = !!Number(this.snapshot.conversation.archived);
-			const modal = this.dialog(restore ? "Restore this conversation?" : "Archive this conversation?", '<p class="fi-dialog-copy">' + (restore ? "Move this conversation back to your active list." : "Your messages and approvals will remain saved. Archiving does not cancel a running task.") + "</p><footer>" + button("modal-close", "Keep it here") + button("confirm-archive", restore ? "Restore conversation" : "Archive conversation", "archive", "fi-primary") + "</footer>");
-			modal.element.querySelector('[data-action="confirm-archive"]').addEventListener("click", () => modal.run(async () => { await this.api("archive_conversation", { conversation: name, archived: restore ? 0 : 1 }); this.accept(name, await this.fetchConversation(name)); await this.refreshList(); modal.busy = false; modal.close(); }));
+			const copy = restore ? "Move this conversation back to your active list." : "Your messages and approvals will remain saved. Archiving does not cancel a running task.";
+			const commit = async (modal) => { await this.api("archive_conversation", { conversation: name, archived: restore ? 0 : 1 }); this.accept(name, await this.fetchConversation(name)); await this.refreshList(); modal.busy = false; modal.close(); };
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) {
+				this.nativeForm(frappe, { title: restore ? "Restore this conversation?" : "Archive this conversation?", size: "small", fields: [{ fieldtype: "HTML", fieldname: "copy", options: '<p class="fi-dialog-copy">' + copy + "</p>" }], primary_action_label: restore ? "Restore conversation" : "Archive conversation", primary_action: (values, modal) => commit(modal) });
+				return;
+			}
+			const modal = this.dialog(restore ? "Restore this conversation?" : "Archive this conversation?", '<p class="fi-dialog-copy">' + copy + "</p><footer>" + button("modal-close", "Keep it here") + button("confirm-archive", restore ? "Restore conversation" : "Archive conversation", "archive", "fi-primary") + "</footer>");
+			modal.element.querySelector('[data-action="confirm-archive"]').addEventListener("click", () => modal.run(async () => commit(modal)));
 		}
 		shareLink() {
 			const origin = global.location && global.location.origin ? global.location.origin : "";
 			return origin + "/desk/" + PAGE + "/" + this.selected;
 		}
+		copyShareLink(link, done) {
+			if (global.navigator && global.navigator.clipboard) global.navigator.clipboard.writeText(link).then(() => done && done(true)).catch(() => done && done(false));
+		}
 		shareDialog() {
 			if (!this.snapshot) return; const name = this.selected, shared = !!Number(this.snapshot.conversation.shared);
 			const link = this.shareLink();
-			const modal = this.dialog(shared ? "Conversation is shared" : "Share this conversation?", '<p class="fi-dialog-copy">' + (shared ? "Anyone with the link and Intelligence access can read this conversation. Only you can post or approve." : "Sharing gives colleagues a read only view of this conversation, including files and tool actions. Only you can post or approve.") + '</p><label class="fi-field control-label">Read only link<input class="form-control" readonly value="' + esc(link) + '" data-share-link onfocus="this.select()"></label><footer>' + (shared ? "" : button("modal-close", "Cancel")) + (shared ? button("confirm-unshare", "Stop sharing", null, "fi-danger") : "") + button("copy-share-link", "Copy link", "link", shared ? "" : "fi-text-btn") + (shared ? "" : button("confirm-share", "Share conversation", "share", "fi-primary")) + "</footer>");
+			const copy = shared ? "Anyone with the link and Intelligence access can read this conversation. Only you can post or approve." : "Sharing gives colleagues a read only view of this conversation, including files and tool actions. Only you can post or approve.";
+			const commit = async (modal, next) => { await this.api("share_conversation", { conversation: name, shared: next }); this.accept(name, await this.fetchConversation(name)); await this.refreshList(); modal.busy = false; modal.close(); this.notice = next ? "Conversation shared. Anyone with the link can read it." : "Sharing turned off."; this.renderBanner(); };
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) {
+				this.nativeForm(frappe, {
+					title: shared ? "Conversation is shared" : "Share this conversation?",
+					size: "small",
+					fields: [
+						{ fieldtype: "HTML", fieldname: "copy", options: '<p class="fi-dialog-copy">' + copy + "</p>" },
+						{ fieldname: "link", label: "Read only link", fieldtype: "Data", read_only: 1, default: link }
+					],
+					primary_action_label: shared ? "Stop sharing" : "Share conversation",
+					primary_action: (values, modal) => commit(modal, shared ? 0 : 1),
+					secondary_action_label: "Copy link",
+					secondary_action: (modal) => this.copyShareLink(link, (ok) => { if (!ok) { modal.error({ userMessage: "Could not copy. Select the link and copy it directly." }); return; } if (frappe.show_alert) frappe.show_alert({ message: "Link copied.", indicator: "green" }); })
+				});
+				return;
+			}
+			const modal = this.dialog(shared ? "Conversation is shared" : "Share this conversation?", '<p class="fi-dialog-copy">' + copy + '</p><label class="fi-field control-label">Read only link<input class="form-control" readonly value="' + esc(link) + '" data-share-link onfocus="this.select()"></label><footer>' + (shared ? "" : button("modal-close", "Cancel")) + (shared ? button("confirm-unshare", "Stop sharing", null, "fi-danger") : "") + button("copy-share-link", "Copy link", "link", shared ? "" : "fi-text-btn") + (shared ? "" : button("confirm-share", "Share conversation", "share", "fi-primary")) + "</footer>");
 			modal.element.addEventListener("click", (event) => {
 				const target = event.target.closest("[data-action]"); if (!target || modal.busy) return;
-				if (target.dataset.action === "copy-share-link") { if (global.navigator && global.navigator.clipboard) global.navigator.clipboard.writeText(link).then(() => { const label = target.querySelector("span"); if (label) { label.textContent = "Copied"; global.setTimeout(() => { label.textContent = "Copy link"; }, 1800); } }).catch(() => {}); return; }
+				if (target.dataset.action === "copy-share-link") { this.copyShareLink(link, (ok) => { if (!ok) return; const label = target.querySelector("span"); if (label) { label.textContent = "Copied"; global.setTimeout(() => { label.textContent = "Copy link"; }, 1800); } }); return; }
 				const next = target.dataset.action === "confirm-share" ? 1 : target.dataset.action === "confirm-unshare" ? 0 : null;
 				if (next === null) return;
-				modal.run(async () => { await this.api("share_conversation", { conversation: name, shared: next }); this.accept(name, await this.fetchConversation(name)); await this.refreshList(); modal.busy = false; modal.close(); this.notice = next ? "Conversation shared. Anyone with the link can read it." : "Sharing turned off."; this.renderBanner(); });
+				modal.run(async () => commit(modal, next));
 			});
 		}
 		chooseFile() {
@@ -706,10 +891,16 @@
 				if (!response.ok || data.exc) throw Object.assign({ status: response.status }, data);
 				const attachment = data.message;
 				if (!attachment || !attachment.name || !Number(attachment.is_private)) throw { userMessage: "The server did not confirm a private attachment. It was not added to your message." };
-				this.draft().attachments.push(attachment); this.messageSignature = ""; this.notice = "File uploaded privately. Its contents are only read after you approve a tool request."; this.renderBanner(); this.renderMessages();
+				this.draft().attachments.push(attachment); this.messageSignature = ""; this.renderMessages();
 			}).finally(() => this.renderAttachments());
 		}
 		providerDialog() {
+			if (!this.boot) return;
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) return this.providerDialogNative(frappe);
+			return this.providerDialogFallback();
+		}
+		providerDialogFallback() {
 			if (!this.boot) return;
 			const providers = this.boot.managed_providers || this.boot.providers || [];
 			const modal = this.dialog("Providers & models", '<p class="fi-dialog-copy">Bring your own provider. Credentials stay on the server and are never shown here.</p><div class="fi-provider-settings"><nav class="fi-provider-list" aria-label="Configured providers">' + providers.map((provider) => '<button type="button" data-provider="' + esc(provider.name) + '"><strong>' + esc(provider.title) + "</strong><span>" + esc(provider.kind + " · " + provider.model) + "</span></button>").join("") + '<button type="button" data-provider="">' + icon("plus") + " Add provider</button></nav><form class=\"fi-provider-form\"><h3 data-provider-heading>Add a provider</h3><input type=\"hidden\" name=\"name\"><label class=\"fi-field control-label\">Name<input class=\"form-control\" name=\"title\" required maxlength=\"140\" placeholder=\"My work provider\" autocomplete=\"off\"></label><div class=\"fi-field-row fi-field-row-3\"><label class=\"fi-field control-label\">Provider<select class=\"form-control\" name=\"kind\">" + KINDS.map((kind) => "<option>" + esc(kind) + "</option>").join("") + '</select></label><label class="fi-field control-label">Model ID<input class="form-control" name="model" required maxlength="140" placeholder="Enter your provider\'s model ID" autocomplete="off"><button type="button" class="fi-btn fi-text-btn fi-fetch-models" data-action="fetch-models">Fetch models</button></label><label class="fi-field control-label">Thinking effort<select class="form-control" name="thinking_effort" aria-label="Thinking effort">' + effortOptions() + '</select></label></div><label class="fi-field control-label">API key<input class="form-control" name="api_key" type="password" autocomplete="new-password" placeholder="Enter API key"><span>Stored keys are never shown; leave blank to keep the current key.</span></label><label class="fi-field" data-base-url hidden>Custom endpoint URL<input class="form-control" name="base_url" type="url" placeholder="https://api.example.com/v1" autocomplete="off"><span>HTTPS only. The hostname must be allowlisted by your administrator.</span></label><div class="fi-checkbox-row"><label><input type="checkbox" name="enabled" checked> Enabled</label>' + (this.boot.is_manager ? '<label><input type="checkbox" name="is_shared"> Shared with this site</label>' : "") + '</div><label class="fi-field" data-allowed-roles hidden>Allowed roles<textarea class="form-control" name="allowed_roles" rows="2" placeholder="One Frappe role per line"></textarea><span>For shared providers. Leave blank to allow all authorized Intelligence users.</span></label><div class="fi-field-row"><label class="fi-field control-label">Output token limit<input class="form-control" name="max_tokens" type="number" min="128" max="32768" value="4096" required></label><label class="fi-field control-label">Timeout (seconds)<input class="form-control" name="timeout" type="number" min="5" max="120" value="60" required></label></div><label class="fi-field control-label">Model catalog<textarea class="form-control" name="models" rows="3" placeholder="One model ID per line. Leave blank to allow any model."></textarea><span>Advanced: the allowed catalog for this provider. If set, the model must be in this list.</span></label><p class="fi-field-help" data-provider-note>Saving stores this configuration; it does not test a paid provider request.</p><footer><button type="button" class="fi-btn fi-danger" data-delete-provider hidden>Delete provider</button><button type="submit" class="btn btn-primary btn-sm fi-btn fi-primary">Save provider</button></footer></form></div>');
@@ -750,6 +941,12 @@
 			load(providers.length ? providers[0].name : "");
 		}
 		memoryDialog() {
+			if (!this.boot) return;
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) return this.memoryDialogNative(frappe);
+			return this.memoryDialogFallback();
+		}
+		memoryDialogFallback() {
 			if (!this.boot) return; const conversation = this.selected;
 			const modal = this.dialog("Memory", '<p class="fi-dialog-copy">Keep useful preferences and context. Memories are only read by the assistant after you approve a recall request.</p><label class="fi-field control-label">Scope<select class="form-control" data-memory-scope><option value="personal">Personal · only you</option>' + (conversation ? '<option value="conversation">This conversation</option>' : "") + '<option value="site">Site · shared with all users</option></select></label><div class="fi-memory-list" data-memory-list role="list"></div><form class="fi-memory-form"><input type="hidden" name="name"><label class="fi-field control-label"><span data-memory-heading>Add a memory</span><textarea class="form-control" name="content" rows="4" maxlength="5000" required placeholder="For example: use our fiscal year when comparing reports."></textarea></label><p class="fi-field-help" data-memory-help>Never store passwords, API keys, or other secrets in memory.</p><footer><button type="button" class="fi-btn" data-memory-reset>Clear editor</button><button type="submit" class="btn btn-primary btn-sm fi-btn fi-primary">Save memory</button></footer></form>');
 			const scope = modal.element.querySelector("[data-memory-scope]"), list = modal.element.querySelector("[data-memory-list]"), form = modal.element.querySelector("form"); let memories = [];
@@ -761,6 +958,12 @@
 			form.addEventListener("submit", (event) => { event.preventDefault(); const content = form.elements.content.value.trim(); if (!content) return; const values = { name: form.elements.name.value || null, content, scope: scope.value, conversation: scope.value === "conversation" ? conversation : null }; modal.run(async () => { await this.api("save_memory", values); reset(); await refresh(); }); }); modal.run(refresh);
 		}
 		skillsDialog() {
+			if (!this.boot) return;
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) return this.skillsDialogNative(frappe);
+			return this.skillsDialogFallback();
+		}
+		skillsDialogFallback() {
 			if (!this.boot) return;
 			const modal = this.dialog("Skills", '<div data-skills-body><div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading skills…</div></div>');
 			const body = modal.element.querySelector("[data-skills-body]");
@@ -809,6 +1012,12 @@
 		}
 		scopeDialog() {
 			if (!this.boot) return;
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) return this.scopeDialogNative(frappe);
+			return this.scopeDialogFallback();
+		}
+		scopeDialogFallback() {
+			if (!this.boot) return;
 			const readOnly = !this.boot.is_manager;
 			let state = null;
 			const modal = this.dialog("Scope", '<div data-scope-body><div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading scope…</div></div>');
@@ -843,7 +1052,7 @@
 					const problem = scopeProblem(state);
 					if (problem) { const box = modal.element.querySelector(".fi-modal-error"); if (box) { box.hidden = false; box.textContent = problem; } return; }
 					modal.run(async () => {
-						await this.api("frappe.client.set_value", { doctype: "Intelligence Settings", name: "Intelligence Settings", fieldname: { enabled_tools: state.tools.filter((tool) => tool.enabled).map((tool) => tool.name).join("\n"), allowed_read_doctypes: state.read.join("\n"), allowed_write_doctypes: state.write.join("\n") } });
+						await this.api("save_settings", { enabled_tools: state.tools.filter((tool) => tool.enabled).map((tool) => tool.name).join("\n"), allowed_read_doctypes: state.read.join("\n"), allowed_write_doctypes: state.write.join("\n") });
 						modal.busy = false; modal.close(); this.notice = "Scope saved."; this.renderBanner();
 					});
 				}
@@ -860,6 +1069,338 @@
 				if (trigger) trigger.click();
 			});
 			modal.run(load);
+		}
+		// Native Desk path: the provider editor as one declarative frappe.ui.Dialog
+		// form. The provider picker stays an HTML field so switching providers does
+		// not rebuild the dialog; everything else is a native control.
+		async providerDialogNative(frappe) {
+			const providers = this.boot.managed_providers || this.boot.providers || [];
+			const isManager = !!this.boot.is_manager;
+			let loadVersion = 0, readOnly = false, modal = null;
+			const listHTML = '<nav class="fi-provider-list fi-provider-list-native" aria-label="Configured providers">'
+				+ providers.map((provider) => '<button type="button" data-provider="' + esc(provider.name) + '"><strong>' + esc(provider.title) + "</strong><span>" + esc(provider.kind + " · " + provider.model) + "</span></button>").join("")
+				+ '<button type="button" data-provider="">' + icon("plus") + " Add provider</button></nav>";
+			const syncPrimary = () => { try { const primary = modal && modal.instance && modal.instance.get_primary_btn && modal.instance.get_primary_btn(); if (primary && primary.prop) primary.prop("disabled", readOnly); } catch (_) { /* stub hosts */ } };
+			const fetchModels = () => {
+				if (readOnly || !modal) return;
+				const values = modal.values();
+				modal.run(async () => {
+					if (frappe.ui.freeze) frappe.ui.freeze("Fetching models…");
+					try {
+						const result = await this.api("fetch_provider_models", { name: values.name || null, kind: values.kind || "OpenAI", base_url: values.kind === "Custom" ? String(values.base_url || "").trim() : null, api_key: values.api_key || null });
+						const models = result && Array.isArray(result.models) ? result.models : [];
+						if (models.length) modal.set("models", models.join("\n"));
+						if (frappe.show_alert) frappe.show_alert({ message: models.length ? models.length + " models fetched." : "No models returned by the provider.", indicator: models.length ? "green" : "orange" });
+					} finally { if (frappe.ui.unfreeze) frappe.ui.unfreeze(); }
+				});
+			};
+			const load = async (name) => {
+				const version = ++loadVersion;
+				await modal.run(async () => {
+					const data = name ? await this.api("provider_details", { name }) : {};
+					if (version !== loadVersion || modal.closed) return;
+					readOnly = !!(name && (data.can_edit === false || (Number(data.is_shared) && !isManager)));
+					if (modal.instance.set_values) await modal.instance.set_values({
+						name: data.name || "", title: data.title || "", kind: data.kind || "OpenAI", model: data.model || "",
+						base_url: data.base_url || "", api_key: "", allowed_roles: data.allowed_roles || "", models: data.models || "",
+						max_tokens: data.max_tokens || 4096, timeout: data.timeout || 60,
+						thinking_effort: EFFORTS.includes(data.thinking_effort) ? data.thinking_effort : "Auto",
+						enabled: name ? (Number(data.enabled) ? 1 : 0) : 1, is_shared: Number(data.is_shared) ? 1 : 0
+					});
+					modal.setReadOnly(readOnly);
+					syncPrimary();
+					const del = modal.element && modal.element.querySelector("[data-native-delete]");
+					if (del) { del.hidden = !name || readOnly; del.dataset.confirm = ""; del.textContent = "Delete provider"; }
+				});
+			};
+			modal = this.nativeForm(frappe, {
+				title: "Providers & models",
+				fields: [
+					{ fieldtype: "HTML", fieldname: "provider_list", options: '<p class="fi-dialog-copy">Bring your own provider. Credentials stay on the server and are never shown here.</p>' + listHTML },
+					{ fieldname: "name", fieldtype: "Data", hidden: 1 },
+					{ fieldname: "title", label: "Name", fieldtype: "Data", reqd: 1 },
+					{ fieldname: "kind", label: "Provider", fieldtype: "Select", options: KINDS, default: "OpenAI" },
+					{ fieldname: "model", label: "Model ID", fieldtype: "Data", reqd: 1 },
+					{ fieldname: "fetch_models", fieldtype: "Button", label: "Fetch models", click: () => fetchModels() },
+					{ fieldname: "thinking_effort", label: "Thinking effort", fieldtype: "Select", options: EFFORTS, default: "Auto" },
+					{ fieldname: "api_key", label: "API key", fieldtype: "Password", description: "Stored keys are never shown; leave blank to keep the current key." },
+					{ fieldname: "base_url", label: "Custom endpoint URL", fieldtype: "Data", depends_on: 'eval:doc.kind=="Custom"', description: "HTTPS only. The hostname must be allowlisted by your administrator." },
+					{ fieldname: "enabled", label: "Enabled", fieldtype: "Check", default: 1 },
+					...(isManager ? [{ fieldname: "is_shared", label: "Shared with this site", fieldtype: "Check" }, { fieldname: "allowed_roles", label: "Allowed roles", fieldtype: "Small Text", depends_on: "eval:doc.is_shared==1", description: "One Frappe role per line. Blank allows all authorized Intelligence users." }] : []),
+					{ fieldname: "max_tokens", label: "Output token limit", fieldtype: "Int", default: 4096 },
+					{ fieldname: "timeout", label: "Timeout (seconds)", fieldtype: "Int", default: 60 },
+					{ fieldname: "models", label: "Model catalog", fieldtype: "Small Text", description: "One model ID per line. Blank allows any model." },
+					{ fieldtype: "HTML", fieldname: "provider_actions", options: '<button type="button" class="fi-btn fi-danger" data-native-delete hidden>Delete provider</button>' }
+				],
+				primary_action_label: "Save provider",
+				primary_action: async (values, m) => {
+					if (readOnly) return;
+					const kind = values.kind || "OpenAI", baseURL = kind === "Custom" ? String(values.base_url || "").trim() : "";
+					if (kind === "Custom" && !baseURL) { m.error({ userMessage: "Enter the custom endpoint URL for a Custom provider." }); return; }
+					await this.api("save_provider", {
+						name: values.name || null, title: String(values.title || "").trim(), kind,
+						model: String(values.model || "").trim(), thinking_effort: values.thinking_effort || "Auto",
+						api_key: values.api_key || null, base_url: baseURL,
+						enabled: values.enabled ? 1 : 0, is_shared: values.is_shared ? 1 : 0,
+						allowed_roles: values.allowed_roles || "", max_tokens: Number(values.max_tokens) || 4096,
+						timeout: Number(values.timeout) || 60, models: values.models || ""
+					});
+					this.boot = await this.api("bootstrap");
+					if (!this.selected && !(this.boot.providers || []).some((provider) => provider.name === this.provider)) this.provider = this.boot.providers[0] && this.boot.providers[0].name || "";
+					this.render();
+					m.busy = false; m.close();
+					this.notice = "Provider saved."; this.renderBanner();
+				}
+			});
+			if (modal.element) {
+				modal.element.querySelectorAll("[data-provider]").forEach((element) => element.addEventListener("click", () => load(element.dataset.provider)));
+				const del = modal.element.querySelector("[data-native-delete]");
+				if (del) del.addEventListener("click", () => {
+					const values = modal.values(), name = values.name;
+					if (!name || readOnly) return;
+					if (del.dataset.confirm !== name) { del.dataset.confirm = name; del.textContent = "Confirm delete"; return; }
+					modal.run(async () => {
+						await this.api("delete_provider", { name });
+						this.boot = await this.api("bootstrap");
+						this.provider = this.selected ? this.provider : this.boot.providers[0] && this.boot.providers[0].name || "";
+						this.render();
+						modal.busy = false; modal.close();
+						this.notice = "Provider deleted."; this.renderBanner();
+					});
+				});
+			}
+			load(providers.length ? providers[0].name : "");
+		}
+		memoryDialogNative(frappe) {
+			if (!this.boot) return;
+			const conversation = this.selected, isManager = !!this.boot.is_manager;
+			const scopeOptions = [{ value: "personal", label: "Personal · only you" }];
+			if (conversation) scopeOptions.push({ value: "conversation", label: "This conversation" });
+			scopeOptions.push({ value: "site", label: "Site · shared with all users" });
+			let modal = null, memories = [];
+			const scope = () => modal && modal.instance && modal.instance.get_value ? modal.instance.get_value("memory_scope") || "personal" : "personal";
+			const readOnlyScope = () => scope() === "site" && !isManager;
+			const listHost = () => { const host = modal && modal.bodyHost(); return host && host.querySelector("[data-memory-list]"); };
+			const syncEditor = () => {
+				const ro = readOnlyScope();
+				try { if (modal.instance.set_df_property) modal.instance.set_df_property("content", "read_only", ro ? 1 : 0); } catch (_) { /* stub hosts */ }
+				try { const primary = modal.instance.get_primary_btn && modal.instance.get_primary_btn(); if (primary && primary.prop) primary.prop("disabled", ro); } catch (_) { /* stub hosts */ }
+			};
+			const paintList = () => {
+				const host = listHost(); if (!host) return;
+				const ro = readOnlyScope();
+				host.innerHTML = (Array.isArray(memories) && memories.length ? memories.map((memory) => '<article class="fi-memory-item" role="listitem"><p>' + esc(memory.content) + "</p>" + (!ro ? "<div>" + button("memory-edit", "Edit", "edit", "fi-text-btn", 'data-name="' + esc(memory.name) + '"') + button("memory-delete", "Delete", null, "fi-text-btn fi-danger", 'data-name="' + esc(memory.name) + '"') + "</div>" : "") + "</article>").join("") : '<div class="fi-memory-empty">' + icon("memory") + "<strong>No memories in this scope</strong><span>" + (ro ? "Site memories are managed by your administrator." : "Save a useful preference to make future work more consistent.") + "</span></div>");
+			};
+			const refresh = async () => {
+				if (!modal) return;
+				const host = listHost(); if (host) host.innerHTML = '<div class="fi-list-empty">Loading memories…</div>';
+				memories = await this.api("list_memories", { scope: scope(), conversation: scope() === "conversation" ? conversation : null });
+				if (modal.closed) return;
+				paintList(); syncEditor();
+			};
+			modal = this.nativeForm(frappe, {
+				title: "Memory",
+				fields: [
+					{ fieldtype: "HTML", fieldname: "memory_copy", options: '<p class="fi-dialog-copy">Keep useful preferences and context. Memories are only read by the assistant after you approve a recall request. Never store passwords, API keys, or other secrets in memory.</p>' },
+					{ fieldname: "memory_scope", label: "Scope", fieldtype: "Select", options: scopeOptions, default: "personal", onchange: () => { if (modal && modal.instance) modal.run(refresh); } },
+					{ fieldtype: "HTML", fieldname: "memory_list", options: '<div class="fi-memory-list" data-memory-list role="list"></div>' },
+					{ fieldname: "name", fieldtype: "Data", hidden: 1 },
+					{ fieldname: "content", label: "Memory", fieldtype: "Small Text", reqd: 1, description: "For example: use our fiscal year when comparing reports." }
+				],
+				primary_action_label: "Save memory",
+				primary_action: async (values, m) => {
+					if (readOnlyScope()) return;
+					const content = String(values.content || "").trim();
+					if (!content) { m.error({ userMessage: "Write the memory before saving." }); return; }
+					await this.api("save_memory", { name: values.name || null, content, scope: scope(), conversation: scope() === "conversation" ? conversation : null });
+					m.set("name", ""); m.set("content", "");
+					await refresh();
+				},
+				secondary_action_label: "Clear editor",
+				secondary_action: (m) => { m.set("name", ""); m.set("content", ""); }
+			});
+			if (modal.element) modal.element.addEventListener("click", (event) => {
+				const target = event.target.closest("[data-action]");
+				if (!target || modal.busy) return;
+				const memory = memories.find((entry) => entry.name === target.dataset.name);
+				if (!memory) return;
+				if (target.dataset.action === "memory-edit") { modal.set("name", memory.name); modal.set("content", memory.content); }
+				else if (target.dataset.action === "memory-delete") {
+					if (target.dataset.confirm !== "yes") { target.dataset.confirm = "yes"; const span = target.querySelector("span"); if (span) span.textContent = "Confirm delete"; return; }
+					modal.run(async () => { await this.api("delete_memory", { name: memory.name }); await refresh(); });
+				}
+			});
+			modal.run(refresh);
+		}
+		async skillsDialogNative(frappe) {
+			if (!this.boot) return;
+			if (frappe.ui.freeze) frappe.ui.freeze("Loading skills…");
+			let data;
+			try { data = await this.api("skills"); }
+			catch (error) { this.error = userError(error); this.renderBanner(); return; }
+			finally { if (frappe.ui.unfreeze) frappe.ui.unfreeze(); }
+			const isManager = !!this.boot.is_manager, user = this.boot.user;
+			const learned = (Array.isArray(data && data.learned_skills) ? data.learned_skills : []).filter((skill) => skill && skill.name);
+			const editable = (skill) => !!(isManager || Number(skill.can_edit) === 1 || skill.can_edit === true || (user && skill.owner && String(skill.owner) === String(user)));
+			const enabled = (skill) => skill.enabled === undefined ? true : !!Number(skill.enabled);
+			const overview = skillsHTML(Object.assign({}, data, { learned_skills: [] }), { isManager, user });
+			let modal = null, reverting = false;
+			const fields = [{ fieldtype: "HTML", fieldname: "skills_overview", options: overview }];
+			if (learned.length) fields.push({ fieldtype: "HTML", fieldname: "learned_heading", options: '<h3 class="fi-section-title">Learned skills</h3>' });
+			for (const skill of learned) {
+				const fieldname = "skill_" + String(skill.name).replace(/[^\w]/g, "_");
+				fields.push({ fieldtype: "HTML", fieldname: fieldname + "_meta", options: '<div class="fi-skill-meta"><code>' + esc(skill.name) + '</code> <span class="fi-badge fi-badge-origin">' + (skill.origin === "Seeded" ? "Seeded" : "Learned") + "</span>" + (skill.version ? ' <span class="fi-skill-version">v' + esc(skill.version) + "</span>" : "") + '<p class="fi-skill-desc">' + esc(skill.description || "") + "</p>" + (editable(skill) ? '<button type="button" class="fi-btn fi-text-btn" data-skill-edit="' + esc(skill.name) + '">' + icon("edit") + "<span>Edit</span></button>" : "") + "</div>" });
+				fields.push({
+					fieldname, label: skill.title || skill.name, fieldtype: "Check",
+					default: enabled(skill) ? 1 : 0, read_only: editable(skill) ? 0 : 1,
+					description: "Enabled",
+					onchange: () => {
+						if (reverting || !modal || !modal.instance || !modal.instance.get_value) return;
+						const value = modal.instance.get_value(fieldname) ? 1 : 0;
+						modal.run(async () => {
+							try { await this.api("frappe.client.set_value", { doctype: "Intelligence Skill", name: skill.name, fieldname: { enabled: value } }); }
+							catch (error) { reverting = true; try { if (modal.instance.set_value) await modal.instance.set_value(fieldname, value ? 0 : 1); } finally { reverting = false; } throw error; }
+						});
+					}
+				});
+			}
+			modal = this.nativeForm(frappe, { title: "Skills", fields });
+			if (modal.element) modal.element.addEventListener("click", (event) => {
+				const target = event.target.closest("[data-skill-edit]");
+				if (!target || modal.busy) return;
+				const skill = learned.find((entry) => entry.name === target.dataset.skillEdit);
+				if (skill && editable(skill)) this.skillEditNative(frappe, skill);
+			});
+		}
+		skillEditNative(frappe, skill) {
+			const scopeText = (value) => Array.isArray(value) ? value.join("\n") : String(value || "");
+			this.nativeForm(frappe, {
+				title: "Edit learned skill",
+				fields: [
+					{ fieldname: "title", label: "Title", fieldtype: "Data", reqd: 1, default: skill.title || "" },
+					{ fieldname: "description", label: "Description", fieldtype: "Small Text", default: skill.description || "" },
+					{ fieldname: "instructions", label: "Instructions", fieldtype: "Small Text", default: skill.instructions || "", description: "What the assistant should do, step by step." },
+					{ fieldname: "scope_read", label: "Read scope", fieldtype: "Small Text", default: scopeText(skill.scope_read), description: "One DocType per line." },
+					{ fieldname: "scope_write", label: "Write scope", fieldtype: "Small Text", default: scopeText(skill.scope_write), description: "One DocType per line. Writable doctypes must also be readable." }
+				],
+				primary_action_label: "Save skill",
+				primary_action: async (values, m) => {
+					const title = String(values.title || "").trim();
+					if (!title) { m.error({ userMessage: "Give the skill a title." }); return; }
+					await this.api("frappe.client.set_value", { doctype: "Intelligence Skill", name: skill.name, fieldname: { title, description: String(values.description || "").trim(), instructions: values.instructions || "", scope_read: lines(values.scope_read).join("\n"), scope_write: lines(values.scope_write).join("\n") } });
+					m.busy = false; m.close();
+					this.notice = "Skill saved."; this.renderBanner();
+					this.skillsDialog();
+				},
+				secondary_action_label: "Back",
+				secondary_action: (m) => { m.close(); this.skillsDialog(); }
+			});
+		}
+		async scopeDialogNative(frappe) {
+			if (!this.boot) return;
+			const readOnly = !this.boot.is_manager;
+			if (frappe.ui.freeze) frappe.ui.freeze("Loading scope…");
+			let state;
+			try {
+				const results = await Promise.all([this.api("skills"), this.api("frappe.client.get", { doctype: "Intelligence Settings", name: "Intelligence Settings" })]);
+				state = scopeState(results[1], results[0]);
+			} catch (error) { this.error = userError(error); this.renderBanner(); return; }
+			finally { if (frappe.ui.unfreeze) frappe.ui.unfreeze(); }
+			const toolField = (tool) => "tool_" + tool.name.replace(/[^\w]/g, "_");
+			const fields = [
+				{ fieldtype: "HTML", fieldname: "scope_copy", options: '<p class="fi-dialog-copy">' + (readOnly ? "Only system managers can change scope. Your effective access is shown here." : "Choose the tools and record types Intelligence may use. The server re-validates every save.") + '</p><h3 class="fi-section-title">Enabled tools</h3>' },
+				...state.tools.map((tool) => ({ fieldname: toolField(tool), label: tool.name, fieldtype: "Check", default: tool.enabled ? 1 : 0, read_only: readOnly ? 1 : 0, description: tool.description + (tool.mutates ? " Writes records." : "") })),
+				{ fieldname: "allowed_read_doctypes", label: "Readable doctypes", fieldtype: "Small Text", default: state.read.join("\n"), read_only: readOnly ? 1 : 0, description: "One DocType per line." },
+				{ fieldname: "allowed_write_doctypes", label: "Writable doctypes", fieldtype: "Small Text", default: state.write.join("\n"), read_only: readOnly ? 1 : 0, description: "One DocType per line. Writable doctypes must also be readable. " + (state.never_allow.length ? "Always off-limits: " + state.never_allow.join(", ") + "." : "Some record types are always off-limits.") }
+			];
+			this.nativeForm(frappe, {
+				title: "Scope",
+				fields,
+				primary_action_label: readOnly ? undefined : "Save scope",
+				primary_action: readOnly ? undefined : async (values, modal) => {
+					const next = { tools: state.tools.map((tool) => Object.assign({}, tool, { enabled: !!values[toolField(tool)] })), read: lines(values.allowed_read_doctypes), write: lines(values.allowed_write_doctypes), never_allow: state.never_allow };
+					const problem = scopeProblem(next);
+					if (problem) { modal.error({ userMessage: problem }); return; }
+					await this.api("save_settings", { enabled_tools: next.tools.filter((tool) => tool.enabled).map((tool) => tool.name).join("\n"), allowed_read_doctypes: next.read.join("\n"), allowed_write_doctypes: next.write.join("\n") });
+					modal.busy = false; modal.close();
+					this.notice = "Scope saved."; this.renderBanner();
+				}
+			});
+		}
+		settingsDialog() {
+			if (!this.boot) return;
+			const frappe = global.frappe;
+			if (frappe && frappe.ui && frappe.ui.Dialog) return this.settingsDialogNative(frappe);
+			return this.settingsDialogFallback();
+		}
+		settingsValues(source) {
+			const out = {};
+			for (const field of SETTINGS_FIELDS) {
+				let value = source ? source[field.fieldname] : undefined;
+				if (value && typeof value === "object") value = field.fieldtype === "Check" ? (value.checked ? 1 : 0) : value.value;
+				if (field.fieldtype === "Check") out[field.fieldname] = value ? 1 : 0;
+				else if (field.fieldtype === "Int") out[field.fieldname] = Number(value) || 0;
+				else out[field.fieldname] = value == null ? "" : String(value);
+			}
+			return out;
+		}
+		async settingsDialogNative(frappe) {
+			const readOnly = !this.boot.is_manager;
+			let data;
+			if (frappe.ui.freeze) frappe.ui.freeze("Loading settings…");
+			try { data = await this.api("get_settings"); }
+			catch (error) { this.error = userError(error); this.renderBanner(); return; }
+			finally { if (frappe.ui.unfreeze) frappe.ui.unfreeze(); }
+			const fields = [{ fieldtype: "HTML", fieldname: "settings_copy", options: '<p class="fi-dialog-copy">' + (readOnly ? "Only system managers can change these settings. Your current configuration is shown here." : "Site-wide assistant behavior. Changes apply to every user and every run.") + "</p>" }].concat(SETTINGS_FIELDS.map((field) => Object.assign({}, field, { default: data && data[field.fieldname] !== undefined && data[field.fieldname] !== null ? data[field.fieldname] : field.fieldtype === "Check" ? 0 : "", read_only: readOnly ? 1 : 0 })));
+			this.nativeForm(frappe, {
+				title: "Intelligence settings",
+				fields,
+				primary_action_label: readOnly ? undefined : "Save settings",
+				primary_action: readOnly ? undefined : async (values, modal) => {
+					await this.api("save_settings", this.settingsValues(values));
+					this.boot = await this.api("bootstrap");
+					modal.busy = false; modal.close();
+					this.render();
+					this.notice = "Settings saved."; this.renderBanner();
+				}
+			});
+		}
+		settingsFieldHTML(field, value, readOnly) {
+			const off = readOnly ? " disabled" : "", val = value == null ? "" : value;
+			const help = field.description ? "<span>" + esc(field.description) + "</span>" : "";
+			if (field.fieldtype === "Check") return '<label class="fi-check-field"><input type="checkbox" name="' + field.fieldname + '"' + (Number(val) ? " checked" : "") + off + "> " + esc(field.label) + help + "</label>";
+			if (field.fieldtype === "Select") return '<label class="fi-field control-label">' + esc(field.label) + '<select class="form-control" name="' + field.fieldname + '"' + off + ">" + field.options.map((option) => '<option' + (option === val ? " selected" : "") + ">" + esc(option) + "</option>").join("") + "</select>" + help + "</label>";
+			if (field.fieldtype === "Small Text") return '<label class="fi-field control-label">' + esc(field.label) + '<textarea class="form-control" name="' + field.fieldname + '" rows="3"' + off + ">" + esc(val) + "</textarea>" + help + "</label>";
+			return '<label class="fi-field control-label">' + esc(field.label) + '<input class="form-control" name="' + field.fieldname + '" type="' + (field.fieldtype === "Int" ? "number" : "text") + '" value="' + esc(val) + '"' + off + ">" + help + "</label>";
+		}
+		async settingsDialogFallback() {
+			const readOnly = !this.boot.is_manager;
+			const modal = this.dialog("Intelligence settings", '<p class="fi-dialog-copy">' + (readOnly ? "Only system managers can change these settings. Your current configuration is shown here." : "Site-wide assistant behavior. Changes apply to every user and every run.") + '</p><form class="fi-settings-form"><div data-settings-body><div class="fi-loading" role="status"><span class="fi-spinner"></span> Loading settings…</div></div>' + (readOnly ? "" : '<footer><button type="submit" class="btn btn-primary btn-sm fi-btn fi-primary">Save settings</button></footer>') + "</form>");
+			const body = modal.element.querySelector("[data-settings-body]"), form = modal.element.querySelector("form");
+			let data;
+			try { data = await this.api("get_settings"); }
+			catch (error) { if (!modal.closed) body.innerHTML = '<div class="fi-inline-error" role="alert"><p>' + esc(userError(error)) + "</p></div>"; return; }
+			if (modal.closed) return;
+			body.innerHTML = SETTINGS_FIELDS.map((field) => this.settingsFieldHTML(field, data[field.fieldname], readOnly)).join("");
+			for (const field of SETTINGS_FIELDS) {
+				const input = form.elements[field.fieldname];
+				if (!input) continue;
+				const value = data[field.fieldname];
+				if (field.fieldtype === "Check") input.checked = !!Number(value);
+				else if (value != null) input.value = String(value);
+			}
+			if (readOnly) return;
+			form.addEventListener("submit", (event) => {
+				event.preventDefault();
+				const values = this.settingsValues(form.elements);
+				modal.run(async () => {
+					await this.api("save_settings", values);
+					this.boot = await this.api("bootstrap");
+					modal.busy = false; modal.close();
+					this.render();
+					this.notice = "Settings saved."; this.renderBanner();
+				});
+			});
 		}
 	}
 	function trapFocus(event, container) {
@@ -902,7 +1443,7 @@
 	function install() {
 		if (installed || !deskReady()) return; installed = true;
 		toggle = global.document.createElement("button"); toggle.type = "button"; toggle.className = "fi-global-toggle"; toggle.setAttribute("aria-label", "Open Intelligence"); toggle.setAttribute("aria-expanded", "false"); toggle.title = "Intelligence · Ctrl/⌘ Shift I"; toggle.innerHTML = '<img class="fi-toggle-logo" src="' + LOGO + '" alt="" aria-hidden="true"><span>Intelligence</span>'; toggle.addEventListener("click", openDrawer); global.document.body.appendChild(toggle);
-		global.document.addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") { event.preventDefault(); openDrawer(); } if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "k" && singleton && singleton.visible && !singleton.modal) { event.preventDefault(); singleton.$('[data-input="search"]').focus(); } });
+		global.document.addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") { event.preventDefault(); openDrawer(); } });
 		const routeChange = () => { syncDesk(); if (!singleton) return; if (drawer && !drawer.hidden) { singleton.context = contextFromRoute(global.frappe.get_route()); singleton.renderContext(); } else if (routeIsPage()) syncRouteSelection(); else singleton.hide(); };
 		if (global.frappe.router && global.frappe.router.on) global.frappe.router.on("change", routeChange);
 		syncDesk();

@@ -23,8 +23,15 @@ const skillsFixture = {
     { name: 'skill-supplier-follow-up', title: 'Supplier follow-up drafts', description: 'Drafts follow-up notes for late suppliers. Nothing is sent.', instructions: 'Draft a short note. Never send anything.', origin: 'Learned', enabled: 0, shared: 0, version: 1, can_edit: 1, scope_read: 'Supplier', scope_write: '' }
   ]
 };
+const settingsFixture = {
+  enabled: 1, approval_mode: 'Approve Writes Only', max_steps: 12, max_tokens: 64000, max_run_seconds: 600,
+  approval_expiry_minutes: 1440, max_upload_mb: 10, max_file_chars: 120000, daily_run_limit: 40,
+  allowed_read_doctypes: 'Customer\nToDo', allowed_write_doctypes: 'ToDo', allowed_reports: '',
+  enabled_tools: 'search_records\ncreate_todo', allowed_custom_hosts: ''
+};
 const api = {
   '/api/method/frappe_intelligence.api.skills': () => skillsFixture,
+  '/api/method/frappe_intelligence.api.get_settings': () => settingsFixture,
   '/api/method/frappe_intelligence.api.save_provider': (payload) => ({
     name: payload.name || 'provider-preview', title: payload.title || 'Preview provider', kind: payload.kind || 'OpenAI', model: payload.model || 'fixture-model',
     enabled: payload.enabled == null ? 1 : payload.enabled, is_shared: payload.is_shared || 0, thinking_effort: payload.thinking_effort || 'Auto', has_api_key: true, can_edit: true

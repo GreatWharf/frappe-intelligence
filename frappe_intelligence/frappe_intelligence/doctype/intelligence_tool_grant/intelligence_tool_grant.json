@@ -1,0 +1,65 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Tool Grant",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "user",
+      "label": "User",
+      "fieldtype": "Link",
+      "options": "User",
+      "reqd": 1,
+      "in_list_view": 1,
+      "description": "The user this always-allow grant belongs to."
+    },
+    {
+      "fieldname": "tool",
+      "label": "Tool",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1,
+      "description": "Reviewed tool name, for example search_records or create_document."
+    },
+    {
+      "fieldname": "scope_doctype",
+      "label": "Scope DocType",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "description": "Optional: limit the grant to calls that name this DocType."
+    }
+  ],
+  "field_order": [
+    "user",
+    "tool",
+    "scope_doctype"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence User",
+      "read": 1,
+      "create": 1,
+      "write": 1,
+      "delete": 1
+    },
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1,
+      "delete": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1,
+      "delete": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

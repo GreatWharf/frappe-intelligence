@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-  <div class="preview-label"><span><strong>MOCK PREVIEW</strong> · Fictional fixtures. No live Frappe, data access, or provider requests.</span><nav class="preview-controls" aria-label="Preview controls"><a href="/?scene=empty">Empty</a><a href="/?scene=approval">Approval</a><a href="/?scene=context">Drawer</a><button id="theme-toggle">Dark mode</button></nav></div>
+  <div class="preview-label"><span><strong>MOCK PREVIEW</strong> · Fictional fixtures. No live Frappe, data access, or provider requests.</span><nav class="preview-controls" aria-label="Preview controls"><a href="/?scene=empty">Empty</a><a href="/?scene=approval">Approval</a><a href="/?scene=tools">Tools</a><a href="/?scene=busy">Busy</a><a href="/?scene=context">Drawer</a><button id="theme-toggle">Dark mode</button></nav></div>
   <div class="mock-navbar"><div class="mock-nav-left"><span class="mock-logo">ERPNext</span><span class="mock-breadcrumb">Apps</span></div><div class="mock-account"><span>Development preview</span><span class="mock-avatar">JD</span></div></div>
   <main class="preview-shell"><div class="mock-page-title"><h1>Intelligence</h1><span>Private workspace</span></div><div id="page"></div><section id="record" hidden><div class="mock-crumb">CRM / Customer / Northstar Components</div><div class="mock-record"><h2>Northstar Components</h2><p>Customer · Fictional preview record</p><div class="mock-record-grid"><label>Customer name<input value="Northstar Components" readonly></label><label>Customer group<input value="Commercial" readonly></label><label>Territory<input value="Europe" readonly></label><label>Account manager<input value="Jamie Davis" readonly></label></div><p class="mock-record-note">This page is deliberately not scraped. The drawer only receives the DocType and record name displayed in its removable context chip.</p><button id="open-context">Ask Intelligence about this record</button></div></section></main>
   <script src="/preview.js"></script>
@@ -29,7 +29,7 @@
       document.querySelector('.mock-page-title h1').textContent = 'Customer';
       document.querySelector('#open-context').onclick = () => frappe.intelligence.toggle();
       setTimeout(() => { frappe.set_route('Form', 'Customer', 'Northstar Components'); frappe.intelligence.toggle(); }, 350);
-    } else if (preview.scene === 'approval') {
+    } else if (preview.scene === 'approval' || preview.scene === 'tools' || preview.scene === 'busy') {
       const open = () => { const row = document.querySelector('[data-action="select"][data-name="chat-1"]'); if (row) row.click(); else setTimeout(open, 50); }; open();
     }
     document.querySelector('#theme-toggle').onclick = function () { const dark = document.documentElement.dataset.theme !== 'dark'; document.documentElement.dataset.theme = dark ? 'dark' : 'light'; this.textContent = dark ? 'Light mode' : 'Dark mode'; };

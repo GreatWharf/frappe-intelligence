@@ -35,6 +35,7 @@ permission_query_conditions = {
     "Intelligence Provider": "frappe_intelligence.permissions.provider_query",
     "Intelligence Memory": "frappe_intelligence.permissions.memory_query",
     "Intelligence Skill": "frappe_intelligence.frappe_intelligence.doctype.intelligence_skill.intelligence_skill.permission_query_conditions",
+    "Intelligence Tool Grant": "frappe_intelligence.frappe_intelligence.doctype.intelligence_tool_grant.intelligence_tool_grant.permission_query_conditions",
 }
 has_permission = {
     "Intelligence Conversation": "frappe_intelligence.permissions.private_permission",
@@ -45,5 +46,10 @@ has_permission = {
     "Intelligence Provider": "frappe_intelligence.permissions.provider_permission",
     "Intelligence Memory": "frappe_intelligence.permissions.memory_permission",
     "Intelligence Skill": "frappe_intelligence.frappe_intelligence.doctype.intelligence_skill.intelligence_skill.has_permission",
+    "Intelligence Tool Grant": "frappe_intelligence.frappe_intelligence.doctype.intelligence_tool_grant.intelligence_tool_grant.has_permission",
 }
 doc_events = {"File": {"validate": "frappe_intelligence.files.guard_file"}}
+
+# Desk global search (awesomebar) finds conversations by title. The nested
+# shape is frappe's: domain key ("Default" always applies) to row dicts.
+global_search_doctypes = {"Default": [{"doctype": "Intelligence Conversation"}]}

@@ -12,7 +12,17 @@
    "fieldtype": "Data",
    "default": "New chat",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_global_search": 1
+  },
+  {
+   "fieldname": "title_manually_set",
+   "label": "Title Manually Set",
+   "fieldtype": "Check",
+   "default": "0",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "Set when the user renamed the conversation; an AI-generated title must not overwrite it."
   },
   {
    "fieldname": "provider",
@@ -49,6 +59,7 @@
  ],
  "field_order": [
   "title",
+  "title_manually_set",
   "provider",
   "shared",
   "archived",

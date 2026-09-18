@@ -77,14 +77,14 @@ def specs(context):
     return [
         ToolSpec(
             "recall_memory",
-            "Explicitly recall personal, current-conversation, or site memory. Requires human approval; never recall another user's memory.",
+            "Explicitly recall personal, current-conversation, or site memory. Never recall another user's memory.",
             _READ,
             recall_memory,
             preview_recall,
         ),
         ToolSpec(
             "save_memory",
-            "Save a new memory note after approval. Personal/current-conversation notes are owner scoped; site notes require manager authority. Does not overwrite existing memory.",
+            "Save a new memory note. Personal/current-conversation notes are owner scoped; site notes require manager authority. Does not overwrite existing memory.",
             _SAVE,
             save_memory,
             preview_save,

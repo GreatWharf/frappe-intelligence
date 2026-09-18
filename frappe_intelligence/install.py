@@ -3,6 +3,7 @@
 import frappe
 
 USER_ROLES = ("Intelligence User", "Intelligence Manager", "System Manager")
+MODULE = "Frappe Intelligence"
 DEFAULTS = {
     "enabled": 1,
     "max_steps": 30,
@@ -12,7 +13,7 @@ DEFAULTS = {
     "max_upload_mb": 10,
     "max_file_chars": 30000,
     "daily_run_limit": 100,
-    "approval_mode": "Approve Every Step",
+    "approval_mode": "Approve Writes Only",
     "allowed_read_doctypes": "\n".join(
         (
             "Customer",
@@ -147,8 +148,121 @@ def _roles():
             )
 
 
+# v16 Workspace Sidebar rows: chat first, then Desk list views for every record
+# type an Intelligence user manages. The seeded sidebar is app-managed, so
+# after_migrate converges it to exactly this set on every release.
+SIDEBAR_ITEMS = (
+    ("Chat", "Page", "intelligence"),
+    ("Conversations", "DocType", "Intelligence Conversation"),
+    ("Always-allowed tools", "DocType", "Intelligence Tool Grant"),
+    ("Providers", "DocType", "Intelligence Provider"),
+    ("Skills", "DocType", "Intelligence Skill"),
+    ("Memory", "DocType", "Intelligence Memory"),
+    ("Settings", "DocType", "Intelligence Settings"),
+)
+
+# v15 navigates by workspaces; the same entries become one card per group.
+V15_CARDS = (
+    ("Chat", SIDEBAR_ITEMS[:1]),
+    ("Manage", SIDEBAR_ITEMS[1:]),
+)
+
+
+def _shape(row):
+    return (row.get("type"), row.get("label"), row.get("link_type"), row.get("link_to"))
+
+
+def _replace_rows(doc, field, wanted):
+    """Rewrite a child table to exactly `wanted`, returning whether it changed."""
+    current = [_shape(row) for row in doc.get(field) or []]
+    if current == [_shape(row) for row in wanted]:
+        return False
+    doc.set(field, [])
+    for row in wanted:
+        doc.append(field, dict(row))
+    return True
+
+
+def _sidebar_rows():
+    return [
+        {"type": "Link", "label": label, "link_type": link_type, "link_to": link_to}
+        for label, link_type, link_to in SIDEBAR_ITEMS
+    ]
+
+
+def _v16_sidebar():
+    wanted = _sidebar_rows()
+    if frappe.db.exists("Workspace Sidebar", "Intelligence"):
+        sidebar = frappe.get_doc("Workspace Sidebar", "Intelligence")
+        # Converge only the record this app owns (standard, app-tagged, not a
+        # per-user copy); a same-named site record is left exactly as it is.
+        if sidebar.get("app") == "frappe_intelligence" and not sidebar.get("for_user"):
+            changed = _replace_rows(sidebar, "items", wanted)
+            if sidebar.get("module") != MODULE:
+                # ERPNext pattern: the sidebar title labels the Desk header while
+                # module keeps the DocType grouping intact (no Module Def rename).
+                sidebar.set("module", MODULE)
+                changed = True
+            if changed:
+                sidebar.save(ignore_permissions=True)
+    else:
+        frappe.get_doc(
+            {
+                "doctype": "Workspace Sidebar",
+                "title": "Intelligence",
+                "module": MODULE,
+                "standard": 1,
+                "app": "frappe_intelligence",
+                "items": wanted,
+            }
+        ).insert(ignore_permissions=True)
+    # v16 auto-generates a sidebar titled after every Module Def that lacks a
+    # same-named sidebar; that generated "Frappe Intelligence" sidebar shadowed
+    # ours in Desk resolution. This empty, app-owned sentinel takes the name;
+    # boot drops sidebars with no visible items, so it never renders.
+    if not frappe.db.exists("Workspace Sidebar", MODULE):
+        frappe.get_doc(
+            {
+                "doctype": "Workspace Sidebar",
+                "title": MODULE,
+                "module": MODULE,
+                "standard": 1,
+                "app": "frappe_intelligence",
+                "items": [],
+            }
+        ).insert(ignore_permissions=True)
+
+
+def _v15_workspace():
+    links = []
+    for card, entries in V15_CARDS:
+        links.append({"label": card, "type": "Card Break"})
+        for label, link_type, link_to in entries:
+            links.append({"label": label, "type": "Link", "link_type": link_type, "link_to": link_to})
+    if frappe.db.exists("Workspace", "Intelligence Chat"):
+        workspace = frappe.get_doc("Workspace", "Intelligence Chat")
+        if workspace.get("for_user"):
+            return
+        if _replace_rows(workspace, "links", links):
+            workspace.save(ignore_permissions=True)
+        return
+    frappe.get_doc(
+        {
+            "doctype": "Workspace",
+            "label": "Intelligence Chat",
+            "title": "Intelligence Chat",
+            "module": MODULE,
+            "public": 1,
+            "is_hidden": 0,
+            "icon": "message",
+            "roles": [{"role": role} for role in USER_ROLES],
+            "links": links,
+        }
+    ).insert(ignore_permissions=True)
+
+
 def _navigation():
-    """Own the Desk entry: one sidebar item straight into the chat page.
+    """Own the Desk entry: the sidebar leads into chat and the app's records.
 
     On v16 there is deliberately no Workspace: a one-shortcut workspace only
     inserts a middleman page between the app icon and the chat. The Workspace
@@ -166,45 +280,9 @@ def _navigation():
         if not workspace.get("for_user"):
             frappe.delete_doc("Workspace", "Intelligence", ignore_permissions=True, force=True)
     if frappe.__version__.split(".")[0] == "15":
-        if not frappe.db.exists("Workspace", "Intelligence Chat"):
-            frappe.get_doc(
-                {
-                    "doctype": "Workspace",
-                    "label": "Intelligence Chat",
-                    "title": "Intelligence Chat",
-                    "module": "Frappe Intelligence",
-                    "public": 1,
-                    "is_hidden": 0,
-                    "icon": "message",
-                    "roles": [{"role": role} for role in USER_ROLES],
-                    "links": [
-                        {
-                            "label": "Conversations",
-                            "type": "Link",
-                            "link_type": "Page",
-                            "link_to": "intelligence",
-                        }
-                    ],
-                }
-            ).insert(ignore_permissions=True)
+        _v15_workspace()
         return
-    if not frappe.db.exists("Workspace Sidebar", "Intelligence"):
-        frappe.get_doc(
-            {
-                "doctype": "Workspace Sidebar",
-                "title": "Intelligence",
-                "standard": 1,
-                "app": "frappe_intelligence",
-                "items": [
-                    {
-                        "type": "Link",
-                        "label": "Conversations",
-                        "link_type": "Page",
-                        "link_to": "intelligence",
-                    }
-                ],
-            }
-        ).insert(ignore_permissions=True)
+    _v16_sidebar()
     if not frappe.db.exists("Desktop Icon", "Intelligence"):
         frappe.get_doc(
             {
@@ -220,6 +298,30 @@ def _navigation():
                 "roles": [{"role": role} for role in USER_ROLES],
             }
         ).insert(ignore_permissions=True)
+
+
+def _global_search():
+    """Register conversations with Desk global search (the awesomebar).
+
+    Surgical by design: frappe's update_global_search_doctypes() rewrites the
+    whole settings table from every app's hooks and discards rows an
+    administrator added by hand, so we append our one row ourselves. Runs on
+    install and migrate so upgraded sites gain the entry, then a background
+    rebuild indexes conversations saved before registration.
+    """
+    if not frappe.db.exists("DocType", "Intelligence Conversation"):
+        return
+    settings = frappe.get_single("Global Search Settings")
+    rows = settings.get("allowed_in_global_search") or []
+    if any(row.get("document_type") == "Intelligence Conversation" for row in rows):
+        return
+    settings.append("allowed_in_global_search", {"document_type": "Intelligence Conversation"})
+    settings.save(ignore_permissions=True)
+    frappe.enqueue(
+        "frappe.utils.global_search.rebuild_for_doctype",
+        doctype="Intelligence Conversation",
+        enqueue_after_commit=True,
+    )
 
 
 def _seed_skills():
@@ -278,10 +380,12 @@ def after_migrate():
         ("Intelligence Conversation", ["owner", "archived", "modified"], "intelligence_conversation_owner"),
         ("Intelligence Memory", ["owner", "scope"], "intelligence_memory_owner"),
         ("Intelligence Skill", ["owner", "shared"], "intelligence_skill_owner"),
+        ("Intelligence Tool Grant", ["user", "tool"], "intelligence_tool_grant_user"),
     ):
         frappe.db.add_index(doctype, fields, name)
     _navigation()
     _seed_skills()
+    _global_search()
 
 
 def before_uninstall():
