@@ -450,6 +450,20 @@ test('the welcome screen greets by name with a daypart, escapes it, and falls ba
   assert.ok(!named.includes('<script>'), 'the name is escaped');
 });
 
+test('fitViewport pins the app to the remaining viewport only when it outgrows it', (t) => {
+  const { app, window } = harness(t);
+  app.mode = 'page';
+  try { Object.defineProperty(window, 'innerHeight', { value: 1040, configurable: true }); }
+  catch { window.innerHeight = 1040; }
+  const rect = { top: 49, height: 1930 };
+  app.root.getBoundingClientRect = () => rect;
+  app.fitViewport();
+  assert.equal(app.root.style.height, '983px', 'an overflowing app is pinned into view');
+  rect.height = 400;
+  app.fitViewport();
+  assert.equal(app.root.style.height, '', 'an app that already fits is left alone');
+});
+
 test('the global pill stays available across Desk but never on the intelligence page', (t) => {
   const { JSDOM } = process.env.FI_REAL_DOM === '1' ? require('jsdom') : require('./dom-harness.cjs');
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://desk.example.test/desk', runScripts: 'outside-only' });

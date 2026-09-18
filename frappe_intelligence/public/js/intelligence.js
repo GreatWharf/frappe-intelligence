@@ -383,17 +383,19 @@
 			if (!this.viewportBound && global.addEventListener) { this.viewportBound = true; global.addEventListener("resize", () => this.fitViewport()); }
 		}
 		hide() { this.visible = false; this.closeMenu(); this.poller.stop(); if (this.watched.size) this.poller.start(1000); }
-		// Desk page bodies are not always height-constrained; if the document itself
-		// started scrolling, pin the app to the remaining viewport so the composer
-		// stays visible and only the thread and conversation list scroll.
+		// Desk page bodies are not always height-constrained, and whether the
+		// document itself scrolls depends on Desk chrome; measure the app instead
+		// and pin it to the remaining viewport whenever it outgrows it, so the
+		// composer stays visible and only the thread and conversation list scroll.
 		fitViewport() {
 			if (!this.root.isConnected || typeof this.root.getBoundingClientRect !== "function") return;
 			this.root.style.height = "";
 			if (this.mode !== "page") return;
-			const doc = this.doc.documentElement, viewport = Number(global.innerHeight) || 0;
-			if (!doc || !viewport || doc.scrollHeight <= viewport + 4) return;
-			const available = Math.floor(viewport - this.root.getBoundingClientRect().top - 8);
-			if (available >= 320) this.root.style.height = available + "px";
+			const viewport = Number(global.innerHeight) || 0;
+			if (!viewport) return;
+			const rect = this.root.getBoundingClientRect();
+			const available = Math.floor(viewport - rect.top - 8);
+			if (available >= 320 && rect.height > available + 4) this.root.style.height = available + "px";
 		}
 		closeMenu() { const menu = this.slot("menu"); if (menu) menu.hidden = true; const trigger = this.$('[data-action="menu"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 		async refreshList() {
