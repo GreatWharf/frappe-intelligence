@@ -45,10 +45,10 @@ ERP systems hold the answers people actually need (what's owed, what shipped, wh
 
 ### Key Features
 
-- **A real chat workspace:** multiple private conversations with search, rename, and archive; paginated history; readable code, tables, and links; a dedicated Desk page plus a contextual drawer beside any record.
+- **A real chat workspace:** multiple private conversations with search, rename, and archive; automatic titles from the first message; optional read-only sharing with colleagues; paginated history; readable code, tables, and links; a dedicated Desk page plus a contextual drawer beside any record.
 - **Bring your own provider:** OpenAI, Anthropic, Google Gemini, OpenRouter, xAI, and administrator-allowlisted custom OpenAI-compatible endpoints. Personal keys stay private; managers can offer shared providers to chosen roles. Models are configured by their real provider model IDs, with no baked-in catalog that ages.
 - **Permission-native tools:** the assistant searches and reads only administrator-allowlisted DocTypes through the user's own permissions, and answers financial questions from reviewed ERPNext report adapters (Balance Sheet, Profit &amp; Loss, Cash Flow, Trial Balance, General Ledger, receivables and payables).
-- **Explicit approval for every action:** read tools ask too. Write proposals show their target and a before/after diff, and execution rechecks permissions and record revisions, so a stale approval cannot silently authorize a different change.
+- **Explicit approval for every action:** read tools ask too, by default. Three approval modes let a site choose between approving every step, approving writes only, or full automation; policy auto-approvals are recorded in the same audit trail as human decisions. Write proposals show their target and a before/after diff, and execution rechecks permissions and record revisions, so a stale approval cannot silently authorize a different change.
 - **Durable runs:** submitted work lives on the server, not in the browser tab. Close the drawer, come back tomorrow, and pick up the conversation, or the pending approval, exactly where it was.
 - **Documents and memory on your terms:** upload PDFs and text files and choose when the assistant may read them; keep personal or per-conversation notes, with site-wide guidance curated by managers. No invisible harvesting.
 
