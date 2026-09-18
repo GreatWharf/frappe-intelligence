@@ -18,6 +18,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the app version as the image tag
+        id: meta
+        run: |
+          tag=$(python3 -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('frappe_intelligence/__init__.py').read()).group(1))")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Build and push the pinned ERPNext v16 image
         uses: docker/build-push-action@v6
         with:
@@ -26,7 +31,7 @@ jobs:
           build-args: ERPNEXT_VERSION=v16.34.2
           push: true
           tags: |
-            ghcr.io/greatwharf/frappe-intelligence:0.3.0
+            ghcr.io/greatwharf/frappe-intelligence:${{ steps.meta.outputs.tag }}
             ghcr.io/greatwharf/frappe-intelligence:staging
           cache-from: type=gha
           cache-to: type=gha,mode=max

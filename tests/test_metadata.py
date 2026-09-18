@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 from pathlib import Path
 
 try:
@@ -23,6 +24,15 @@ def test_runtime_and_tests_parse_with_python_310_grammar():
     for directory in (ROOT / "frappe_intelligence", ROOT / "tests", ROOT / "scripts"):
         for source in directory.rglob("*.py"):
             ast.parse(source.read_text(), filename=str(source), feature_version=(3, 10))
+
+
+def test_container_image_tag_tracks_the_app_version():
+    workflow = (ROOT / ".github/workflows/image.yml").read_text()
+    assert "steps.meta.outputs.tag" in workflow
+    assert "frappe_intelligence/__init__.py" in workflow
+    # A hardcoded semver tag silently decouples the GHCR tag from a version
+    # bump: deploys then pin a tag that was never built and never lands.
+    assert not re.search(r"frappe-intelligence:\d", workflow)
 
 
 def test_mutating_ui_methods_are_post_only():
