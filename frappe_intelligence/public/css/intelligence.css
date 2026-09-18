@@ -384,6 +384,7 @@
 }
 @media (max-width: 760px) {
 	.fi-app:not(.fi-drawer-app) { grid-template-columns: minmax(0,1fr); min-height: 420px; }
+	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed { grid-template-columns: minmax(0,1fr); }
 	.fi-app:not(.fi-drawer-app) > .fi-sidebar { position: absolute; left: 0; top: 0; bottom: 0; width: 280px; z-index: 5; box-shadow: 15px 0 50px rgb(0 0 0 / 12%); }
 	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed > .fi-sidebar { display: none; }
 	.fi-header { padding: 12px 16px; min-height: 60px; }

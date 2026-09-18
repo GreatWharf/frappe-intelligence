@@ -6,8 +6,7 @@ import pytest
 from test_provider_effort import KEY
 from test_provider_effort import env as env
 
-from frappe_intelligence.providers import ProviderConfig, ProviderError
-from frappe_intelligence.providers import adapters
+from frappe_intelligence.providers import ProviderConfig, ProviderError, adapters
 
 CUSTOM_HOST = "models.example.test"
 CUSTOM_BASE_URL = f"https://{CUSTOM_HOST}/v1"

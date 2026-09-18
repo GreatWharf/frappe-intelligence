@@ -317,7 +317,11 @@
 			})(); return this.initializing;
 		}
 		show(host, mode) {
-			this.visible = true; this.mode = mode || "page"; this.root.classList.toggle("fi-drawer-app", this.mode === "drawer"); host.appendChild(this.root); this.render();
+			this.visible = true; this.mode = mode || "page"; this.root.classList.toggle("fi-drawer-app", this.mode === "drawer"); host.appendChild(this.root);
+			// Below the sidebar breakpoint the drawer-style conversation column overlays
+			// the content; start collapsed so the header stays reachable.
+			if (this.mode === "page" && global.innerWidth && global.innerWidth <= 760) { this.root.classList.add("fi-sidebar-collapsed"); const trigger = this.$('[data-action="sidebar"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
+			this.render();
 			if (!this.boot) this.init(); else this.poller.start(0);
 		}
 		hide() { this.visible = false; this.closeMenu(); global.clearTimeout(this.searchTimer); this.poller.stop(); if (this.watched.size) this.poller.start(1000); }

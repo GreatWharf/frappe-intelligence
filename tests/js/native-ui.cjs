@@ -35,7 +35,8 @@ let browser;
   const neutral = (color) => { const rgb = (color.match(/\d+/g) || []).slice(0, 3).map(Number); return rgb.length === 3 && Math.max(...rgb) - Math.min(...rgb) <= 6; };
   expect(neutral(focus.border), 'Mouse focus must not apply a green composer border: ' + focus.border);
   expect(focus.shadow === 'none', 'Mouse focus must not create a colored composer halo: ' + focus.shadow);
-  await page.locator('[data-action="settings"]').click();
+  await page.locator('[data-action="menu"]').click();
+  await page.locator('.fi-menu [data-action="settings"]').click();
   const dimensions = await page.locator('.fi-provider-form').evaluate((form) => {
     const box = (name) => { const rect = form.elements[name].getBoundingClientRect(); return { width: rect.width, height: rect.height }; };
     return { provider: box('kind'), model: box('model'), title: box('title'), key: box('api_key') };
@@ -48,14 +49,15 @@ let browser;
   await page.locator('.fi-modal-overlay [data-action="modal-close"]').click();
   await page.waitForSelector('.fi-modal-overlay', { state: 'detached' });
   await page.locator('#theme-toggle').click();
-  await page.locator('[data-action="settings"]').click();
+  await page.locator('[data-action="menu"]').click();
+  await page.locator('.fi-menu [data-action="settings"]').click();
   const dark = await page.locator('.fi-provider-form button[type="submit"]').evaluate((el) => { const s = getComputedStyle(el); return { background: s.backgroundColor, text: s.color }; });
   expect(neutral(dark.background) && neutral(dark.text) && dark.background !== dark.text, 'Dark-mode primary controls must retain neutral contrast');
   await page.locator('.fi-modal-overlay [data-action="modal-close"]').click();
   await page.waitForSelector('.fi-modal-overlay', { state: 'detached' });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('[data-action="sidebar"]').click();
-  await page.locator('[data-action="settings"]').click();
+  await page.locator('[data-action="menu"]').click();
+  await page.locator('.fi-menu [data-action="settings"]').click();
   const mobile = await page.locator('.fi-provider-form').evaluate((form) => {
     const provider = form.elements.kind.getBoundingClientRect(), model = form.elements.model.getBoundingClientRect();
     return { providerBottom: provider.bottom, modelTop: model.top, width: document.documentElement.scrollWidth, viewport: innerWidth };
