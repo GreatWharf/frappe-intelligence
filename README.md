@@ -52,6 +52,40 @@ ERP systems hold the answers people actually need (what's owed, what shipped, wh
 - **Durable runs:** submitted work lives on the server, not in the browser tab. Close the drawer, come back tomorrow, and pick up the conversation, or the pending approval, exactly where it was.
 - **Documents and memory on your terms:** upload PDFs and text files and choose when the assistant may read them; keep personal or per-conversation notes, with site-wide guidance curated by managers. No invisible harvesting.
 
+### See It Working
+
+Captured from a live ERPNext v16 site running the flows recorded in [the verification record](docs/verification.md).
+
+| Welcome, personalized by name and time | Bring your own provider |
+| --- | --- |
+| ![Welcome screen](docs/screenshots/welcome.png) | ![Providers and models](docs/screenshots/providers.png) |
+
+| Intelligence in the Desk sidebar | An uploaded bill becomes a draft invoice |
+| --- | --- |
+| ![Desk sidebar](docs/screenshots/desk-sidebar.png) | ![Invoice ingestion](docs/screenshots/invoice-ingest.png) |
+
+| Reconciliation proposals with reasoning | Draft Payment Entries created on approval |
+| --- | --- |
+| ![Proposals](docs/screenshots/bank-reconcile-propose.png) | ![Draft payments](docs/screenshots/bank-reconcile-drafts.png) |
+
+| A drafted reply in chat, summarized | The draft Communication it created |
+| --- | --- |
+| ![Draft reply in chat](docs/screenshots/email-draft-chat.png) | ![Communication draft](docs/screenshots/erp-email-draft.png) |
+
+| The four draft Payment Entries in ERPNext | The Northwind draft Purchase Invoice |
+| --- | --- |
+| ![Payment Entries](docs/screenshots/erp-payment-entries.png) | ![Purchase Invoice](docs/screenshots/erp-purchase-invoice.png) |
+
+| A dated morning briefing | Skills the assistant wrote |
+| --- | --- |
+| ![Daily briefing](docs/screenshots/daily-briefing.png) | ![Skills](docs/screenshots/skills.png) |
+
+| User-controlled memory | The approvals queue |
+| --- | --- |
+| ![Memory](docs/screenshots/memory.png) | ![Approvals](docs/screenshots/approvals.png) |
+
+Recorded sessions: [welcome tour](docs/screenshots/welcome-tour.webm) and [bank reconciliation end to end](docs/screenshots/bank-reconciliation.webm).
+
 ### Under the Hood
 
 - [Frappe Framework](https://frappe.io/framework): every assistant action runs as the calling user, through Frappe's own permission and document layer. There is no service account with superpowers.
@@ -98,7 +132,7 @@ ERPNext is optional for the everyday tools and required for the financial-report
 
 ## Scope and Honest Limits
 
-The assistant can help draft email and explain permitted commerce and accounting records. **Email delivery, refunds, financial posting, and automatic bank reconciliation are not implemented tools.** There is no unrestricted code execution, shell access, generic SQL, or external MCP server. Responses arrive when the provider completes; token-by-token streaming is not implemented. Codex account login is not shipped: a ChatGPT subscription is not treated as an API key.
+The assistant can draft email replies, draft purchase invoices, and prepare reconciliation proposals as draft Payment Entries, each behind an explicit approval. **Email delivery, refunds, and financial posting are not implemented:** documents the assistant creates stay drafts, and a person submits or sends them. There is no unrestricted code execution, shell access, generic SQL, or external MCP server. Responses arrive when the provider completes; token-by-token streaming is not implemented. Codex account login is not shipped: a ChatGPT subscription is not treated as an API key.
 
 Provider calls disclose the approved context to that provider; data does not remain exclusively on your server when a remote model is used. It is unofficial and has not yet been published to the Frappe Marketplace.
 

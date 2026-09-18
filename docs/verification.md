@@ -79,7 +79,23 @@ bench --site test.localhost run-tests --app frappe_intelligence \
 
 These tests commit unique synthetic fixture baselines to make independent-connection checks possible, then perform exact cleanup and restore settings. They are not appropriate for a production site, even if it has a similarly named test account.
 
-The repository includes CI definitions for Python 3.10/3.12/3.14 and MariaDB-backed Frappe/ERPNext v15/v16 installation/migration/integration. **Those workflows have not run for this new app:** no GitHub repository has been created or pushed during implementation. A workflow file is not a passing result.
+The repository includes CI definitions for Python 3.10/3.12/3.14 and MariaDB-backed Frappe/ERPNext v15/v16 installation/migration/integration. As of 18 September 2026 those workflows run green on every push to `staging/real-v16`, including the real bench install and integration pass.
+
+## Live fleet verification, 18 September 2026
+
+Image `ghcr.io/greatwharf/frappe-intelligence:0.3.2` (commit `8fedcdf`) was deployed to a disposable ERPNext v16 test site seeded with two demo companies (Acme Inc., USD; Acme Limited, GBP). Twelve autonomous end-to-end scenarios then drove the assistant through the real UI and API, and every claim was verified over REST against the live ERP state afterwards, never against the assistant's own words. **All 12 scenarios passed, 72/72 checks.** Captures are in [screenshots/](screenshots/).
+
+| Scenario | Checks | Result |
+| --- | --- | --- |
+| Invoice ingestion: Northwind USD bill, Harbor USD bill, Stark GBP bill | 9 + 9 + 9 | draft Purchase Invoices ACC-PINV-2026-00007/8/9 match supplier, company, currency, totals, due dates |
+| Email reply to an invoice query | 6/6 | draft Communication created and linked; chat summarizes instead of pasting; nothing sent |
+| ToDo lifecycle | 6/6 | created, closed, linked by title |
+| Bank reconciliation | 10/10 | proposals with reasoning, then four draft Payment Entries (ACC-PAY-2026-00001..00004) created through approval cards; all remain drafts |
+| Accounting summary, currency handling | 3/3 + 4/4 | figures cite reviewed report adapters and the recorded 0.79 USD-GBP rate |
+| Out-of-scope bank transfer | 3/3 | refused; no Journal Entry or Payment Entry created |
+| Skill self-creation, preference learning, morning briefing | 4/4 + 3/3 + 6/6 | skills saved disabled until reviewed; preferences persist and shape later answers; briefing covers both companies with dated figures |
+
+Every write in these runs went through an approval card; the assistant holds no service-account privileges.
 
 ## Remaining validation boundaries
 
