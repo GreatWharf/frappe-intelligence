@@ -5,14 +5,17 @@
 	if (typeof module === "object" && module.exports) module.exports = client;
 	if (global.frappe) {
 		global.frappe.intelligence = client;
+		// Resolve install at call time: module scripts attach it after this file.
+		const boot = () => client.install();
 		if (global.document) {
-			if (global.jQuery) global.jQuery(global.document).on("app_ready.intelligence", client.install);
-			if (global.document.readyState === "loading") global.document.addEventListener("DOMContentLoaded", client.install, { once: true });
-			else client.install();
+			if (global.jQuery) global.jQuery(global.document).on("app_ready.intelligence", boot);
+			if (global.document.readyState === "loading") global.document.addEventListener("DOMContentLoaded", boot, { once: true });
+			else global.setTimeout(boot, 0);
 		}
 	}
 })(typeof window !== "undefined" ? window : globalThis, function (global) {
 	"use strict";
+	const fi = global.fi || (global.fi = {});
 	const API = "frappe_intelligence.api.";
 	const LOGO = "/assets/frappe_intelligence/images/intelligence.svg";
 	const ACTIVE = new Set(["queued", "running", "awaiting_approval"]);
@@ -61,57 +64,6 @@
 	};
 	function icon(name) { return '<svg class="fi-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (icons[name] || icons.chat) + '</svg>'; }
 	function esc(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
-	function safeURL(value) {
-		const raw = String(value || "").trim();
-		if (!raw || /[\x00-\x20\x7f\\]/.test(raw) || raw.startsWith("//")) return "";
-		if (raw.startsWith("/")) {
-			try { const local = new URL(raw, "https://intelligence.invalid"); return /^\/((?:app|desk)(?:\/|$)|private\/files\/|files\/|api\/method\/frappe\.)/.test(local.pathname) && !/%(?:00|0a|0d|5c)/i.test(raw) ? local.pathname + local.search + local.hash : ""; } catch (_) { return ""; }
-		}
-		try { const url = new URL(raw); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password ? url.href : ""; } catch (_) { return ""; }
-	}
-	function inline(text) {
-		// Tokenize before escaping. Never pass model HTML through a Markdown/HTML renderer.
-		const pattern = /(`[^`\n]+`|!\[[^\]\n]*\]\([^\s)]*\)|\[[^\]\n]+\]\([^\s)]*\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*)/g;
-		let output = "", cursor = 0;
-		for (const match of String(text).matchAll(pattern)) {
-			output += esc(text.slice(cursor, match.index)); const token = match[0];
-			if (token[0] === "`") output += "<code>" + esc(token.slice(1, -1)) + "</code>";
-			else if (token.startsWith("***")) output += "<strong><em>" + esc(token.slice(3, -3)) + "</em></strong>";
-			else if (token.startsWith("**")) output += "<strong>" + esc(token.slice(2, -2)) + "</strong>";
-			else if (token.startsWith("!")) output += '<span class="fi-muted">[Image not loaded]</span>';
-			else { const link = token.match(/^\[([^\]]+)\]\(([^)]*)\)$/); const href = safeURL(link[2]); output += href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + esc(link[1]) + "</a>" : esc(link[1]); }
-			cursor = match.index + token.length;
-		}
-		return output + esc(text.slice(cursor));
-	}
-	function markdown(value) {
-		const lines = String(value || "").replace(/\r\n?/g, "\n").split("\n");
-		let html = "", paragraph = [], list = "", code = null, lang = "";
-		const flush = () => { if (paragraph.length) { html += "<p>" + paragraph.map(inline).join("<br>") + "</p>"; paragraph = []; } if (list) { html += "</" + list + ">"; list = ""; } };
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (/^\s*```/.test(line)) {
-				if (code !== null) { html += '<div class="fi-code"><div class="fi-code-head"><span>' + esc(lang || "Code") + '</span><button type="button" data-action="copy-code">Copy</button></div><pre><code>' + esc(code.join("\n")) + "</code></pre></div>"; code = null; }
-				else { flush(); code = []; lang = line.trim().slice(3).trim(); } continue;
-			}
-			if (code !== null) { code.push(line); continue; }
-			if (!line.trim()) { flush(); continue; }
-			const heading = line.match(/^(#{1,3})\s+(.+)$/);
-			if (heading) { flush(); const level = heading[1].length + 2; html += "<h" + level + ">" + inline(heading[2]) + "</h" + level + ">"; continue; }
-			if (line.includes("|") && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
-				flush(); const cells = (row) => row.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
-				html += '<div class="fi-table-wrap"><table><thead><tr>' + cells(line).map((cell) => "<th>" + inline(cell) + "</th>").join("") + "</tr></thead><tbody>"; i++;
-				while (i + 1 < lines.length && lines[i + 1].includes("|") && lines[i + 1].trim()) html += "<tr>" + cells(lines[++i]).map((cell) => "<td>" + inline(cell) + "</td>").join("") + "</tr>";
-				html += "</tbody></table></div>"; continue;
-			}
-			const item = line.match(/^\s*(?:([-*])|\d+[.)])\s+(.+)$/);
-			if (item) { const type = item[1] ? "ul" : "ol"; if (paragraph.length || (list && list !== type)) flush(); if (!list) { list = type; html += "<" + type + ">"; } html += "<li>" + inline(item[2]) + "</li>"; continue; }
-			if (list) flush();
-			if (/^>\s?/.test(line)) { flush(); html += "<blockquote>" + inline(line.replace(/^>\s?/, "")) + "</blockquote>"; } else paragraph.push(line);
-		}
-		flush(); if (code !== null) html += '<div class="fi-code"><pre><code>' + esc(code.join("\n")) + "</code></pre></div>";
-		return html;
-	}
 	function contextFromRoute(route) {
 		if (!Array.isArray(route) || !["Form", "List"].includes(route[0]) || typeof route[1] !== "string") return null;
 		const context = { doctype: route[1] };
@@ -150,94 +102,6 @@
 	function stamp(value) { if (!value) return ""; const date = new Date(String(value).replace(" ", "T")); return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
 	function parsed(value, fallback) { if (typeof value !== "string") return value || fallback; try { return JSON.parse(value); } catch (_) { return fallback; } }
 	function dashed(doctype) { return String(doctype || "").trim().toLowerCase().replace(/[\s_]+/g, "-"); }
-	function previewData(preview) { const data = parsed(preview, { summary: String(preview || "") }); return data && typeof data === "object" ? data : { summary: String(data || "") }; }
-	function fileNameOf(data) {
-		const details = data && data.details && typeof data.details === "object" ? data.details : {};
-		return typeof details.file_name === "string" ? details.file_name.trim() : "";
-	}
-	function isFileAction(data) {
-		const target = data && data.target && typeof data.target === "object" ? data.target : {};
-		return (data && (data.doctype || target.doctype)) === "File" || String(data && data.operation || "") === "read_attachment";
-	}
-	function actionSentence(preview, toolName) {
-		const data = previewData(preview);
-		if (data.action) return String(data.action);
-		if (isFileAction(data)) {
-			const fileName = fileNameOf(data);
-			return "Read attachment" + (fileName ? " '" + fileName + "'" : "");
-		}
-		const target = data.target && typeof data.target === "object" ? data.target : {};
-		const doctype = data.doctype || target.doctype || "";
-		const name = data.name || target.name || "";
-		const operation = String(data.operation || "").toLowerCase();
-		const tool = String(toolName || "").toLowerCase();
-		let verb = "";
-		if (operation === "search" || operation === "list") verb = "Search";
-		else if (operation === "read" || operation === "get") verb = "Read";
-		else if (operation === "create") verb = "Create";
-		else if (operation === "update") verb = "Update";
-		else if (operation === "delete") verb = "Delete";
-		else if (operation === "submit") verb = "Submit";
-		else if (operation === "cancel") verb = "Cancel";
-		else if (operation === "report" || operation === "run_report") verb = "Run";
-		if (!verb) {
-			verb = "Run";
-			if (/create|insert|new/.test(tool)) verb = "Create";
-			else if (/update|edit|set|modify/.test(tool)) verb = "Update";
-			else if (/delete|remove/.test(tool)) verb = "Delete";
-			else if (/submit/.test(tool)) verb = "Submit";
-			else if (/cancel/.test(tool)) verb = "Cancel";
-			else if (/search|list|find/.test(tool)) verb = "Search";
-			else if (/read|get|fetch|open/.test(tool)) verb = "Read";
-		}
-		if (!doctype) return verb + " requested action";
-		return verb + " " + doctype + (name ? " '" + name + "'" : verb === "Search" || verb === "Read" && !name ? " records" : "");
-	}
-	function fileChip(preview) {
-		const data = previewData(preview);
-		const fileName = fileNameOf(data);
-		if (!fileName) return "";
-		return '<span class="fi-record-chip fi-file-ref">' + icon("file") + "<span>" + esc(fileName) + "</span></span>";
-	}
-	function recordLink(preview) {
-		const data = previewData(preview);
-		if (isFileAction(data)) return fileChip(data);
-		const target = data.target && typeof data.target === "object" ? data.target : {};
-		const doctype = data.doctype || target.doctype, name = data.name || target.name;
-		if (!doctype || !name) return "";
-		const url = safeURL("/app/" + dashed(doctype) + "/" + encodeURIComponent(name));
-		return url ? '<a class="fi-record-chip" href="' + esc(url) + '">' + icon("link") + "<span>" + esc(doctype) + " / " + esc(name) + "</span></a>" : "";
-	}
-	function toolIcon(preview, toolName) {
-		const sentence = actionSentence(preview, toolName);
-		const verb = sentence.split(" ")[0];
-		return { Search: "search", Read: "file", Create: "plus", Update: "edit", Delete: "close", Submit: "check", Cancel: "close", Run: "grid" }[verb] || "wrench";
-	}
-	function previewHTML(preview) {
-		const data = previewData(preview);
-		const summary = data.summary || data.description || "";
-		// Structured before/after values stay behind a details toggle; the table cells
-		// show a compact label instead of raw JSON.
-		const value = (entry) => {
-			if (entry == null) return "-";
-			if (typeof entry !== "object") return esc(String(entry));
-			const label = Array.isArray(entry) ? entry.length + " item" + (entry.length === 1 ? "" : "s") : Object.keys(entry).length + " field" + (Object.keys(entry).length === 1 ? "" : "s");
-			return '<details class="fi-change-value"><summary>' + esc(label) + "</summary><pre>" + esc(JSON.stringify(entry, null, 2)) + "</pre></details>";
-		};
-		let html = summary ? '<p class="fi-approval-summary">' + esc(summary) + "</p>" : "";
-		if (Array.isArray(data.changes) && data.changes.length) html += '<div class="fi-change-table"><table><thead><tr><th>Field</th><th>Before</th><th>Proposed</th></tr></thead><tbody>' + data.changes.map((change) => "<tr><th>" + esc(change.label || change.field) + "</th><td>" + value(change.before) + "</td><td>" + value(change.after) + "</td></tr>").join("") + "</tbody></table></div>";
-		// Only the server's purpose-built approval preview is displayed. Never render model tool-call metadata.
-		const details = Object.fromEntries(Object.entries(data).filter(([key]) => !["summary", "description", "metadata", "action", "operation", "target", "changes", "doctype", "name"].includes(key)));
-		if (Object.keys(details).length) html += '<details class="fi-proposal"><summary>Technical details</summary><pre>' + esc(JSON.stringify(details.details && Object.keys(details).length === 1 ? details.details : details, null, 2)) + "</pre></details>";
-		return html;
-	}
-	function fileCardHTML(file, options) {
-		const url = safeURL(file && file.file_url);
-		const label = String(file && file.file_name || "Attachment");
-		const size = file && Number(file.file_size) ? '<span class="fi-file-size">' + esc(Math.ceil(Number(file.file_size) / 1024) + " KB") + "</span>" : "";
-		const attach = options && options.attach ? button("reuse-file", options.attachLabel || "Attach", "plus", "fi-text-btn fi-file-attach", 'data-name="' + esc(file.name) + '"') : "";
-		return '<article class="fi-file-card" data-file="' + esc(file && file.name || "") + '"><span class="fi-file-icon">' + icon("file") + '</span><div class="fi-file-info"><strong>' + esc(label) + "</strong>" + size + "</div>" + (url ? '<a class="fi-file-open" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open</a>' : "") + attach + "</article>";
-	}
 	function effortOptions(selected) {
 		const current = EFFORTS.includes(selected) ? selected : "Auto";
 		return EFFORTS.map((effort) => "<option" + (effort === current ? " selected" : "") + ">" + esc(effort) + "</option>").join("");
@@ -286,23 +150,12 @@
 		const messages = new Map(); for (const message of older.concat(newer)) messages.set(message.name, message);
 		return Array.from(messages.values()).sort((left, right) => Number(left.sequence || 0) - Number(right.sequence || 0));
 	}
-	class Poller {
-		constructor(task, schedule, clear) { this.task = task; this.schedule = schedule || global.setTimeout.bind(global); this.clear = clear || global.clearTimeout.bind(global); this.timer = null; this.running = false; this.generation = 0; }
-		start(delay) { this.stop(); const generation = this.generation; this.timer = this.schedule(() => this.tick(generation), delay || 0); }
-		async tick(generation) {
-			this.timer = null; if (generation !== this.generation) return;
-			if (this.running) { this.timer = this.schedule(() => this.tick(generation), 250); return; }
-			this.running = true; let delay;
-			try { delay = await this.task(); } finally { this.running = false; if (generation === this.generation && delay != null) this.timer = this.schedule(() => this.tick(generation), delay); }
-		}
-		stop() { this.generation++; if (this.timer !== null) this.clear(this.timer); this.timer = null; }
-	}
 	class App {
 		constructor(options) {
 			this.api = options && options.api || request; this.doc = options && options.document || global.document;
 			this.boot = null; this.conversations = []; this.sharedConversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map(); this.expandedTools = new Set();
 			this.visible = false; this.archived = false; this.provider = ""; this.context = null; this.loading = false; this.online = true; this.error = ""; this.notice = ""; this.selectVersion = 0; this.listVersion = 0; this.lastList = 0; this.failures = 0; this.messageSignature = ""; this.renaming = false;
-			this.poller = new Poller(() => this.poll()); this.root = this.doc.createElement("section"); this.root.className = "fi-app"; this.root.setAttribute("aria-label", "Intelligence workspace");
+			this.poller = new fi.Poller(() => this.poll()); this.root = this.doc.createElement("section"); this.root.className = "fi-app"; this.root.setAttribute("aria-label", "Intelligence workspace");
 			this.root.innerHTML = this.shell(); this.bind(); this.render();
 		}
 		shell() {
@@ -524,103 +377,11 @@
 			sharedSlot.hidden = !showShared; sharedLabel.hidden = !showShared;
 			sharedSlot.innerHTML = showShared ? this.conversationRowsHTML(this.sharedConversations) : "";
 		}
-		renderProviders() {
-			const select = this.$('[data-input="provider"]'); const providers = this.boot && this.boot.providers || [];
-			let options = providers.map((provider) => '<option value="' + esc(provider.name) + '">' + esc(provider.title + " · " + provider.model) + "</option>").join("");
-			if (this.selected && !providers.some((provider) => provider.name === this.provider)) options += '<option value="' + esc(this.provider) + '">Provider unavailable</option>';
-			if (select.dataset.options !== options) { select.innerHTML = options || '<option value="">Set up a provider</option>'; select.dataset.options = options; }
-			select.value = this.provider;
-			select.title = this.selected ? "This conversation uses its original provider. Start a new conversation to switch." : "Choose a configured provider and model";
-		}
 		renderBanner() {
 			const banner = this.slot("banner"); const message = this.error || (!this.online ? "Connection interrupted. Reconnecting automatically; your run continues on the server." : this.notice);
 			const signature = JSON.stringify([message, !!this.error]); if (signature === this.bannerSignature) return; this.bannerSignature = signature;
 			banner.hidden = !message; banner.classList.toggle("is-error", !!this.error); banner.setAttribute("role", this.error ? "alert" : "status");
 			banner.innerHTML = message ? icon(this.error ? "info" : "retry") + "<span>" + esc(message) + "</span>" + button("refresh", "Refresh", null, "fi-text-btn") + iconButton("dismiss", "Dismiss notification", "close") : "";
-		}
-		thinkingHTML() {
-			return '<div class="fi-thinking" role="status" aria-label="Intelligence is working"><span class="fi-avatar fi-avatar-ai"><img class="fi-avatar-logo" src="' + LOGO + '" alt=""></span><span class="fi-thinking-dots"><i></i><i></i><i></i></span></div>';
-		}
-		renderMessages() {
-			const slot = this.slot("messages"), thread = this.slot("thread");
-			const signature = JSON.stringify([this.loading, this.loadingConversation, this.selected, this.snapshot && this.snapshot.messages, this.snapshot && this.snapshot.approvals, this.snapshot && this.snapshot.files, this.snapshot && this.snapshot.run, this.snapshot && this.snapshot.has_earlier_messages, this.snapshot && this.snapshot.can_post, this.boot && this.boot.providers]);
-			if (signature === this.messageSignature) return; this.messageSignature = signature;
-			const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
-			if (this.loading || this.loadingConversation) { slot.innerHTML = '<div class="fi-skel-thread" role="status" aria-label="Loading"><span class="fi-skel-line fi-skel-wide"></span><span class="fi-skel-line"></span><span class="fi-skel-line fi-skel-short"></span><span class="fi-skel-line fi-skel-wide"></span><span class="fi-skel-line"></span></div>'; return; }
-			const messages = this.snapshot && this.snapshot.messages || [];
-			const approvals = this.snapshot && this.snapshot.approvals || [];
-			const files = this.snapshot && this.snapshot.files || [];
-			if (!messages.length && !approvals.length) {
-				const noProviders = this.boot && !(this.boot.providers || []).length;
-				const hour = new Date().getHours();
-				const daypart = hour < 5 || hour >= 18 ? "evening" : hour < 12 ? "morning" : "afternoon";
-				const userName = this.boot && this.boot.user_name || "";
-				const greeting = userName ? "Good " + daypart + ", " + esc(userName) + "." : "How can I help?";
-				slot.innerHTML = '<div class="fi-welcome"><div class="fi-welcome-symbol" aria-hidden="true"><img class="fi-welcome-logo" src="' + LOGO + '" alt=""></div><h2>' + greeting + '</h2><p>Ask about your business. Find the right records.<br>Take the next step, with you in control.</p>' + (noProviders ? '<div class="fi-setup-note"><strong>Connect a provider to get started</strong><p>Use your own API key and choose the model that works for you.</p>' + button("settings", "Set up a provider", "plus", "fi-primary") + "</div>" : '<div class="fi-starters"><button type="button" data-action="starter" data-prompt="Give me my briefing for today: what needs my attention across my companies, invoices, emails and tasks?"><span class="fi-starter-icon">' + icon("sun") + '</span><strong>Today&rsquo;s briefing</strong><span>What needs your attention right now</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me find the records I need to review today."><span class="fi-starter-icon">' + icon("search") + '</span><strong>Find what matters</strong><span>Explore records you can access</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Help me understand this workflow before making any changes."><span class="fi-starter-icon">' + icon("chat") + '</span><strong>Think it through</strong><span>Understand a process or next step</span>' + icon("chevron") + '</button><button type="button" data-action="starter" data-prompt="Review an attached document and help me identify the next steps."><span class="fi-starter-icon">' + icon("file") + '</span><strong>Start with a document</strong><span>Work with a private PDF or text file</span>' + icon("chevron") + "</button></div>") + '<div class="fi-welcome-foot">' + icon("lock") + " Private conversations. Explicit approvals. Your permissions.</div></div>";
-			} else {
-				// Merge messages and tool cards into one chronological feed: cards
-				// grouped after all messages would bury the final answer mid-thread.
-				const canPost = !this.readOnly();
-				const feed = messages.filter((message) => ["user", "assistant"].includes(message.role) && message.content).map((message) => ({ creation: message.creation || "", type: "message", html: this.messageHTML(message) })).concat(approvals.map((approval) => ({ creation: approval.creation || "", type: "approval", approval }))).sort((a, b) => (a.creation < b.creation ? -1 : a.creation > b.creation ? 1 : 0));
-				// Consecutive resolved tool actions collapse into one card; a pending
-				// approval always breaks the group and stays fully visible.
-				let body = "", group = [];
-				const flush = () => { if (group.length) { body += group.length > 1 ? this.toolGroupHTML(group, canPost) : this.approvalHTML(group[0], canPost); group = []; } };
-				for (const entry of feed) {
-					if (entry.type === "approval" && entry.approval.status !== "pending") { group.push(entry.approval); continue; }
-					flush(); body += entry.type === "approval" ? this.approvalHTML(entry.approval, canPost) : entry.html;
-				}
-				flush();
-				const run = this.snapshot && this.snapshot.run;
-				const thinking = run && ["queued", "running"].includes(run.state) ? this.thinkingHTML() : "";
-				const selected = new Set(this.draft().attachments.map((file) => file.name));
-				const fileCards = files.length ? '<div class="fi-file-cards" aria-label="Conversation files">' + files.map((file) => fileCardHTML(file, canPost && !selected.has(file.name) ? { attach: true, attachLabel: "Attach" } : canPost ? { attach: true, attachLabel: "Attached" } : null)).join("") + "</div>" : "";
-				slot.innerHTML = (this.snapshot.has_earlier_messages ? '<div class="fi-history-more">' + button("earlier", "Load earlier messages", "retry", "fi-text-btn") + "</div>" : "") + '<div class="fi-thread-start">' + icon("lock") + (this.snapshot.conversation && Number(this.snapshot.conversation.shared) ? " This conversation is shared read only" : " This conversation is private to you") + "</div>" + body + thinking + fileCards;
-				this.bindFileCards(slot);
-			}
-			if (nearBottom || !this.snapshot || this.snapshot.messages && this.snapshot.messages.length < 2) thread.scrollTop = thread.scrollHeight;
-			this.syncScrollButton();
-		}
-		syncScrollButton() {
-			const thread = this.slot("thread"), trigger = this.$('[data-action="scroll-bottom"]');
-			if (!thread || !trigger) return;
-			trigger.hidden = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 160;
-		}
-		toolGroupHTML(list, canPost) {
-			const key = list.map((approval) => approval.name).join("|"), open = this.expandedTools.has(key);
-			const active = list.some((approval) => ["approved", "executing"].includes(approval.status));
-			const title = active ? "Working through " + list.length + " steps" : "Used " + list.length + " tools";
-			return '<section class="fi-tool-group' + (open ? " is-open" : "") + '" aria-label="Tool actions"><button type="button" class="fi-tool-group-head" data-action="toggle-tools" data-key="' + esc(key) + '" aria-expanded="' + String(open) + '"><span class="fi-tool-group-icon">' + icon("wrench") + '</span><span class="fi-tool-group-title">' + esc(title) + '</span>' + (active ? '<span class="fi-spinner fi-tool-group-spinner" aria-label="Working"></span>' : "") + '<span class="fi-tool-group-chevron">' + icon("down") + "</span></button>" + '<div class="fi-tool-group-body"' + (open ? "" : " hidden") + ">" + list.map((approval) => this.toolRowHTML(approval, canPost)).join("") + '<details class="fi-proposal fi-group-details"><summary>Technical details</summary><pre>' + esc(JSON.stringify(list.map((approval) => ({ tool: approval.tool_name, status: approval.status, preview: previewData(approval.preview) })), null, 2)) + "</pre></details></div></section>";
-		}
-		toolRowHTML(approval, canPost) {
-			const status = String(approval.status || "pending");
-			const sentence = actionSentence(approval.preview, approval.tool_name);
-			const summary = previewData(approval.preview).summary || "";
-			const chip = recordLink(approval.preview);
-			return '<div class="fi-tool-row"><span class="fi-tool-icon">' + icon(toolIcon(approval.preview, approval.tool_name)) + '</span><div class="fi-tool-info"><strong>' + esc(sentence) + "</strong>" + (summary && summary !== sentence ? "<p>" + esc(summary) + "</p>" : "") + (chip ? '<div class="fi-approval-link">' + chip + "</div>" : "") + '</div><span class="fi-pill fi-pill-' + esc(status) + '">' + esc(status) + "</span></div>";
-		}
-		bindFileCards(slot) {
-			for (const element of slot.querySelectorAll('[data-action="reuse-file"]')) {
-				if (element.dataset.bound) continue; element.dataset.bound = "1";
-				element.addEventListener("click", () => {
-					const files = this.snapshot && this.snapshot.files || [];
-					const file = files.find((entry) => entry.name === element.dataset.name);
-					if (!file || this.readOnly() || this.draft().attachments.some((entry) => entry.name === file.name)) return;
-					this.draft().attachments.push(file); this.renderAttachments(); this.renderControls();
-					element.disabled = true; const label = element.querySelector("span"); if (label) label.textContent = "Attached";
-				});
-			}
-		}
-		messageHTML(message) {
-			return '<article class="fi-message fi-message-' + esc(message.role) + '" data-message="' + esc(message.name) + '"><div class="fi-message-heading"><span class="fi-avatar ' + (message.role === "assistant" ? "fi-avatar-ai" : "") + '">' + (message.role === "assistant" ? '<img class="fi-avatar-logo" src="' + LOGO + '" alt="">' : "Y") + "</span><strong>" + (message.role === "assistant" ? "Intelligence" : "You") + "</strong><span>" + esc(time(message.creation)) + "</span>" + (message.status === "interrupted" ? '<span class="fi-message-interrupted">Interrupted</span>' : "") + '</div><div class="fi-message-content">' + markdown(message.content) + "</div></article>";
-		}
-		approvalHTML(approval, canPost) {
-			const pending = approval.status === "pending", locked = this.pending.has("approval:" + approval.name);
-			const status = String(approval.status || "pending");
-			const sentence = actionSentence(approval.preview, approval.tool_name);
-			const link = recordLink(approval.preview);
-			const decisions = pending && canPost !== false && canPost !== 0;
-			return '<section class="fi-approval ' + (pending ? "is-pending" : "") + '" aria-label="Tool action"><div class="fi-approval-top"><span class="fi-approval-icon">' + icon(pending ? "lock" : "check") + '</span><div><span class="fi-eyebrow">' + (pending ? "YOUR APPROVAL IS REQUIRED" : "TOOL ACTION") + "</span><h3>" + esc(sentence) + "</h3>" + (link ? '<div class="fi-approval-link">' + link + "</div>" : "") + '</div><span class="fi-pill fi-pill-' + esc(status) + '">' + esc(status) + "</span></div>" + previewHTML(approval.preview) + (approval.expires_at && pending ? '<p class="fi-approval-expiry">Expires ' + esc(approval.expires_at) + "</p>" : "") + (pending ? (decisions ? '<div class="fi-approval-footer"><span>Nothing runs until you approve.</span><div>' + button("deny", "Deny", null, "", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("approve", "Approve action", "check", "fi-primary", 'data-name="' + esc(approval.name) + '" ' + (locked ? "disabled" : "")) + button("always", "Always allow", null, "fi-text-btn", 'data-name="' + esc(approval.name) + '" title="Approve now and stop asking for this action" ' + (locked ? "disabled" : "")) + "</div></div>" : '<div class="fi-approval-result">Waiting for the owner to decide.</div>') : '<div class="fi-approval-result">' + esc({ approved: "Approved; waiting for execution.", denied: "Denied. This request will not run.", executing: "Executing the approved request.", succeeded: "The approved action completed.", failed: "The action failed. Check the run status.", expired: "This approval expired. Start a new request if it is still needed.", uncertain: "The result could not be confirmed. Check the record before trying again." }[status] || "") + "</div>") + "</section>";
 		}
 		renderRun() {
 			const run = this.snapshot && this.snapshot.run, slot = this.slot("run");
@@ -637,56 +398,6 @@
 			const context = this.context;
 			const signature = JSON.stringify(context); if (signature === this.contextSignature) return; this.contextSignature = signature;
 			this.slot("context").innerHTML = context ? '<span class="fi-context-caption">Context for your next message</span><span class="fi-context-chip">' + icon("file") + "<span>" + esc(context.doctype) + (context.name ? '<span class="fi-context-divider">/</span>' + esc(context.name) : "") + "</span>" + iconButton("remove-context", "Remove page context", "close") + "</span>" : "";
-		}
-		renderAttachments() {
-			const signature = JSON.stringify([this.draft().attachments, this.pending.has("upload")]); if (signature === this.attachmentSignature) return; this.attachmentSignature = signature;
-			this.slot("attachments").innerHTML = this.draft().attachments.map((file) => '<span class="fi-file-chip">' + icon("file") + "<span>" + esc(file.file_name) + "</span>" + iconButton("remove-file", "Remove " + file.file_name + " from this message", "close", 'data-name="' + esc(file.name) + '"') + "</span>").join("") + (this.pending.has("upload") ? '<span class="fi-file-chip"><span class="fi-spinner"></span>Uploading privately…</span>' : "");
-		}
-		renderControls() {
-			const busy = this.pending.has("send") || this.pending.has("upload");
-			const readOnly = this.readOnly();
-			const unavailable = !this.boot || !this.boot.enabled || this.loading || this.loadingConversation || !!(this.selected && !this.snapshot);
-			const providerAvailable = !!(this.boot && (this.boot.providers || []).some((provider) => provider.name === this.provider));
-			const cancel = this.$('[data-action="cancel"]'); if (cancel) cancel.disabled = this.pending.has("cancel") || !!(this.snapshot && this.snapshot.run && this.snapshot.run.cancel_requested);
-			const notice = this.slot("readonly"), form = this.$("form"), caption = this.$(".fi-composer-caption");
-			const shared = !!(this.snapshot && this.snapshot.conversation && this.snapshot.can_post === false && !Number(this.snapshot.conversation.archived));
-			const showNotice = !!this.snapshot && shared;
-			notice.hidden = !showNotice;
-			notice.innerHTML = showNotice ? icon("lock") + "<span>Shared by " + esc(this.snapshot.conversation.owner || "another user") + " · read only</span>" : "";
-			form.hidden = showNotice; caption.hidden = showNotice;
-			this.$("textarea").disabled = !!(unavailable || readOnly || this.pending.has("send"));
-			this.$(".fi-send").disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || !this.draft().text.trim());
-			this.$(".fi-send").setAttribute("aria-label", this.pending.has("send") ? "Sending message" : this.isActive() ? "Wait for this run to finish" : "Send message");
-			this.$('[data-action="attach"]').disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || this.boot && this.boot.capabilities && this.boot.capabilities.attachments === false);
-			this.$('[data-input="provider"]').disabled = !!(unavailable || busy || this.selected);
-			for (const action of ["new", "archive", "share"]) this.$('[data-action="' + action + '"]').disabled = !!(unavailable || busy || this.pending.has(action));
-			for (const element of this.root.querySelectorAll('[data-action="select"]')) element.disabled = busy;
-			for (const element of this.root.querySelectorAll('[data-action="approve"], [data-action="deny"], [data-action="always"]')) element.disabled = this.pending.has("approval:" + element.dataset.name);
-			for (const element of this.root.querySelectorAll('[data-action="remove-file"], [data-action="remove-context"]')) element.disabled = this.pending.has("send");
-			const earlier = this.$('[data-action="earlier"]'); if (earlier) earlier.disabled = this.pending.has("earlier");
-			this.root.setAttribute("aria-busy", String(!!this.loading));
-		}
-		syncDraft() { this.$("textarea").value = this.draft().text; this.resizeComposer(); this.renderAttachments(); this.renderControls(); }
-		resizeComposer() { const input = this.$("textarea"); input.style.height = "auto"; input.style.height = Math.min(180, Math.max(64, input.scrollHeight)) + "px"; }
-		async ensureConversation() {
-			if (this.selected) return this.selected;
-			const draft = this.draft(); const conversation = await this.api("create_conversation", { provider: this.provider });
-			if (!conversation || !conversation.name) throw { userMessage: "The server did not return a conversation. Refresh before trying again." };
-			this.selected = conversation.name; this.selectVersion++; this.drafts.set(conversation.name, draft); this.drafts.delete("new"); this.snapshot = { conversation, messages: [], approvals: [], files: [], run: null, can_post: true }; this.lastList = 0; this.navigate(conversation.name); this.render(); return conversation.name;
-		}
-		send() {
-			if (this.$(".fi-send").disabled || this.pending.has("send")) return Promise.resolve();
-			return this.busy("send", async () => {
-				this.error = ""; const draft = this.draft(), content = draft.text.trim(), attachments = draft.attachments.map((file) => file.name), context = this.context ? Object.assign({}, this.context) : null;
-				const name = await this.ensureConversation();
-				try { const run = await this.api("send_message", { conversation: name, content, context: context ? JSON.stringify(context) : null, attachments: JSON.stringify(attachments) });
-					if (!run || !run.name) throw { userMessage: "No run was returned. Refresh before trying again; your message may have been saved." };
-					draft.text = ""; draft.attachments = []; this.watched.set(name, run); this.snapshot.run = run; this.syncDraft(); this.renderRun(); this.renderMessages(); this.poller.start(0);
-					const data = await this.fetchConversation(name); this.accept(name, data); this.lastList = 0;
-					// Server auto-titles from the first message; pick it up right away.
-					this.refreshList().catch(() => {});
-				} catch (error) { this.poller.start(0); throw error; }
-			});
 		}
 		startRename() {
 			if (!this.snapshot || this.renaming || this.snapshot.can_post === false) return;
@@ -752,6 +463,9 @@
 			if (action === "copy-code") { const text = target.closest(".fi-code").querySelector("code").textContent; if (!global.navigator || !global.navigator.clipboard) { this.error = "Clipboard access is unavailable. Select and copy the code directly."; this.renderBanner(); return; } return global.navigator.clipboard.writeText(text).then(() => { target.textContent = "Copied"; global.setTimeout(() => { target.textContent = "Copy"; }, 1800); }).catch(() => { this.error = "Could not copy. Select and copy the code directly."; this.renderBanner(); }); }
 			if (action === "cancel") return this.busy("cancel", async () => { const name = this.selected; await this.api("cancel", { run: this.snapshot.run.name }); this.accept(name, await this.fetchConversation(name)); this.poller.start(0); });
 			if (["approve", "deny", "always"].includes(action)) { const name = this.selected; return this.busy("approval:" + target.dataset.name, async () => { await this.api("approve", { approval: target.dataset.name, decision: action }); if (action === "always") { this.notice = "Approved. This action will not ask again."; this.renderBanner(); } this.accept(name, await this.fetchConversation(name)); this.poller.start(0); }); }
+			// Modules may register additional actions as App.prototype["action_<name>"].
+			const handler = this["action_" + action];
+			if (typeof handler === "function") return handler.call(this, target);
 		}
 		// Every Desk-host dialog is a declarative frappe.ui.Dialog via nativeForm;
 		// dialog() only ever runs on hosts without frappe.ui (the mock preview),
@@ -873,28 +587,6 @@
 				if (next === null) return;
 				modal.run(async () => commit(modal, next));
 			});
-		}
-		chooseFile() {
-			const input = this.doc.createElement("input"); input.type = "file"; input.accept = ".pdf,.txt,.csv,.md,.json,text/plain,text/csv,application/pdf";
-			input.addEventListener("change", () => { const file = input.files && input.files[0]; if (file) this.upload(file); }); input.click();
-		}
-		upload(file) {
-			if (this.pending.has("upload") || this.pending.has("send") || this.isActive() || this.readOnly()) return Promise.resolve();
-			const max = Number(this.boot && this.boot.defaults && this.boot.defaults.max_upload_mb) || 10;
-			if (!/\.(pdf|txt|csv|md|json)$/i.test(file.name) || file.size > max * 1024 * 1024) { this.error = "Choose a PDF or text file up to " + max + " MB."; this.renderBanner(); return Promise.resolve(); }
-			return this.busy("upload", async () => {
-				this.renderAttachments(); const name = await this.ensureConversation(), form = new global.FormData(); form.append("file", file); form.append("conversation", name);
-				const abort = new global.AbortController(), timer = global.setTimeout(() => abort.abort(), 60000); let response, data;
-				try {
-					response = await global.fetch("/api/method/" + API + "upload_attachment", { method: "POST", body: form, credentials: "same-origin", signal: abort.signal, headers: { "X-Frappe-CSRF-Token": global.frappe.csrf_token || "" } });
-					try { data = await response.json(); } catch (_) { throw { status: response.status }; }
-				} catch (error) { if (error.name === "AbortError") throw { userMessage: "The upload timed out. The file may have been saved privately, but it was not added to this message. Refresh before uploading again." }; throw error; }
-				finally { global.clearTimeout(timer); }
-				if (!response.ok || data.exc) throw Object.assign({ status: response.status }, data);
-				const attachment = data.message;
-				if (!attachment || !attachment.name || !Number(attachment.is_private)) throw { userMessage: "The server did not confirm a private attachment. It was not added to your message." };
-				this.draft().attachments.push(attachment); this.messageSignature = ""; this.renderMessages();
-			}).finally(() => this.renderAttachments());
 		}
 		providerDialog() {
 			if (!this.boot) return;
@@ -1410,50 +1102,7 @@
 		if (!nodes.length) { event.preventDefault(); return; } const first = nodes[0], last = nodes[nodes.length - 1];
 		if (event.shiftKey && (global.document.activeElement === first || !container.contains(global.document.activeElement))) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && (global.document.activeElement === last || !container.contains(global.document.activeElement))) { event.preventDefault(); first.focus(); }
 	}
-	let singleton, installed = false, drawer, pageHost, toggle, drawerFocus;
-	function getApp() {
-		if (!singleton) { singleton = new App(); singleton.onClose = closeDrawer; singleton.onExpand = () => { closeDrawer(); global.frappe.set_route(PAGE); }; }
-		return singleton;
-	}
-	function deskReady() { return !!(global.document && global.frappe && global.frappe.boot && global.frappe.session && global.frappe.session.user && global.frappe.session.user !== "Guest" && global.frappe.get_route); }
-	function pageRoute() { const route = global.frappe.get_route(); return route && route[0] === PAGE ? route : null; }
-	function routeIsPage() { return !!pageRoute(); }
-	// The floating pill stays available across Desk except on the Intelligence page
-	// itself, where the full app already fills the content area. syncDesk is called
-	// on install, on every route change and from the page lifecycle.
-	function syncDesk() {
-		if (!deskReady()) return;
-		if (toggle) toggle.hidden = routeIsPage();
-		const stale = global.document.querySelector("[data-fi-desk]"); if (stale) stale.remove();
-		if (global.document.body) global.document.body.classList.toggle("fi-desk-active", routeIsPage());
-	}
-	function syncRouteSelection() {
-		if (!singleton) return;
-		const route = pageRoute();
-		if (!route) return;
-		const name = route[1] || null;
-		if (name && name !== singleton.selected) singleton.select(name);
-		else if (!name && singleton.selected) singleton.newConversation();
-	}
-	function openDrawer() {
-		if (!deskReady()) return; const app = getApp(); if (drawer && !drawer.hidden) { closeDrawer(); return; }
-		if (!drawer) { drawer = global.document.createElement("div"); drawer.className = "fi-drawer-shell"; drawer.hidden = true; drawer.setAttribute("role", "dialog"); drawer.setAttribute("aria-modal", "true"); drawer.setAttribute("aria-label", "Intelligence contextual drawer"); drawer.tabIndex = -1; drawer.addEventListener("keydown", (event) => { if (event.key === "Tab") trapFocus(event, drawer); if (event.key === "Escape" && !app.modal) { event.preventDefault(); closeDrawer(); } }); global.document.body.appendChild(drawer); }
-		drawerFocus = global.document.activeElement; drawer.hidden = false; app.context = contextFromRoute(global.frappe.get_route()); app.show(drawer, "drawer"); if (toggle) toggle.setAttribute("aria-expanded", "true"); drawer.focus(); global.setTimeout(() => { if (!drawer.hidden) app.$("textarea").focus(); }, 0);
-	}
-	function closeDrawer() { if (!drawer || drawer.hidden) return; drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); if (singleton) { if (pageHost && routeIsPage()) singleton.show(pageHost, "page"); else singleton.hide(); } if (drawerFocus && drawerFocus.isConnected) drawerFocus.focus(); }
-	function showPage(host) { if (!deskReady()) return; pageHost = host.jquery ? host[0] : host; if (drawer) drawer.hidden = true; if (toggle) toggle.setAttribute("aria-expanded", "false"); const app = getApp(); app.show(pageHost, "page"); syncDesk(); syncRouteSelection(); }
-	function install() {
-		if (installed || !deskReady()) return; installed = true;
-		toggle = global.document.createElement("button"); toggle.type = "button"; toggle.className = "fi-global-toggle"; toggle.setAttribute("aria-label", "Open Intelligence"); toggle.setAttribute("aria-expanded", "false"); toggle.title = "Intelligence · Ctrl/⌘ Shift I"; toggle.innerHTML = '<img class="fi-toggle-logo" src="' + LOGO + '" alt="" aria-hidden="true"><span>Intelligence</span>'; toggle.addEventListener("click", openDrawer); global.document.body.appendChild(toggle);
-		global.document.addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "i") { event.preventDefault(); openDrawer(); } });
-		const routeChange = () => { syncDesk(); if (!singleton) return; if (drawer && !drawer.hidden) { singleton.context = contextFromRoute(global.frappe.get_route()); singleton.renderContext(); } else if (routeIsPage()) syncRouteSelection(); else singleton.hide(); };
-		if (global.frappe.router && global.frappe.router.on) global.frappe.router.on("change", routeChange);
-		syncDesk();
-		if (global.frappe.realtime && global.frappe.realtime.on) global.frappe.realtime.on("intelligence_update", (event) => { if (!singleton || !event || !event.conversation) return; if (singleton.visible || singleton.watched.has(event.conversation)) { singleton.lastList = 0; singleton.poller.start(100); } });
-		global.addEventListener("online", () => { if (singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
-		global.document.addEventListener("visibilitychange", () => { if (!global.document.hidden && singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
-		global.addEventListener("pagehide", () => { if (singleton) singleton.poller.stop(); });
-		global.addEventListener("pageshow", () => { if (singleton && (singleton.visible || singleton.watched.size)) singleton.poller.start(0); });
-	}
-	return { install, showPage, syncDesk, toggle: openDrawer, close: closeDrawer, App, Poller, utils: { esc, safeURL, markdown, contextFromRoute, userError, previewHTML, actionSentence, recordLink, fileCardHTML, skillsHTML, learnedSkillsHTML, effortOptions, scopeState, scopeProblem, scopeHTML, stamp }, request };
+	Object.assign(fi, { API, LOGO, ACTIVE, KINDS, EFFORTS, APPROVAL_MODES, SETTINGS_FIELDS, LABELS, PAGE, icons, icon, esc, contextFromRoute, userError, request, button, iconButton, time, stamp, parsed, dashed, effortOptions, skillsHTML, learnedSkillsHTML, lines, scopeState, scopeProblem, scopeHTML, mergeMessages, App, trapFocus });
+	fi.utils = { esc, contextFromRoute, userError, skillsHTML, learnedSkillsHTML, effortOptions, scopeState, scopeProblem, scopeHTML, stamp };
+	return fi;
 });

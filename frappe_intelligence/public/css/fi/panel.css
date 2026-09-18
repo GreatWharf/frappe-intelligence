@@ -1,0 +1,71 @@
+/* Intelligence panel: global Desk launcher, drawer shell and Desk-chrome overrides. Loads after intelligence.css. */
+.fi-global-toggle {--fi-bg: var(--fg-color, #fff); --fi-soft: var(--subtle-fg, #f7f8fa); --fi-ground: var(--bg-color, #f3f5f7);
+	--fi-text: var(--text-color, #242a30); --fi-muted: var(--text-muted, #65717c); --fi-border: var(--border-color, #e6e9ec);
+	--fi-accent: var(--btn-primary, #171717); --fi-accent-hover: var(--invert-neutral, #383838); --fi-accent-soft: var(--control-bg, #f3f3f3); --fi-accent-text: var(--text-color, #171717);
+	--fi-on-accent: var(--neutral, #fff); --fi-focus: var(--gray-500, #737373); --fi-control: var(--control-bg, #f3f3f3);
+	--fi-amber: #95611a; --fi-amber-soft: #fcf7ed; --fi-danger: #b33b35; --fi-danger-soft: #fff3f1;
+	--fi-shadow: 0 18px 60px rgb(24 35 43 / 13%); --fi-font: var(--font-stack, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+	color: var(--fi-text); font: var(--text-base, 14px)/1.5 var(--fi-font); text-align: left; -webkit-font-smoothing: antialiased;}
+[data-theme="dark"] .fi-global-toggle {--fi-bg: var(--fg-color, #1c2228); --fi-soft: var(--subtle-fg, #222930); --fi-ground: var(--bg-color, #161b21);
+	--fi-text: var(--text-color, #e8edef); --fi-muted: var(--text-muted, #a0acb5); --fi-border: var(--border-color, #343e47);
+	--fi-accent: var(--btn-primary, #f3f3f3); --fi-accent-hover: var(--invert-neutral, #d4d4d4); --fi-accent-soft: var(--control-bg, #292929); --fi-accent-text: var(--text-color, #f3f3f3);
+	--fi-on-accent: var(--neutral, #171717); --fi-focus: var(--gray-500, #a3a3a3); --fi-control: var(--control-bg, #292929);
+	--fi-amber: #e9bc75; --fi-amber-soft: #332c21; --fi-danger: #f69c95; --fi-danger-soft: #3b2425;
+	--fi-shadow: 0 18px 60px rgb(0 0 0 / 35%);}
+.fi-global-toggle * {box-sizing: border-box;}
+.fi-drawer-shell[hidden] {display: none !important;}
+.fi-global-toggle {-webkit-tap-highlight-color: transparent;}
+.fi-global-toggle:focus-visible {outline: 2px solid var(--fi-focus); outline-offset: 2px;}
+.fi-global-toggle {position: fixed; right: 22px; bottom: 19px; z-index: 1025; display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--fi-border); border-radius: 9px; padding: 10px 14px; background: var(--fi-bg); box-shadow: 0 3px 16px rgb(20 30 40 / 10%); font-size: 11px; font-weight: 600; cursor: pointer;}
+.fi-global-toggle:hover {border-color: var(--fi-accent);}
+.fi-global-toggle[hidden] {display: none !important;}
+.fi-drawer-shell {position: fixed; top: 58px; right: 14px; bottom: 14px; width: min(560px, calc(100vw - 28px)); z-index: 1040; border-radius: 13px; box-shadow: -12px 0 60px rgb(0 0 0 / 16%); outline: none;}
+.fi-drawer-app {height: 100%; min-height: 0; border: 1px solid var(--fi-border); grid-template-columns: minmax(0,1fr); border-radius: 13px;}
+.fi-drawer-app > .fi-sidebar {display: none;}
+.fi-drawer-app .fi-header {padding: 15px 18px; min-height: 70px;}
+.fi-drawer-app .fi-thread-inner {padding: 25px 23px;}
+.fi-drawer-app .fi-bottom {padding: 0 23px 15px;}
+.fi-drawer-app .fi-welcome {padding-top: 35px;}
+.fi-drawer-app .fi-composer-caption > span:last-child {display: none;}
+.fi-drawer-app .fi-approval {margin-left: 0;}
+.fi-drawer-app .fi-tool-group {margin-left: 0;}
+.fi-drawer-app .fi-approval-footer {flex-wrap: wrap;}
+.fi-drawer-app .fi-file-cards {margin-left: 0;}
+/* Desk chrome while Intelligence is open: the app mark replaces the workspace
+   letter avatar and the redundant workspace shortcut list is tucked away. */
+body.fi-desk-active .body-sidebar .sidebar-header .icon-container {background-color: transparent !important; background-image: url("/assets/frappe_intelligence/images/intelligence.svg") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: cover !important;}
+body.fi-desk-active .body-sidebar .sidebar-header .icon-container svg {display: none !important;}
+body.fi-desk-active .body-sidebar .body-sidebar-top {display: none !important;}
+.fi-toggle-logo {width: 17px; height: 17px; border-radius: 5px; display: block;}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) .fi-global-toggle {--fi-bg: var(--fg-color, #1c2228); --fi-soft: var(--subtle-fg, #222930); --fi-ground: var(--bg-color, #161b21);
+		--fi-text: var(--text-color, #e8edef); --fi-muted: var(--text-muted, #a0acb5); --fi-border: var(--border-color, #343e47);
+		--fi-accent: var(--btn-primary, #f3f3f3); --fi-accent-hover: var(--invert-neutral, #d4d4d4); --fi-accent-soft: var(--control-bg, #292929); --fi-accent-text: var(--text-color, #f3f3f3);
+		--fi-on-accent: var(--neutral, #171717); --fi-focus: var(--gray-500, #a3a3a3); --fi-control: var(--control-bg, #292929);
+		--fi-amber: #e9bc75; --fi-amber-soft: #332c21; --fi-danger: #f69c95; --fi-danger-soft: #3b2425;
+		--fi-shadow: 0 18px 60px rgb(0 0 0 / 35%);}
+}
+@media (max-width: 1100px) {
+	.fi-app:not(.fi-drawer-app) {grid-template-columns: 250px minmax(0,1fr);}
+	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed {grid-template-columns: 0 minmax(0,1fr);}
+}
+@media (max-width: 760px) {
+	.fi-app:not(.fi-drawer-app) {grid-template-columns: minmax(0,1fr); min-height: 420px;}
+	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed {grid-template-columns: minmax(0,1fr);}
+	.fi-app:not(.fi-drawer-app) > .fi-sidebar {position: absolute; left: 0; top: 0; bottom: 0; width: 280px; z-index: 5; box-shadow: 15px 0 50px rgb(0 0 0 / 12%);}
+	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed > .fi-sidebar {display: none;}
+	.fi-global-toggle {right: 14px; bottom: 12px;}
+}
+@media (max-width: 480px) {
+	.fi-drawer-app .fi-header {padding: 12px; gap: 6px;}
+	.fi-drawer-app .fi-thread-inner {padding: 20px 16px;}
+	.fi-drawer-app .fi-bottom {padding: 0 16px 12px;}
+	.fi-drawer-app .fi-welcome h2 {font-size: 27px;}
+	.fi-drawer-shell {top: 0; right: 0; bottom: 0; width: 100%; border-radius: 0; padding-top: env(safe-area-inset-top,0px); padding-bottom: env(safe-area-inset-bottom,0px);}
+	.fi-drawer-app {border-radius: 0;}
+	.fi-global-toggle > span:nth-child(2) {display: none;}
+	.fi-global-toggle {padding: 11px;}
+}
+@media print {
+	.fi-global-toggle {display: none !important;}
+}

@@ -1,0 +1,65 @@
+/* Intelligence composer: run bar, context chips, attachments, provider picker, send. Loads after intelligence.css. */
+.fi-bottom {width: 100%; padding: 0 36px 16px; background: var(--fi-bg); flex-shrink: 0;}
+.fi-run {display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 13px; border: 1px solid var(--fi-border); border-radius: 8px; background: var(--fi-soft);}
+.fi-run-copy {flex: 1; min-width: 0;}
+.fi-run-copy strong {display: block; font-size: 11px; font-weight: 600;}
+.fi-run-copy > span {display: block; font-size: 9px; line-height: 1.6; color: var(--fi-muted); overflow-wrap: anywhere; margin-top: 2px;}
+.fi-run .fi-btn {font-size: 10px; padding: 5px 6px; min-height: 27px;}
+.fi-run-icon {color: var(--fi-accent-text);}
+.fi-run-icon .fi-icon {height: 17px; width: 17px;}
+.fi-run.is-warning {border-color: var(--fi-amber); background: var(--fi-amber-soft);}
+.fi-run.is-warning .fi-run-icon {color: var(--fi-amber);}
+.fi-context-list {display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 7px;}
+.fi-context-list:empty {display: none;}
+.fi-context-caption {color: var(--fi-muted); font-size: 9px;}
+.fi-context-chip {display: inline-flex; align-items: center; gap: 6px; padding: 3px 5px 3px 8px; border: 1px solid var(--fi-border); background: var(--fi-soft); border-radius: 6px; font-size: 10px; max-width: 100%;}
+.fi-context-chip > span {overflow-wrap: anywhere;}
+.fi-context-chip > .fi-icon {width: 12px; height: 12px; color: var(--fi-muted);}
+.fi-context-chip .fi-icon-btn {height: 20px; width: 20px; padding: 3px;}
+.fi-context-chip .fi-icon-btn .fi-icon {width: 11px; height: 11px;}
+.fi-context-divider {padding: 0 5px; color: var(--fi-muted);}
+.fi-readonly {display: flex; align-items: center; gap: 8px; border: 1px solid var(--fi-border); border-radius: var(--border-radius, 8px); background: var(--fi-soft); color: var(--fi-muted); padding: 14px 16px; font-size: 12px;}
+.fi-readonly .fi-icon {width: 14px; height: 14px;}
+.fi-composer {border: 1px solid var(--fi-border); border-radius: var(--border-radius, 8px); padding: 12px; box-shadow: none; background: var(--fi-bg); transition: border-color .1s ease;}
+.fi-composer:focus-within {border-color: var(--fi-focus); box-shadow: none;}
+.fi-composer textarea {display: block; border: 0; border-radius: 0; padding: 1px 3px; background: transparent; color: var(--fi-text); width: 100%; resize: none; min-height: 64px; max-height: 180px; font-size: 12px; line-height: 1.7; box-shadow: none; outline: none !important;}
+.fi-composer textarea::placeholder {color: var(--fi-muted); opacity: .85;}
+.fi-composer textarea:disabled {opacity: .7; cursor: not-allowed;}
+.fi-composer-toolbar {display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px;}
+.fi-composer-tools {display: flex; align-items: center; min-width: 0; gap: 9px;}
+.fi-composer-tools > .fi-icon-btn {height: 28px; width: 28px; border-right: 1px solid var(--fi-border); border-radius: 0; padding-right: 8px;}
+.fi-provider-label {display: flex; align-items: center; position: relative; min-width: 0; gap: 6px;}
+.fi-provider-dot {width: 5px; height: 5px; border-radius: 50%; background: var(--fi-accent); flex-shrink: 0;}
+.fi-provider-label select {color: var(--fi-muted); width: 100%; max-width: 320px; min-width: 0; padding: 5px 20px 5px 2px; border: 0; background: transparent; appearance: none; font-size: 10px; text-overflow: ellipsis; cursor: pointer;}
+.fi-provider-label select:disabled {opacity: 1;}
+.fi-provider-label > .fi-icon {position: absolute; right: 2px; pointer-events: none; width: 11px; height: 11px; color: var(--fi-muted);}
+.fi-provider-label option {background: var(--fi-bg); color: var(--fi-text);}
+.fi-send {border: 0; border-radius: 7px; width: 31px; height: 31px; background: var(--fi-accent); color: var(--fi-on-accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0;}
+.fi-send:hover:not(:disabled) {background: var(--fi-accent-hover);}
+.fi-send:disabled {background: var(--fi-soft); color: var(--fi-muted); opacity: 1 !important; border: 1px solid var(--fi-border);}
+.fi-send .fi-icon {width: 16px; height: 16px;}
+.fi-composer-caption {display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; color: var(--fi-muted); font-size: 8px;}
+.fi-composer-caption > span {display: inline-flex; align-items: center; gap: 4px;}
+.fi-composer-caption .fi-icon {height: 10px; width: 10px;}
+.fi-attachments {display: flex; flex-wrap: wrap; gap: 6px;}
+.fi-attachments:not(:empty) {padding: 8px 2px;}
+.fi-file-chip {display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid var(--fi-border); border-radius: 6px; padding: 4px 5px 4px 8px; font-size: 10px; color: var(--fi-muted);}
+.fi-file-chip > span {max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.fi-file-chip > .fi-icon {height: 12px; width: 12px;}
+.fi-file-chip .fi-icon-btn {width: 20px; height: 20px; padding: 3px;}
+.fi-file-chip .fi-icon-btn .fi-icon {width: 12px; height: 12px;}
+@media (max-width: 1100px) {
+	.fi-bottom {padding-inline: 26px;}
+	.fi-composer-caption > span:last-child {font-size: 7px;}
+}
+@media (max-width: 760px) {
+	.fi-bottom {padding: 0 20px 14px;}
+	.fi-composer-caption > span:last-child {display: none;}
+}
+@media (max-width: 480px) {
+	.fi-bottom {padding: 0 16px 12px;}
+	.fi-provider-label select {max-width: 195px; font-size: 9px;}
+}
+@media print {
+	.fi-bottom {display: none !important;}
+}

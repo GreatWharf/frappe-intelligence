@@ -1,0 +1,170 @@
+/* Intelligence thread surface: messages, markdown, tool and approval cards. Loads after intelligence.css. */
+.fi-thread-wrap {position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;}
+.fi-thread {flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; min-height: 0; scrollbar-width: thin; overscroll-behavior: contain;}
+.fi-scroll-bottom {position: absolute; right: 22px; bottom: 14px; z-index: 3; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--fi-border); border-radius: 999px; background: var(--fi-bg); color: var(--fi-text); box-shadow: 0 4px 16px rgb(24 35 43 / 14%); padding: 7px 13px; font-size: 11px; font-weight: 600;}
+.fi-scroll-bottom:hover {background: var(--fi-soft);}
+.fi-scroll-bottom .fi-icon {width: 13px; height: 13px;}
+.fi-thread-inner {padding: 28px 36px 34px;}
+.fi-welcome {padding: clamp(10px, 4vh, 56px) 0 6px; max-width: 555px; margin: 0 auto;}
+.fi-welcome-symbol {width: 51px; height: 51px; border: 1px solid var(--fi-border); border-radius: 14px; color: var(--fi-accent); display: flex; align-items: center; justify-content: center; margin-bottom: 25px; background: var(--fi-bg); box-shadow: none;}
+.fi-welcome h2 {font: 600 24px/1.3 var(--fi-font); letter-spacing: -.4px; margin: 0 0 14px;}
+.fi-welcome > p {color: var(--fi-muted); font-size: 13px; line-height: 1.8; margin: 0;}
+.fi-starters {margin-top: 29px; display: flex; flex-direction: column; gap: 9px;}
+.fi-starters > button {display: grid; grid-template-columns: 31px minmax(0,1fr) 18px; grid-template-rows: auto auto; align-items: center; column-gap: 11px; text-align: left; padding: 12px 14px; border: 1px solid var(--fi-border); border-radius: 9px; background: var(--fi-bg); color: var(--fi-text); transition: border-color .1s ease, background .1s ease;}
+.fi-starters > button:hover {border-color: var(--fi-border); background: var(--btn-default-hover-bg, var(--fi-soft));}
+.fi-starter-icon {grid-row: 1 / 3; display: flex; align-items: center; justify-content: center; height: 31px; border-radius: 7px; background: var(--fi-soft); color: var(--fi-muted);}
+.fi-starter-icon .fi-icon {height: 16px; width: 16px;}
+.fi-starters strong {font-weight: 550; font-size: 12px; line-height: 1.6;}
+.fi-starters button > span:not(.fi-starter-icon) {grid-column: 2; font-size: 10px; color: var(--fi-muted);}
+.fi-starters button > .fi-icon {grid-row: 1 / 3; grid-column: 3; width: 13px; color: var(--fi-muted);}
+.fi-welcome-foot {display: flex; align-items: center; gap: 6px; margin-top: 22px; color: var(--fi-muted); font-size: 9px;}
+.fi-welcome-foot .fi-icon {height: 11px; width: 11px;}
+.fi-setup-note {background: var(--fi-accent-soft); border: 1px solid var(--fi-border); border-radius: 10px; padding: 22px; margin-top: 24px;}
+.fi-setup-note > strong {font-weight: 600;}
+.fi-setup-note p {margin: 6px 0 16px; color: var(--fi-muted); font-size: 12px;}
+.fi-history-more {display: flex; justify-content: center; margin: 0 0 17px;}
+.fi-history-more .fi-btn {font-size: 11px;}
+.fi-thread-start {display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--fi-muted); font-size: 10px; padding: 0 0 31px;}
+.fi-thread-start .fi-icon {height: 11px; width: 11px;}
+.fi-message {margin-bottom: 30px;}
+.fi-message-heading {display: flex; align-items: center; gap: 9px; margin-bottom: 10px; font-size: 11px;}
+.fi-message-heading > strong {font-weight: 600;}
+.fi-message-heading > span:not(.fi-avatar) {color: var(--fi-muted); font-size: 9px;}
+.fi-avatar {height: 26px; width: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; background: var(--fi-soft); border: 1px solid var(--fi-border); font-size: 11px; font-weight: 600; color: var(--fi-muted);}
+.fi-avatar-ai {color: var(--fi-accent); background: var(--fi-accent-soft); border-color: transparent;}
+.fi-message-content {margin-left: 35px; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere;}
+.fi-message-user .fi-message-content {background: var(--fi-soft); border-radius: 0 10px 10px; padding: 13px 17px;}
+.fi-message-content p {margin: 0 0 13px;}
+.fi-message-content > :last-child {margin-bottom: 0;}
+.fi-message-content :is(h3,h4,h5) {font-family: var(--fi-font); font-weight: 620; letter-spacing: -.2px; margin: 22px 0 9px; color: var(--fi-text);}
+.fi-message-content h3 {font-size: 17px;}
+.fi-message-content h4 {font-size: 15px;}
+.fi-message-content h5 {font-size: 13px;}
+.fi-message-content ul, .fi-message-content ol {padding-left: 22px; margin: 9px 0 16px;}
+.fi-message-content li {padding-left: 3px; margin: 5px 0;}
+.fi-message-content strong {font-weight: 620;}
+.fi-message-content blockquote {border-left: 3px solid var(--fi-border); padding: 2px 16px; color: var(--fi-muted); margin: 16px 0; font-size: inherit;}
+.fi-message-content code {font: 11px/1.7 "SFMono-Regular", Consolas, "Liberation Mono", monospace; background: var(--fi-soft); border: 1px solid var(--fi-border); border-radius: 4px; padding: 1px 4px; color: var(--fi-text);}
+.fi-code {border: 1px solid var(--fi-border); border-radius: 8px; margin: 16px 0; background: var(--fi-soft); overflow: hidden;}
+.fi-code-head {display: flex; align-items: center; justify-content: space-between; padding: 7px 13px; font: 10px/1.6 "SFMono-Regular", Consolas, monospace; border-bottom: 1px solid var(--fi-border); color: var(--fi-muted);}
+.fi-code-head button {border: 0; background: transparent; color: var(--fi-muted); font-family: var(--fi-font); font-size: 10px;}
+.fi-code pre {overflow: auto; background: transparent; margin: 0; padding: 15px; border: 0; color: var(--fi-text);}
+.fi-code pre code {border: 0; border-radius: 0; padding: 0; background: transparent; white-space: pre; overflow-wrap: normal;}
+.fi-table-wrap {width: 100%; overflow-x: auto; margin: 15px 0; border: 1px solid var(--fi-border); border-radius: 7px;}
+.fi-table-wrap table {border-collapse: collapse; width: 100%; text-align: left; font-size: 11px;}
+.fi-table-wrap th {background: var(--fi-soft); color: var(--fi-muted); font-weight: 600;}
+.fi-table-wrap td, .fi-table-wrap th {padding: 9px 12px; border-bottom: 1px solid var(--fi-border); white-space: nowrap;}
+.fi-table-wrap tr:last-child td {border-bottom: 0;}
+/* Tool action and approval cards. */
+.fi-approval {border: 1px solid var(--fi-border); border-radius: 10px; margin: 24px 0 24px 35px; overflow: hidden; background: var(--fi-bg);}
+.fi-approval.is-pending {border-color: color-mix(in srgb, var(--fi-amber) 32%, var(--fi-bg));}
+.fi-approval-top {display: flex; align-items: center; gap: 11px; padding: 16px 18px; border-bottom: 1px solid var(--fi-border); background: var(--fi-soft);}
+.fi-approval.is-pending .fi-approval-top {background: var(--fi-amber-soft); border-color: color-mix(in srgb, var(--fi-amber) 20%, var(--fi-bg));}
+.fi-approval-icon {display: inline-flex; height: 32px; width: 32px; align-items: center; justify-content: center; background: var(--fi-bg); color: var(--fi-muted); border-radius: 8px; border: 1px solid var(--fi-border); flex-shrink: 0;}
+.fi-approval.is-pending .fi-approval-icon {color: var(--fi-amber); border-color: color-mix(in srgb, var(--fi-amber) 20%, var(--fi-bg));}
+.fi-approval-top > div {min-width: 0; flex: 1;}
+.fi-approval-top .fi-eyebrow {font-size: 8px; letter-spacing: .9px;}
+.fi-eyebrow {font-size: 9px; letter-spacing: 1.15px; font-weight: 650; color: var(--fi-muted);}
+.fi-approval.is-pending .fi-eyebrow {color: var(--fi-amber);}
+.fi-approval h3 {font: 600 13px/1.5 var(--fi-font); margin: 3px 0 0; overflow-wrap: anywhere;}
+.fi-approval-link {margin-top: 7px;}
+.fi-record-chip {display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--fi-border); border-radius: 5px; background: var(--fi-bg); padding: 3px 8px; font-size: 10px; color: var(--fi-accent-text); text-decoration: none !important; overflow-wrap: anywhere;}
+.fi-record-chip .fi-icon {width: 11px; height: 11px; color: var(--fi-muted);}
+.fi-record-chip:hover {background: var(--fi-soft);}
+.fi-pill {display: inline-block; color: var(--fi-muted); background: var(--fi-bg); border: 1px solid var(--fi-border); border-radius: 5px; font-size: 9px; padding: 2px 7px; text-transform: capitalize;}
+.fi-pill-pending {color: var(--fi-amber); border-color: color-mix(in srgb, var(--fi-amber) 30%, var(--fi-bg)); background: var(--fi-amber-soft);}
+.fi-pill-succeeded, .fi-pill-approved {color: var(--green-600, #2e7d32);}
+.fi-pill-failed, .fi-pill-denied {color: var(--fi-danger);}
+.fi-approval-summary {margin: 0; padding: 16px 18px; font-size: 12px; line-height: 1.7;}
+.fi-change-table {margin: 0 18px 15px; border: 1px solid var(--fi-border); border-radius: 6px; overflow-x: auto;}
+.fi-change-table table {width: 100%; border-collapse: collapse; font-size: 11px;}
+.fi-change-table th, .fi-change-table td {text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--fi-border); overflow-wrap: anywhere; white-space: pre-wrap;}
+.fi-change-table thead th {font-size: 9px; background: var(--fi-soft); color: var(--fi-muted); font-weight: 600;}
+.fi-change-table tbody th {font-weight: 550;}
+.fi-change-table tbody td:last-child {background: var(--fi-accent-soft); color: var(--fi-accent-text);}
+.fi-change-table tbody tr:last-child > * {border-bottom: 0;}
+.fi-change-value summary {cursor: pointer; color: var(--fi-muted); font-size: 10px;}
+.fi-change-value pre {margin: 6px 0 0; max-height: 200px; overflow: auto; padding: 8px; border-radius: 4px; background: var(--fi-bg); font: 10px/1.7 "SFMono-Regular", Consolas, monospace; color: var(--fi-text); white-space: pre-wrap; overflow-wrap: anywhere;}
+.fi-proposal {margin: 0 18px 15px; border: 1px solid var(--fi-border); border-radius: 6px;}
+.fi-proposal summary {padding: 8px 10px; background: var(--fi-soft); font-size: 10px; color: var(--fi-muted); cursor: pointer;}
+.fi-proposal pre {margin: 0; max-height: 300px; overflow: auto; padding: 12px; border: 0; background: var(--fi-bg); font: 10px/1.7 "SFMono-Regular", Consolas, monospace; color: var(--fi-text); white-space: pre-wrap; overflow-wrap: anywhere;}
+.fi-approval-expiry {color: var(--fi-muted); font-size: 10px; padding: 0 18px;}
+.fi-approval-footer {padding: 13px 18px; border-top: 1px solid var(--fi-border); display: flex; align-items: center; justify-content: space-between; gap: 12px;}
+.fi-approval-footer > span {color: var(--fi-muted); font-size: 10px;}
+.fi-approval-footer > div {display: flex; gap: 7px; flex-shrink: 0;}
+.fi-approval-footer .fi-btn {font-size: 11px;}
+.fi-approval-result {padding: 12px 18px; background: var(--fi-soft); border-top: 1px solid var(--fi-border); font-size: 11px; color: var(--fi-muted);}
+/* Collapsed tool runs: consecutive completed actions fold into one card. */
+.fi-tool-group {border: 1px solid var(--fi-border); border-radius: 10px; margin: 24px 0 24px 35px; background: var(--fi-bg); overflow: hidden;}
+.fi-tool-group-head {display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; color: var(--fi-text); padding: 11px 14px; font-size: 12px; font-weight: 550; text-align: left;}
+.fi-tool-group-head:hover {background: var(--fi-soft);}
+.fi-tool-group-icon {display: inline-flex; height: 26px; width: 26px; align-items: center; justify-content: center; background: var(--fi-soft); border: 1px solid var(--fi-border); border-radius: 7px; color: var(--fi-muted); flex-shrink: 0;}
+.fi-tool-group-icon .fi-icon {width: 13px; height: 13px;}
+.fi-tool-group-title {flex: 1; min-width: 0; font-weight: 550; overflow-wrap: anywhere;}
+.fi-tool-group-spinner {width: 13px; height: 13px;}
+.fi-tool-group-chevron {display: inline-flex; color: var(--fi-muted); transition: transform .1s ease;}
+.fi-tool-group-chevron .fi-icon {width: 13px; height: 13px;}
+.fi-tool-group.is-open .fi-tool-group-chevron {transform: rotate(180deg);}
+.fi-tool-group-body {border-top: 1px solid var(--fi-border);}
+.fi-tool-row {display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--fi-border);}
+.fi-tool-row:last-of-type {border-bottom: 0;}
+.fi-tool-icon {display: inline-flex; height: 26px; width: 26px; align-items: center; justify-content: center; background: var(--fi-soft); border: 1px solid var(--fi-border); border-radius: 7px; color: var(--fi-muted); flex-shrink: 0;}
+.fi-tool-icon .fi-icon {width: 13px; height: 13px;}
+.fi-tool-info {min-width: 0; flex: 1;}
+.fi-tool-info > strong {display: block; font-size: 12px; font-weight: 550; overflow-wrap: anywhere;}
+.fi-tool-info > p {margin: 3px 0 0; font-size: 11px; color: var(--fi-muted); line-height: 1.6; overflow-wrap: anywhere;}
+.fi-tool-row .fi-pill {flex-shrink: 0; margin-top: 3px;}
+.fi-group-details {margin: 10px 14px 13px;}
+/* Thinking indicator while a run is queued or running. */
+.fi-thinking {display: flex; align-items: center; gap: 9px; margin-bottom: 30px;}
+.fi-thinking-dots {display: inline-flex; align-items: center; gap: 4px; padding: 8px 11px;}
+.fi-thinking-dots i {width: 6px; height: 6px; border-radius: 50%; background: var(--fi-muted); animation: fi-thinking-bounce 1.2s ease-in-out infinite;}
+.fi-thinking-dots i:nth-child(2) {animation-delay: .15s;}
+.fi-thinking-dots i:nth-child(3) {animation-delay: .3s;}
+@keyframes fi-thinking-bounce {0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); }}
+/* File cards in the thread. */
+.fi-file-cards {display: flex; flex-direction: column; gap: 7px; margin: 8px 0 24px 35px;}
+.fi-file-card {display: flex; align-items: center; gap: 10px; border: 1px solid var(--fi-border); border-radius: 8px; background: var(--fi-bg); padding: 9px 12px;}
+.fi-file-icon {display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; background: var(--fi-soft); border-radius: 7px; color: var(--fi-muted); flex-shrink: 0;}
+.fi-file-icon .fi-icon {width: 14px; height: 14px;}
+.fi-file-info {min-width: 0; flex: 1;}
+.fi-file-info strong {display: block; font-size: 12px; font-weight: 550; overflow-wrap: anywhere;}
+.fi-file-open {font-size: 10px; flex-shrink: 0;}
+.fi-file-attach {font-size: 10px; padding: 4px 8px; min-height: 26px; flex-shrink: 0;}
+/* The product mark as an image (assistant avatar, welcome, launcher). */
+.fi-avatar-ai {padding: 0; overflow: hidden;}
+.fi-avatar-logo {width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit;}
+.fi-welcome-symbol {padding: 0; overflow: hidden; border-color: transparent;}
+.fi-welcome-logo {width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit;}
+@media (max-width: 1100px) {
+	.fi-thread-inner {padding-inline: 26px;}
+	.fi-approval-footer {flex-wrap: wrap;}
+}
+@media (max-width: 760px) {
+	.fi-thread-inner {padding: 23px 20px;}
+	.fi-welcome {padding-top: 20px; max-width: 490px;}
+	.fi-welcome h2 {font-size: 29px;}
+	.fi-approval {margin-left: 0;}
+	.fi-tool-group {margin-left: 0;}
+	.fi-scroll-bottom {right: 14px; bottom: 10px;}
+	.fi-file-cards {margin-left: 0;}
+	.fi-message-content {margin-left: 0;}
+}
+@media (max-width: 480px) {
+	.fi-thread-inner {padding: 20px 16px;}
+	.fi-welcome h2 {font-size: 27px;}
+	.fi-welcome > p {font-size: 12px;}
+	.fi-welcome-foot {font-size: 8px;}
+	.fi-welcome-symbol {width: 44px; height: 44px; margin-bottom: 19px;}
+	.fi-starters {margin-top: 23px;}
+	.fi-starters > button {padding: 11px;}
+	.fi-approval-top {padding: 14px; gap: 9px;}
+	.fi-approval-top .fi-pill {display: none;}
+	.fi-approval-summary {padding: 14px;}
+	.fi-proposal {margin-inline: 14px;}
+	.fi-approval-footer {padding: 12px 14px; gap: 10px;}
+	.fi-approval-footer > div {width: 100%; justify-content: flex-end;}
+}
+@media print {
+	.fi-thread {overflow: visible;}
+}

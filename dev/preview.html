@@ -4,6 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Intelligence - mock frontend preview</title>
   <link rel="stylesheet" href="/assets/frappe_intelligence/css/intelligence.css">
+  <link rel="stylesheet" href="/assets/frappe_intelligence/css/fi/thread.css">
+  <link rel="stylesheet" href="/assets/frappe_intelligence/css/fi/composer.css">
+  <link rel="stylesheet" href="/assets/frappe_intelligence/css/fi/panel.css">
   <style>
     :root{--bg-color:#f9f9f9;--fg-color:#fff;--subtle-fg:#f7f7f7;--control-bg:#f3f3f3;--modal-bg:#fff;--text-color:#171717;--heading-color:#171717;--text-muted:#737373;--border-color:#e8e8e8;--btn-primary:#171717;--neutral:#fff;--invert-neutral:#383838;--btn-default-bg:#f3f3f3;--btn-default-hover-bg:#e8e8e8;--border-radius-sm:6px;--border-radius:8px;--border-radius-md:12px;--input-height:32px;--text-base:14px;--text-sm:12px;--font-stack:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:light}
     :root[data-theme=dark]{--bg-color:#171717;--fg-color:#202020;--subtle-fg:#262626;--control-bg:#2b2b2b;--modal-bg:#202020;--text-color:#f3f3f3;--heading-color:#f3f3f3;--text-muted:#a3a3a3;--border-color:#383838;--btn-primary:#f3f3f3;--neutral:#171717;--invert-neutral:#d4d4d4;--btn-default-bg:#2b2b2b;--btn-default-hover-bg:#383838;color-scheme:dark}
@@ -20,6 +23,11 @@
   <main class="preview-shell"><div class="mock-page-title"><h1>Intelligence</h1><span>Private workspace</span></div><div id="page"></div><section id="record" hidden><div class="mock-crumb">CRM / Customer / Northstar Components</div><div class="mock-record"><h2>Northstar Components</h2><p>Customer · Fictional preview record</p><div class="mock-record-grid"><label>Customer name<input value="Northstar Components" readonly></label><label>Customer group<input value="Commercial" readonly></label><label>Territory<input value="Europe" readonly></label><label>Account manager<input value="Jamie Davis" readonly></label></div><p class="mock-record-note">This page is deliberately not scraped. The drawer only receives the DocType and record name displayed in its removable context chip.</p><button id="open-context">Ask Intelligence about this record</button></div></section></main>
   <script src="/preview.js"></script>
   <script src="/assets/frappe_intelligence/js/intelligence.js"></script>
+  <script src="/assets/frappe_intelligence/js/fi/store.js"></script>
+  <script src="/assets/frappe_intelligence/js/fi/thread.js"></script>
+  <script src="/assets/frappe_intelligence/js/fi/composer.js"></script>
+  <script src="/assets/frappe_intelligence/js/fi/panel.js"></script>
+  <script src="/assets/frappe_intelligence/js/fi/app.js"></script>
   <script src="/page.js"></script>
   <script>
     const wrapper = document.querySelector('#page');

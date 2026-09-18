@@ -103,7 +103,15 @@ print('frappe_intelligence', frappe_intelligence.__version__, '/ pypdf', pypdf._
 #    to the mounted volume; docker/site-init.sh re-creates it on start.
 # -----------------------------------------------------------------------------
 RUN bench build --app frappe_intelligence \
-    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/intelligence.js
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/intelligence.js \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/store.js \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/thread.js \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/composer.js \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/panel.js \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/app.js \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/css/fi/thread.css \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/css/fi/composer.css \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/css/fi/panel.css
 
 # -----------------------------------------------------------------------------
 # 5. OPTIONAL: Wiki app (https://github.com/frappe/wiki) -- off by default.

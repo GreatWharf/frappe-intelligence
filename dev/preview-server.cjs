@@ -7,7 +7,15 @@ const files = {
   '/': ['dev/preview.html', 'text/html; charset=utf-8'],
   '/preview.js': ['dev/preview.js', 'application/javascript; charset=utf-8'],
   '/assets/frappe_intelligence/js/intelligence.js': ['frappe_intelligence/public/js/intelligence.js', 'application/javascript; charset=utf-8'],
+  '/assets/frappe_intelligence/js/fi/store.js': ['frappe_intelligence/public/js/fi/store.js', 'application/javascript; charset=utf-8'],
+  '/assets/frappe_intelligence/js/fi/thread.js': ['frappe_intelligence/public/js/fi/thread.js', 'application/javascript; charset=utf-8'],
+  '/assets/frappe_intelligence/js/fi/composer.js': ['frappe_intelligence/public/js/fi/composer.js', 'application/javascript; charset=utf-8'],
+  '/assets/frappe_intelligence/js/fi/panel.js': ['frappe_intelligence/public/js/fi/panel.js', 'application/javascript; charset=utf-8'],
+  '/assets/frappe_intelligence/js/fi/app.js': ['frappe_intelligence/public/js/fi/app.js', 'application/javascript; charset=utf-8'],
   '/assets/frappe_intelligence/css/intelligence.css': ['frappe_intelligence/public/css/intelligence.css', 'text/css; charset=utf-8'],
+  '/assets/frappe_intelligence/css/fi/thread.css': ['frappe_intelligence/public/css/fi/thread.css', 'text/css; charset=utf-8'],
+  '/assets/frappe_intelligence/css/fi/composer.css': ['frappe_intelligence/public/css/fi/composer.css', 'text/css; charset=utf-8'],
+  '/assets/frappe_intelligence/css/fi/panel.css': ['frappe_intelligence/public/css/fi/panel.css', 'text/css; charset=utf-8'],
   '/page.js': ['frappe_intelligence/frappe_intelligence/page/intelligence/intelligence.js', 'application/javascript; charset=utf-8']
 };
 /* Pinned contract fixtures for direct HTTP checks. The in-browser mock in dev/preview.js owns live preview state. */
