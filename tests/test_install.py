@@ -35,6 +35,16 @@ def test_unsupported_stack_fails_before_creating_roles(installer):
     assert created == []
 
 
+def test_after_migrate_backfills_empty_defaults_and_keeps_chosen_values(migrator):
+    module, fake, _ = migrator
+    settings = fake.get_single("Intelligence Settings")
+    settings.set("approval_mode", "Automatic")
+    settings.set("max_steps", None)
+    module.after_migrate()
+    assert settings.get("approval_mode") == "Automatic"
+    assert settings.get("max_steps") == module.DEFAULTS["max_steps"]
+
+
 EXPECTED_SKILLS = {
     "ingest-invoice": "Ingest a supplier invoice",
     "draft-email-reply": "Draft an email reply",
@@ -58,6 +68,13 @@ def migrator(monkeypatch):
         def get(self, key, default=None):
             return self.__dict__.get(key, default)
 
+        def set(self, key, value):
+            self.__dict__[key] = value
+
+        def save(self, **kwargs):
+            store[(self.doctype, self.__dict__.get("name", self.doctype))] = self
+            return self
+
         def insert(self, **kwargs):
             name = self.__dict__.get("name") or self.__dict__.get("role_name") or f"doc-{len(store)}"
             self.__dict__.setdefault("name", name)
@@ -76,6 +93,14 @@ def migrator(monkeypatch):
         return store[(data, name)]
 
     fake.get_doc = get_doc
+    singles = {}
+
+    def get_single(doctype):
+        if doctype not in singles:
+            singles[doctype] = Doc(doctype=doctype, name=doctype)
+        return singles[doctype]
+
+    fake.get_single = get_single
     fake.delete_doc = lambda doctype, name, **kw: store.pop((doctype, name), None)
     fake.throw = lambda message, exc=ValueError, **kw: (_ for _ in ()).throw(exc(message))
     monkeypatch.setitem(sys.modules, "frappe", fake)

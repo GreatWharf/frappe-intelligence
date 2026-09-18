@@ -260,6 +260,16 @@ def after_install():
 def after_migrate():
     check_versions()
     _roles()
+    settings = frappe.get_single("Intelligence Settings")
+    # Backfill defaults introduced after a site's install; never overwrite a
+    # value the site already chose.
+    changed = False
+    for key, value in DEFAULTS.items():
+        if settings.get(key) in (None, ""):
+            settings.set(key, value)
+            changed = True
+    if changed:
+        settings.save(ignore_permissions=True)
     for doctype, fields, name in (
         ("Intelligence Message", ["conversation", "sequence"], "intelligence_message_order"),
         ("Intelligence Run", ["state", "lease_expires"], "intelligence_run_recovery"),
