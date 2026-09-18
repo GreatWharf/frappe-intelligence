@@ -184,10 +184,7 @@ def _resolve(context, name, arguments):
         # Not a permission denial: the model mistyped or invented a tool name.
         # Answering with the available names lets it self-correct instead of
         # concluding the resource is off-limits.
-        denied(
-            "Unknown tool %r. This run's available tools are: %s."
-            % (name, ", ".join(sorted(tools)))
-        )
+        denied("Unknown tool %r. This run's available tools are: %s." % (name, ", ".join(sorted(tools))))
     validate(arguments, spec.parameters)
     return spec
 

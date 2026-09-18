@@ -129,9 +129,7 @@ def test_fetch_for_a_new_provider_needs_a_key_and_never_persists(env, monkeypatc
 def test_fetch_custom_requires_an_allowlisted_https_host(env, monkeypatch):
     monkeypatch.setattr(adapters, "list_models", lambda config: ["m1"])
     with pytest.raises(ValueError, match="allowlist"):
-        env.service.fetch_provider_models(
-            kind="Custom", base_url=CUSTOM_BASE_URL, api_key="typed-key"
-        )
+        env.service.fetch_provider_models(kind="Custom", base_url=CUSTOM_BASE_URL, api_key="typed-key")
     env.frappe.settings.allowed_custom_hosts = CUSTOM_HOST
     with pytest.raises(ValueError, match="allowlist"):
         env.service.fetch_provider_models(

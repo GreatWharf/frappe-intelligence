@@ -150,11 +150,44 @@ def _roles():
 def _navigation():
     """Own the Desk entry: one sidebar item straight into the chat page.
 
-    There is deliberately no Workspace: a one-shortcut workspace only inserts a
-    middleman page between the app icon and the chat. The Workspace Sidebar
-    resolves the left sidebar for /desk/intelligence, and the standard Desktop
-    Icon carries the logo that the sidebar header and apps screen resolve.
+    On v16 there is deliberately no Workspace: a one-shortcut workspace only
+    inserts a middleman page between the app icon and the chat. The Workspace
+    Sidebar resolves the left sidebar for /desk/intelligence, and the standard
+    Desktop Icon carries the logo that the sidebar header and apps screen
+    resolve. Workspace Sidebar and Desktop Icon do not exist on v15, which
+    still navigates by workspaces; there the seeded workspace links straight to
+    the page and is named "Intelligence Chat" because a workspace named
+    "Intelligence" route-conflicts with the standard page.
     """
+    # Drop the middleman workspace created by releases before 0.4. A user's own
+    # customized workspace is left untouched; only the seeded shortcut page goes.
+    if frappe.db.exists("Workspace", "Intelligence"):
+        workspace = frappe.get_doc("Workspace", "Intelligence")
+        if not workspace.get("for_user"):
+            frappe.delete_doc("Workspace", "Intelligence", ignore_permissions=True, force=True)
+    if frappe.__version__.split(".")[0] == "15":
+        if not frappe.db.exists("Workspace", "Intelligence Chat"):
+            frappe.get_doc(
+                {
+                    "doctype": "Workspace",
+                    "label": "Intelligence Chat",
+                    "title": "Intelligence Chat",
+                    "module": "Frappe Intelligence",
+                    "public": 1,
+                    "is_hidden": 0,
+                    "icon": "message",
+                    "roles": [{"role": role} for role in USER_ROLES],
+                    "links": [
+                        {
+                            "label": "Conversations",
+                            "type": "Link",
+                            "link_type": "Page",
+                            "link_to": "intelligence",
+                        }
+                    ],
+                }
+            ).insert(ignore_permissions=True)
+        return
     if not frappe.db.exists("Workspace Sidebar", "Intelligence"):
         frappe.get_doc(
             {
@@ -187,12 +220,6 @@ def _navigation():
                 "roles": [{"role": role} for role in USER_ROLES],
             }
         ).insert(ignore_permissions=True)
-    # Drop the middleman workspace created by releases before 0.4. A user's own
-    # customized workspace is left untouched; only the seeded shortcut page goes.
-    if frappe.db.exists("Workspace", "Intelligence"):
-        workspace = frappe.get_doc("Workspace", "Intelligence")
-        if not workspace.get("for_user"):
-            frappe.delete_doc("Workspace", "Intelligence", ignore_permissions=True, force=True)
 
 
 def _seed_skills():

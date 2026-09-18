@@ -305,9 +305,7 @@ def test_anthropic_wire_omits_thinking_without_token_headroom(env):
     assert "thinking" not in request["payload"]
 
 
-@pytest.mark.parametrize(
-    "effort,budget", [("Low", 1024), ("Medium", 8192), ("High", 24576), ("Max", 24576)]
-)
+@pytest.mark.parametrize("effort,budget", [("Low", 1024), ("Medium", 8192), ("High", 24576), ("Max", 24576)])
 def test_gemini_wire_maps_effort_to_thinking_config(env, effort, budget):
     provider_doc(env, kind="Gemini", effort=effort)
     config = env.engine.get_provider_config("provider")

@@ -44,7 +44,9 @@ MAX_HISTORY_CHARS = 250000
 MAX_RESULT_CHARS = 60000
 MAX_SKILLS_PROMPT_CHARS = 4000
 MAX_SCHEMA_PROMPT_CHARS = 24000
-SCHEMA_FIELD_TYPES = frozenset({"Section Break", "Column Break", "Tab Break", "HTML", "Fold", "Heading", "Button"})
+SCHEMA_FIELD_TYPES = frozenset(
+    {"Section Break", "Column Break", "Tab Break", "HTML", "Fold", "Heading", "Button"}
+)
 
 _GROUND_RULES = (
     "You are Intelligence, an assistant embedded in ERPNext Desk. "
@@ -771,8 +773,7 @@ def _schema_block():
     return (
         "## DocType field map\nFields available to the adaptive tools "
         "(* marks mandatory, -> names the link or child-table target). "
-        "Use these directly; describe_doctype is only for fields not listed here.\n"
-        + "\n".join(lines)
+        "Use these directly; describe_doctype is only for fields not listed here.\n" + "\n".join(lines)
     )
 
 
