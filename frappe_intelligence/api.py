@@ -462,6 +462,9 @@ def _lines(value):
 def save_settings(**values):
     """Manager-only policy update; the doctype's validate() stays the gate."""
     require_manager()
+    # frappe.handler forwards all of form_dict to a **kwargs signature, so the
+    # routed method name itself arrives here; it is not a settings field.
+    values.pop("cmd", None)
     settings = frappe.get_single("Intelligence Settings")
     updates = {}
     unknown = set(values) - set(SETTINGS_FIELDS)

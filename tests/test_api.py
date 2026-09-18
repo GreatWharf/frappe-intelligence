@@ -174,6 +174,19 @@ def test_save_settings_round_trips_ints_and_checks(api):
     assert out["daily_run_limit"] == 50
 
 
+def test_save_settings_tolerates_the_routed_cmd_kwarg(api):
+    """frappe.handler forwards all of form_dict to a **kwargs signature."""
+    module, fake, _ = api
+    settings = Row(approval_mode="Approve Writes Only")
+    fake.get_single = lambda kind: settings
+    fake.get_roles = lambda user=None: ["System Manager"]
+    out = module.save_settings(
+        cmd="frappe_intelligence.api.save_settings", approval_mode="Approve Every Step"
+    )
+    assert settings.approval_mode == "Approve Every Step"
+    assert out["approval_mode"] == "Approve Every Step"
+
+
 def test_list_grants_shows_own_rows_or_everything_for_managers(api):
     module, fake, store = api
     store["g1"] = Row(
