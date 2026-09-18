@@ -29,6 +29,7 @@ from frappe_intelligence.providers import Reply, ToolCall
 class TestIntelligenceIntegration(IntegrationTestCase):
     SETTINGS_FIELDS = (
         "enabled",
+        "approval_mode",
         "allowed_read_doctypes",
         "enabled_tools",
         "max_steps",
@@ -71,6 +72,10 @@ class TestIntelligenceIntegration(IntegrationTestCase):
         settings.update(
             {
                 "enabled": 1,
+                # Pin the strictest mode: the read test below asserts a read
+                # waits for approval, which the install default (Approve
+                # Writes Only) deliberately no longer requires.
+                "approval_mode": "Approve Every Step",
                 "allowed_read_doctypes": "ToDo",
                 "enabled_tools": "read_document",
                 "max_steps": 4,
@@ -233,7 +238,9 @@ class TestIntelligenceIntegration(IntegrationTestCase):
         self.assertEqual(view["messages"][-1].content, "Synthetic answer")
         self.assertEqual(frappe.db.get_value("Intelligence Run", run["name"], "user"), self.owner)
         self.assertEqual(frappe.db.get_value("Intelligence Run", run["name"], "site"), frappe.local.site)
-        self.assertEqual(self.complete_mock.call_count, 1)
+        # One round-trip for the reply itself, plus the bounded best-effort
+        # title call that replaces the placeholder once the first reply lands.
+        self.assertEqual(self.complete_mock.call_count, 2)
         newer = api.send_message(self.conversation, "A subsequent prompt")
         self.assertNotEqual(newer["name"], run["name"])
         self.assertEqual(engine.get_run(run["name"])["state"], "completed")
