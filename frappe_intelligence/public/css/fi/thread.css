@@ -33,7 +33,10 @@
 .fi-avatar {height: 26px; width: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; background: var(--fi-soft); border: 1px solid var(--fi-border); font-size: 11px; font-weight: 600; color: var(--fi-muted);}
 .fi-avatar-ai {color: var(--fi-accent); background: var(--fi-accent-soft); border-color: transparent;}
 .fi-message-content {margin-left: 35px; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere;}
-.fi-message-user .fi-message-content {background: var(--fi-soft); border-radius: 0 10px 10px; padding: 13px 17px;}
+/* User messages are right-aligned bubbles; assistant prose stays full-width. */
+.fi-message-user {display: flex; flex-direction: column; align-items: flex-end;}
+.fi-message-user .fi-message-heading {flex-direction: row;}
+.fi-message-user .fi-message-content {margin-left: 0; max-width: 88%; width: fit-content; background: var(--fi-soft); border-radius: 16px; padding: 12px 16px; white-space: pre-wrap;}
 .fi-message-content p {margin: 0 0 13px;}
 .fi-message-content > :last-child {margin-bottom: 0;}
 .fi-message-content :is(h3,h4,h5) {font-family: var(--fi-font); font-weight: 620; letter-spacing: -.2px; margin: 22px 0 9px; color: var(--fi-text);}
@@ -94,27 +97,68 @@
 .fi-approval-footer > div {display: flex; gap: 7px; flex-shrink: 0;}
 .fi-approval-footer .fi-btn {font-size: 11px;}
 .fi-approval-result {padding: 12px 18px; background: var(--fi-soft); border-top: 1px solid var(--fi-border); font-size: 11px; color: var(--fi-muted);}
-/* Collapsed tool runs: consecutive completed actions fold into one card. */
+/* Tool steps are one-line rows: status cell, gerund label, muted context,
+   chevron. Consecutive sealed rows fold into one collapsible group. */
 .fi-tool-group {border: 1px solid var(--fi-border); border-radius: 10px; margin: 24px 0 24px 35px; background: var(--fi-bg); overflow: hidden;}
 .fi-tool-group-head {display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; color: var(--fi-text); padding: 11px 14px; font-size: 12px; font-weight: 550; text-align: left;}
 .fi-tool-group-head:hover {background: var(--fi-soft);}
 .fi-tool-group-icon {display: inline-flex; height: 26px; width: 26px; align-items: center; justify-content: center; background: var(--fi-soft); border: 1px solid var(--fi-border); border-radius: 7px; color: var(--fi-muted); flex-shrink: 0;}
 .fi-tool-group-icon .fi-icon {width: 13px; height: 13px;}
-.fi-tool-group-title {flex: 1; min-width: 0; font-weight: 550; overflow-wrap: anywhere;}
+.fi-tool-group-title {flex: 1; min-width: 0; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .fi-tool-group-spinner {width: 13px; height: 13px;}
 .fi-tool-group-chevron {display: inline-flex; color: var(--fi-muted); transition: transform .1s ease;}
 .fi-tool-group-chevron .fi-icon {width: 13px; height: 13px;}
-.fi-tool-group.is-open .fi-tool-group-chevron {transform: rotate(180deg);}
-.fi-tool-group-body {border-top: 1px solid var(--fi-border);}
-.fi-tool-row {display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--fi-border);}
-.fi-tool-row:last-of-type {border-bottom: 0;}
-.fi-tool-icon {display: inline-flex; height: 26px; width: 26px; align-items: center; justify-content: center; background: var(--fi-soft); border: 1px solid var(--fi-border); border-radius: 7px; color: var(--fi-muted); flex-shrink: 0;}
-.fi-tool-icon .fi-icon {width: 13px; height: 13px;}
-.fi-tool-info {min-width: 0; flex: 1;}
-.fi-tool-info > strong {display: block; font-size: 12px; font-weight: 550; overflow-wrap: anywhere;}
-.fi-tool-info > p {margin: 3px 0 0; font-size: 11px; color: var(--fi-muted); line-height: 1.6; overflow-wrap: anywhere;}
-.fi-tool-row .fi-pill {flex-shrink: 0; margin-top: 3px;}
+.fi-tool-group.is-open .fi-tool-group-chevron {transform: rotate(90deg);}
+.fi-tool-group-body {border-top: 1px solid var(--fi-border); padding: 3px 0;}
+/* A live group names the active step; the shimmer sweep marks it as moving. */
+.fi-shimmer {background: linear-gradient(90deg, var(--fi-text) 38%, var(--fi-muted) 50%, var(--fi-text) 62%); background-size: 240% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: fi-shimmer-sweep 1.8s linear infinite;}
+@keyframes fi-shimmer-sweep {0% {background-position: 120% 0;} 100% {background-position: -120% 0;}}
+@media (prefers-reduced-motion: reduce) {
+	.fi-shimmer {animation: none; background: none; color: var(--fi-text);}
+}
+.fi-tool-block {margin: 18px 0 18px 35px; border: 1px solid var(--fi-border); border-radius: 9px; background: var(--fi-bg); overflow: hidden;}
+.fi-tool-group-body .fi-tool-block {margin: 0; border: 0; border-radius: 0; border-bottom: 1px solid var(--fi-border);}
+.fi-tool-group-body .fi-tool-block:last-of-type {border-bottom: 0;}
+.fi-tool-row {display: flex; align-items: center; gap: 9px; width: 100%; border: 0; background: transparent; color: var(--fi-text); padding: 8px 12px; font-size: 12px; text-align: left;}
+.fi-tool-row:hover {background: var(--fi-soft);}
+.fi-tool-status {display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; flex-shrink: 0; color: var(--fi-muted);}
+.fi-tool-status .fi-icon {width: 13px; height: 13px;}
+.fi-tool-status .fi-spinner {width: 12px; height: 12px;}
+.fi-tool-status .fi-tool-done {color: var(--green-600, #2e7d32); display: inline-flex;}
+.fi-tool-status .fi-tool-failed {color: var(--fi-danger); display: inline-flex;}
+.fi-tool-status .fi-tool-note {color: var(--fi-muted); display: inline-flex;}
+.fi-tool-label {font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.fi-tool-context {flex: 1; min-width: 0; color: var(--fi-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;}
+.fi-tool-context .fi-record-chip {max-width: 100%;}
+.fi-tool-alert {display: inline-flex; color: var(--fi-danger); flex-shrink: 0;}
+.fi-tool-alert .fi-icon {width: 13px; height: 13px;}
+.fi-tool-tag {flex-shrink: 0; color: var(--fi-muted); border: 1px solid var(--fi-border); border-radius: 999px; padding: 1px 8px; font-size: 9px; background: var(--fi-soft);}
+.fi-tool-chevron {display: inline-flex; color: var(--fi-muted); flex-shrink: 0; transition: transform .1s ease;}
+.fi-tool-chevron .fi-icon {width: 12px; height: 12px;}
+.fi-tool-block.is-open .fi-tool-chevron {transform: rotate(90deg);}
+.fi-tool-detail {border-top: 1px solid var(--fi-border); padding: 11px 14px 13px; background: var(--fi-bg);}
+.fi-tool-summary {margin: 0 0 9px; font-size: 11px; line-height: 1.65; color: var(--fi-text); overflow-wrap: anywhere;}
+.fi-tool-args {display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 14px; margin: 0 0 9px; font-size: 11px;}
+.fi-tool-arg {display: contents;}
+.fi-tool-arg dt {color: var(--fi-muted); font-weight: 550;}
+.fi-tool-arg dd {margin: 0; overflow-wrap: anywhere; color: var(--fi-text);}
+.fi-tool-arg.fi-tool-arg-full {display: block; grid-column: 1 / -1;}
+.fi-tool-arg-full dt {margin-bottom: 3px;}
+.fi-tool-arg-full dd pre {margin: 0; max-height: 220px; overflow: auto; padding: 9px 11px; border: 1px solid var(--fi-border); border-radius: 6px; background: var(--fi-soft); font: 10px/1.7 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere;}
+.fi-tool-error {margin: 0 0 9px; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--fi-danger) 30%, var(--fi-bg)); border-radius: 6px; background: var(--fi-danger-soft); color: var(--fi-danger); font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;}
+.fi-tool-detail .fi-change-table {margin: 0 0 9px;}
+.fi-tool-detail .fi-approval-link {margin: 0 0 9px;}
+.fi-tool-raw {margin: 0;}
 .fi-group-details {margin: 10px 14px 13px;}
+/* Grouped pending approvals: one card, per-row decisions, bulk footer. */
+.fi-bulk-rows {display: flex; flex-direction: column;}
+.fi-bulk-row {display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--fi-border);}
+.fi-bulk-row .fi-tool-status {color: var(--fi-amber);}
+.fi-bulk-summary {flex: 1; min-width: 0; font-size: 12px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.fi-bulk-actions {display: flex; gap: 6px; flex-shrink: 0;}
+.fi-bulk-actions .fi-btn {font-size: 10px; min-height: 28px; padding: 4px 9px;}
+.fi-bulk-remember {display: flex; align-items: center; gap: 8px; padding: 11px 18px; font-size: 11px; color: var(--fi-muted); cursor: pointer;}
+.fi-bulk-remember input {margin: 0;}
 /* Thinking indicator while a run is queued or running. */
 .fi-thinking {display: flex; align-items: center; gap: 9px; margin-bottom: 30px;}
 .fi-thinking-dots {display: inline-flex; align-items: center; gap: 4px; padding: 8px 11px;}
@@ -146,6 +190,7 @@
 	.fi-welcome h2 {font-size: 29px;}
 	.fi-approval {margin-left: 0;}
 	.fi-tool-group {margin-left: 0;}
+	.fi-tool-block {margin-left: 0;}
 	.fi-scroll-bottom {right: 14px; bottom: 10px;}
 	.fi-file-cards {margin-left: 0;}
 	.fi-message-content {margin-left: 0;}
@@ -164,6 +209,8 @@
 	.fi-proposal {margin-inline: 14px;}
 	.fi-approval-footer {padding: 12px 14px; gap: 10px;}
 	.fi-approval-footer > div {width: 100%; justify-content: flex-end;}
+	.fi-bulk-row {flex-wrap: wrap; padding: 10px 14px;}
+	.fi-bulk-actions {width: 100%; justify-content: flex-end;}
 }
 @media print {
 	.fi-thread {overflow: visible;}

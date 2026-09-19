@@ -355,7 +355,10 @@ test('pending approvals stay visible and break a tool group', (t) => {
   const pending = messages.querySelector('.fi-approval.is-pending');
   assert.ok(pending, 'pending approval rendered as its own card');
   assert.ok(pending.querySelector('[data-action="approve"]'), 'decision controls visible without expanding anything');
-  assert.equal(messages.querySelectorAll('.fi-approval').length, 3, 'each action visible as a single card around the pending one');
+  assert.equal(messages.querySelectorAll('.fi-approval').length, 1, 'only the pending action renders as a card');
+  assert.equal(messages.querySelectorAll('.fi-tool-block').length, 2, 'resolved actions render as single tool rows around the pending card');
+  const kinds = Array.from(messages.children).map((node) => node.classList.contains('fi-approval') ? 'pending' : node.classList.contains('fi-tool-block') ? 'row' : '').filter(Boolean);
+  assert.deepEqual(kinds, ['row', 'pending', 'row'], 'pending card sits between the resolved tool rows');
 });
 
 test('a group with an in-flight action says so on the header', (t) => {
@@ -367,7 +370,9 @@ test('a group with an in-flight action says so on the header', (t) => {
   ]);
   app.accept('c1', copy(snapshot));
   const group = app.slot('messages').querySelector('.fi-tool-group');
-  assert.ok(group.querySelector('.fi-tool-group-head').textContent.includes('Working through 2 steps'));
+  const head = group.querySelector('.fi-tool-group-head');
+  assert.ok(head.textContent.includes("Creating Supplier 'Acme Corp'"), 'header names the in-flight step');
+  assert.ok(head.querySelector('.fi-tool-group-title').classList.contains('fi-shimmer'), 'shimmer sweep on the active step label');
   assert.ok(group.querySelector('.fi-tool-group-spinner'), 'spinner while the run is active');
 });
 
@@ -382,7 +387,7 @@ test('file tool actions show the attachment file name, never the raw File ID', (
   const group = app.slot('messages').querySelector('.fi-tool-group');
   const row = Array.from(group.querySelectorAll('.fi-tool-row')).find((node) => node.textContent.includes('invoice-acme.pdf'));
   assert.ok(row, 'row shows the file name');
-  assert.ok(row.querySelector('strong').textContent.includes("Read attachment 'invoice-acme.pdf'"));
+  assert.ok(row.querySelector('.fi-tool-label').textContent.includes("Reading attachment 'invoice-acme.pdf'"));
   const chip = row.querySelector('.fi-file-ref');
   assert.ok(chip, 'file chip rendered');
   assert.equal(chip.tagName.toLowerCase(), 'span', 'chip is not a link to a raw File route');

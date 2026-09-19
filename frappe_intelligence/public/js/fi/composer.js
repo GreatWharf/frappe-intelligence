@@ -1,4 +1,4 @@
-/* Intelligence composer: draft, attachments, provider picker, send. */
+/* Intelligence composer: draft, attachments, provider and model pickers, send. */
 (function (global, factory) {
 	"use strict";
 	factory(global);
@@ -7,18 +7,239 @@
 	"use strict";
 	const fi = global.fi;
 	if (!fi) throw new Error("Intelligence core must load before composer");
-	const { API, icon, esc, iconButton, App } = fi;
+	const { API, icon, esc, iconButton, lines, App } = fi;
+	function fileSize(size) {
+		const bytes = Number(size);
+		if (!bytes || bytes <= 0) return "";
+		if (bytes >= 1048576) return (Math.round(bytes / 104857.6) / 10) + " MB";
+		return Math.max(1, Math.ceil(bytes / 1024)) + " KB";
+	}
+App.prototype.pickerDisabled = function (name) {
+		const busy = this.pending.has("send") || this.pending.has("upload");
+		const unavailable = !this.boot || !this.boot.enabled || this.loading || this.loadingConversation || !!(this.selected && !this.snapshot);
+		if (unavailable || busy || this.selected) return true;
+		if (name === "provider") return !(this.boot.providers || []).length;
+		return !this.providerRow();
+	}
+App.prototype.providerItems = function () {
+		const providers = this.boot && this.boot.providers || [];
+		const items = providers.map((provider) => ({ value: provider.name, label: provider.title, hint: provider.model }));
+		if (this.selected && this.provider && !providers.some((provider) => provider.name === this.provider)) items.push({ value: this.provider, label: "Provider unavailable", hint: "" });
+		return items;
+	}
+App.prototype.modelItems = function () {
+		const row = this.providerRow();
+		if (!row) return [];
+		const catalog = lines(row.models || "");
+		const current = this.draft().model || "";
+		if (!catalog.length) {
+			// No stored catalog: the configured model is the default, and a custom
+			// ID can be typed inline.
+			const items = [{ value: row.model, label: row.model, hint: "Default" }];
+			if (current && current !== row.model) items.push({ value: current, label: current, hint: "Custom" });
+			items.push({ value: "__custom__", label: "Custom model ID…", hint: "" });
+			return items;
+		}
+		const items = catalog.map((model) => ({ value: model, label: model, hint: model === row.model ? "Default" : "" }));
+		if (current && !catalog.includes(current)) items.push({ value: current, label: current, hint: "Custom" });
+		return items;
+	}
+App.prototype.pickerItems = function (name) { return name === "provider" ? this.providerItems() : this.modelItems(); }
+App.prototype.filteredItems = function (name) {
+		const state = this.pickerState[name], query = String(state.query || "").toLowerCase();
+		return this.pickerItems(name).filter((item) => !query || item.label.toLowerCase().includes(query) || String(item.hint || "").toLowerCase().includes(query));
+	}
+App.prototype.pickerValue = function (name) {
+		if (name === "provider") return this.provider;
+		const row = this.providerRow();
+		return this.draft().model || (row && row.model) || "";
+	}
+App.prototype.pickerHTML = function (name, label) {
+		return '<div class="fi-dropdown" data-picker="' + name + '"><button type="button" class="fi-dropdown-btn" data-picker-btn="' + name + '" aria-haspopup="listbox" aria-expanded="false" aria-label="' + esc(label) + '"><span class="fi-dropdown-value" data-picker-value="' + name + '"></span>' + icon("down") + '</button><div class="fi-dropdown-menu" data-picker-menu="' + name + '" hidden><div class="fi-dropdown-options" role="listbox" aria-label="' + esc(label) + '" data-picker-options="' + name + '"></div></div></div>';
+	}
+App.prototype.ensurePickers = function () {
+		if (this.pickersReady) return;
+		const label = this.$(".fi-provider-label"), select = this.$('[data-input="provider"]');
+		if (!label || !select) return;
+		this.pickersReady = true;
+		this.pickerState = { provider: { open: false, active: 0, query: "", custom: false }, model: { open: false, active: 0, query: "", custom: false } };
+		const stray = label.querySelector("svg"); if (stray) stray.remove();
+		select.classList.add("fi-select-hidden"); select.setAttribute("aria-hidden", "true"); select.tabIndex = -1;
+		const host = this.doc.createElement("div");
+		host.className = "fi-pickers";
+		host.innerHTML = this.pickerHTML("provider", "Provider") + this.pickerHTML("model", "Model");
+		label.appendChild(host);
+		host.addEventListener("click", (event) => {
+			const button = event.target.closest && event.target.closest("[data-picker-btn]");
+			if (button) { event.preventDefault(); event.stopPropagation(); if (!button.disabled) this.togglePicker(button.dataset.pickerBtn); return; }
+			const option = event.target.closest && event.target.closest("[data-picker-option]");
+			if (option) {
+				// preventDefault blocks the label's activation click on the hidden
+				// select; stopPropagation keeps the repainted (detached) option
+				// from reaching the outside-click closer.
+				event.preventDefault(); event.stopPropagation();
+				const root = option.closest("[data-picker]"); if (root) this.pickOption(root.dataset.picker, option.dataset.value);
+			}
+		});
+		host.addEventListener("input", (event) => {
+			if (!event.target.dataset || !event.target.dataset.pickerSearch) return;
+			const name = event.target.dataset.pickerSearch, state = this.pickerState[name];
+			state.query = event.target.value; state.active = 0; this.renderPickerOptions(name);
+		});
+		host.addEventListener("keydown", (event) => this.pickerKeydown(event));
+		this.root.addEventListener("click", (event) => { if (!(event.target.closest && event.target.closest(".fi-provider-label"))) this.closePickers(); });
+	}
+App.prototype.focusPickerButton = function (name) {
+		const button = this.$('[data-picker-btn="' + name + '"]');
+		if (button && button.focus) button.focus();
+	}
+App.prototype.togglePicker = function (name) {
+		if (this.pickerDisabled(name)) return;
+		const state = this.pickerState[name];
+		if (state.open) { this.closePickers(); return; }
+		this.closePickers();
+		state.open = true; state.query = ""; state.custom = false;
+		const items = this.pickerItems(name), value = this.pickerValue(name);
+		const index = items.findIndex((item) => item.value === value);
+		state.active = index >= 0 ? index : 0;
+		this.renderProviders();
+		const search = this.$('[data-picker="' + name + '"] [data-picker-search]');
+		if (search) { search.value = ""; search.focus(); }
+	}
+App.prototype.closePickers = function () {
+		if (!this.pickerState) return;
+		let changed = false;
+		for (const name of ["provider", "model"]) {
+			const state = this.pickerState[name];
+			if (state.open || state.custom || state.query) { state.open = false; state.custom = false; state.query = ""; changed = true; }
+		}
+		if (changed) this.renderProviders();
+	}
+App.prototype.pickerKeydown = function (event) {
+		const key = event.key;
+		if (event.target.hasAttribute && event.target.hasAttribute("data-picker-custom")) {
+			if (key === "Enter") { event.preventDefault(); this.confirmCustomModel(event.target); }
+			else if (key === "Escape") { event.preventDefault(); event.stopPropagation(); this.closePickers(); this.focusPickerButton("model"); }
+			return;
+		}
+		const host = event.target.closest && event.target.closest("[data-picker]");
+		if (!host) return;
+		const name = host.dataset.picker, state = this.pickerState[name];
+		if (key === "Escape") {
+			if (state.open) { event.preventDefault(); event.stopPropagation(); this.closePickers(); this.focusPickerButton(name); }
+			return;
+		}
+		// Tabbing out of an open menu closes it; focus keeps moving naturally.
+		if (key === "Tab") { if (state.open) this.closePickers(); return; }
+		if (key === "ArrowDown" || key === "ArrowUp") {
+			event.preventDefault(); event.stopPropagation();
+			if (!state.open) { this.togglePicker(name); return; }
+			const count = this.filteredItems(name).length;
+			if (!count) return;
+			state.active = (state.active + (key === "ArrowDown" ? 1 : -1) + count) % count;
+			this.renderPickerOptions(name);
+			return;
+		}
+		if (key === "Enter" && state.open) {
+			event.preventDefault(); event.stopPropagation();
+			const items = this.filteredItems(name);
+			if (items[state.active]) this.pickOption(name, items[state.active].value);
+		}
+	}
+App.prototype.pickOption = function (name, value) {
+		if (name === "model" && value === "__custom__") {
+			this.pickerState.model.custom = true;
+			this.renderPickerOptions("model");
+			const input = this.$('[data-picker="model"] [data-picker-custom]');
+			if (input) input.focus();
+			return;
+		}
+		if (name === "provider") {
+			if (value !== this.provider) {
+				this.provider = value;
+				const select = this.$('[data-input="provider"]');
+				if (select) select.value = value;
+				this.draft().model = "";
+			}
+		} else this.draft().model = value;
+		this.closePickers();
+		this.focusPickerButton(name);
+		this.renderHeader(); this.renderProviders(); this.renderControls();
+	}
+App.prototype.confirmCustomModel = function (input) {
+		const value = String(input.value || "").trim();
+		if (!value) return;
+		this.draft().model = value;
+		this.pickerState.model.custom = false;
+		this.closePickers();
+		this.focusPickerButton("model");
+		this.renderProviders(); this.renderControls();
+	}
+App.prototype.renderPickerOptions = function (name) {
+		const state = this.pickerState[name];
+		const box = this.$('[data-picker-options="' + name + '"]');
+		if (!box) return;
+		const value = this.pickerValue(name);
+		const items = this.filteredItems(name);
+		if (state.active >= items.length) state.active = Math.max(0, items.length - 1);
+		box.innerHTML = items.map((item, index) => '<div class="fi-dropdown-option' + (index === state.active ? " is-active" : "") + '" role="option" id="fi-picker-' + name + "-" + index + '" aria-selected="' + String(item.value === value) + '" data-picker-option data-value="' + esc(item.value) + '"><span class="fi-dropdown-check">' + (item.value === value ? icon("check") : "") + '</span><span class="fi-dropdown-label">' + esc(item.label) + "</span>" + (item.hint ? '<span class="fi-dropdown-hint">' + esc(item.hint) + "</span>" : "") + "</div>").join("") + (!items.length ? '<div class="fi-dropdown-empty">No matches</div>' : "") + (name === "model" && state.custom ? '<div class="fi-dropdown-custom"><input type="text" data-picker-custom maxlength="140" placeholder="Enter a model ID" aria-label="Custom model ID" autocomplete="off"></div>' : "");
+		// The generated option ids back aria-activedescendant on the focusable
+		// parts (button and search input), so screen readers announce the active row.
+		const root = this.$('[data-picker="' + name + '"]');
+		if (root) {
+			const activeId = state.open && items.length ? "fi-picker-" + name + "-" + state.active : null;
+			for (const element of root.querySelectorAll("[data-picker-btn], [data-picker-search]")) {
+				if (activeId) element.setAttribute("aria-activedescendant", activeId); else element.removeAttribute("aria-activedescendant");
+			}
+		}
+	}
+App.prototype.paintPicker = function (name) {
+		const state = this.pickerState[name];
+		const root = this.$('[data-picker="' + name + '"]');
+		if (!root) return;
+		const items = this.pickerItems(name), value = this.pickerValue(name);
+		const button = root.querySelector("[data-picker-btn]"), label = root.querySelector("[data-picker-value]");
+		const current = items.find((item) => item.value === value);
+		label.textContent = current ? current.label : name === "provider" ? (items.length ? "Choose a provider" : "Set up a provider") : "Default model";
+		button.disabled = !!this.pickerDisabled(name);
+		button.title = this.selected ? "This conversation uses its original provider. Start a new conversation to switch." : name === "provider" ? "Choose a configured provider" : "Choose a model for the next conversation";
+		button.setAttribute("aria-expanded", String(state.open));
+		const menu = root.querySelector("[data-picker-menu]");
+		menu.hidden = !state.open;
+		const wantSearch = state.open && items.length > 7;
+		let search = menu.querySelector("[data-picker-search]");
+		if (wantSearch && !search) {
+			search = this.doc.createElement("input");
+			search.type = "text"; search.className = "fi-dropdown-search"; search.setAttribute("data-picker-search", name);
+			search.setAttribute("aria-label", "Search " + name + "s"); search.setAttribute("placeholder", "Search…"); search.setAttribute("autocomplete", "off");
+			menu.insertBefore(search, menu.firstChild || null);
+		} else if (!wantSearch && search) { search.remove(); state.query = ""; }
+		if (search) search.value = state.query;
+		this.renderPickerOptions(name);
+	}
 App.prototype.renderProviders = function () {
-		const select = this.$('[data-input="provider"]'); const providers = this.boot && this.boot.providers || [];
-		let options = providers.map((provider) => '<option value="' + esc(provider.name) + '">' + esc(provider.title + " · " + provider.model) + "</option>").join("");
-		if (this.selected && !providers.some((provider) => provider.name === this.provider)) options += '<option value="' + esc(this.provider) + '">Provider unavailable</option>';
-		if (select.dataset.options !== options) { select.innerHTML = options || '<option value="">Set up a provider</option>'; select.dataset.options = options; }
-		select.value = this.provider;
-		select.title = this.selected ? "This conversation uses its original provider. Start a new conversation to switch." : "Choose a configured provider and model";
+		this.ensurePickers();
+		if (!this.pickerState) return;
+		const select = this.$('[data-input="provider"]');
+		if (select) {
+			// The retired select keeps real options so its value stays a form
+			// value and any host change handler still sees a consistent state.
+			const html = (this.boot && this.boot.providers || []).map((provider) => '<option value="' + esc(provider.name) + '">' + esc(provider.title) + " · " + esc(provider.model) + "</option>").join("");
+			if (select.innerHTML !== html) select.innerHTML = html;
+			if (select.value !== this.provider) select.value = this.provider;
+		}
+		const signature = JSON.stringify([this.boot && this.boot.providers, this.provider, this.selected, this.draft().model, this.pickerState, this.pickerDisabled("provider"), this.pickerDisabled("model")]);
+		if (signature === this.pickerSignature) return;
+		this.pickerSignature = signature;
+		this.paintPicker("provider");
+		this.paintPicker("model");
 	}
 App.prototype.renderAttachments = function () {
 		const signature = JSON.stringify([this.draft().attachments, this.pending.has("upload")]); if (signature === this.attachmentSignature) return; this.attachmentSignature = signature;
-		this.slot("attachments").innerHTML = this.draft().attachments.map((file) => '<span class="fi-file-chip">' + icon("file") + "<span>" + esc(file.file_name) + "</span>" + iconButton("remove-file", "Remove " + file.file_name + " from this message", "close", 'data-name="' + esc(file.name) + '"') + "</span>").join("") + (this.pending.has("upload") ? '<span class="fi-file-chip"><span class="fi-spinner"></span>Uploading privately…</span>' : "");
+		this.slot("attachments").innerHTML = this.draft().attachments.map((file) => {
+			const size = fileSize(file.file_size);
+			return '<span class="fi-file-chip" title="' + esc(file.file_name) + '">' + icon("file") + '<span class="fi-file-chip-name">' + esc(file.file_name) + "</span>" + (size ? '<span class="fi-file-chip-size">' + esc(size) + "</span>" : "") + iconButton("remove-file", "Remove " + file.file_name + " from this message", "close", 'data-name="' + esc(file.name) + '"') + "</span>";
+		}).join("") + (this.pending.has("upload") ? '<span class="fi-file-chip"><span class="fi-spinner"></span>Uploading privately…</span>' : "");
 	}
 App.prototype.renderControls = function () {
 		const busy = this.pending.has("send") || this.pending.has("upload");
@@ -36,15 +257,19 @@ App.prototype.renderControls = function () {
 		this.$(".fi-send").disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || !this.draft().text.trim());
 		this.$(".fi-send").setAttribute("aria-label", this.pending.has("send") ? "Sending message" : this.isActive() ? "Wait for this run to finish" : "Send message");
 		this.$('[data-action="attach"]').disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || this.boot && this.boot.capabilities && this.boot.capabilities.attachments === false);
-		this.$('[data-input="provider"]').disabled = !!(unavailable || busy || this.selected);
+		if (this.pickerState) for (const name of ["provider", "model"]) {
+			const button = this.$('[data-picker-btn="' + name + '"]');
+			if (button) button.disabled = !!this.pickerDisabled(name);
+		}
 		for (const action of ["new", "archive", "share"]) this.$('[data-action="' + action + '"]').disabled = !!(unavailable || busy || this.pending.has(action));
 		for (const element of this.root.querySelectorAll('[data-action="select"]')) element.disabled = busy;
-		for (const element of this.root.querySelectorAll('[data-action="approve"], [data-action="deny"], [data-action="always"]')) element.disabled = this.pending.has("approval:" + element.dataset.name);
+		for (const element of this.root.querySelectorAll('[data-action="approve"], [data-action="deny"], [data-action="always"], [data-action="conversation"]')) element.disabled = this.pending.has("approval:" + element.dataset.name);
+		for (const element of this.root.querySelectorAll('[data-action="approve-all"], [data-action="deny-all"]')) element.disabled = this.pending.has("approvals:bulk");
 		for (const element of this.root.querySelectorAll('[data-action="remove-file"], [data-action="remove-context"]')) element.disabled = this.pending.has("send");
 		const earlier = this.$('[data-action="earlier"]'); if (earlier) earlier.disabled = this.pending.has("earlier");
 		this.root.setAttribute("aria-busy", String(!!this.loading));
 	}
-App.prototype.syncDraft = function () { this.$("textarea").value = this.draft().text; this.resizeComposer(); this.renderAttachments(); this.renderControls(); }
+App.prototype.syncDraft = function () { this.$("textarea").value = this.draft().text; this.resizeComposer(); this.renderAttachments(); this.renderProviders(); this.renderControls(); }
 App.prototype.resizeComposer = function () { const input = this.$("textarea"); input.style.height = "auto"; input.style.height = Math.min(180, Math.max(64, input.scrollHeight)) + "px"; }
 App.prototype.ensureConversation = async function () {
 		if (this.selected) return this.selected;
@@ -56,10 +281,16 @@ App.prototype.send = function () {
 		if (this.$(".fi-send").disabled || this.pending.has("send")) return Promise.resolve();
 		return this.busy("send", async () => {
 			this.error = ""; const draft = this.draft(), content = draft.text.trim(), attachments = draft.attachments.map((file) => file.name), context = this.context ? Object.assign({}, this.context) : null;
+			// A model override rides along only for a brand-new conversation when
+			// the user picked a model other than the provider default.
+			const fresh = !this.selected, model = fresh && draft.model ? String(draft.model) : "";
 			const name = await this.ensureConversation();
-			try { const run = await this.api("send_message", { conversation: name, content, context: context ? JSON.stringify(context) : null, attachments: JSON.stringify(attachments) });
+			try {
+				const payload = { conversation: name, content, context: context ? JSON.stringify(context) : null, attachments: JSON.stringify(attachments) };
+				if (model) { const row = ((this.boot && this.boot.providers) || []).find((provider) => provider.name === this.provider); if (!row || model !== row.model) payload.model = model; }
+				const run = await this.api("send_message", payload);
 				if (!run || !run.name) throw { userMessage: "No run was returned. Refresh before trying again; your message may have been saved." };
-				draft.text = ""; draft.attachments = []; this.watched.set(name, run); this.snapshot.run = run; this.syncDraft(); this.renderRun(); this.renderMessages(); this.poller.start(0);
+				draft.text = ""; draft.attachments = []; draft.model = ""; this.watched.set(name, run); this.snapshot.run = run; this.syncDraft(); this.renderRun(); this.renderMessages(); this.poller.start(0);
 				const data = await this.fetchConversation(name); this.accept(name, data); this.lastList = 0;
 				// Server auto-titles from the first message; pick it up right away.
 				this.refreshList().catch(() => {});
@@ -67,8 +298,13 @@ App.prototype.send = function () {
 		});
 	}
 App.prototype.chooseFile = function () {
-		const input = this.doc.createElement("input"); input.type = "file"; input.accept = ".pdf,.txt,.csv,.md,.json,text/plain,text/csv,application/pdf";
-		input.addEventListener("change", () => { const file = input.files && input.files[0]; if (file) this.upload(file); }); input.click();
+		const input = this.doc.createElement("input"); input.type = "file"; input.multiple = true; input.accept = ".pdf,.txt,.csv,.md,.json,text/plain,text/csv,application/pdf";
+		// Multi-select uploads run one at a time: the upload guard is per-request,
+		// so chaining keeps each file its own private upload.
+		input.addEventListener("change", () => {
+			const files = Array.from(input.files || []);
+			files.reduce((queue, file) => queue.then(() => this.upload(file)), Promise.resolve()).catch(() => {});
+		}); input.click();
 	}
 App.prototype.upload = function (file) {
 		if (this.pending.has("upload") || this.pending.has("send") || this.isActive() || this.readOnly()) return Promise.resolve();
@@ -88,4 +324,6 @@ App.prototype.upload = function (file) {
 			this.draft().attachments.push(attachment); this.messageSignature = ""; this.renderMessages();
 		}).finally(() => this.renderAttachments());
 	}
+	Object.assign(fi, { fileSize });
+	Object.assign(fi.utils, { fileSize });
 });

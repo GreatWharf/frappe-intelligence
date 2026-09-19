@@ -4,9 +4,13 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const scene = new URLSearchParams(location.search).get('scene') || 'empty';
   const timestamp = '2026-09-16 10:24:00';
-  const providers = [{ name: 'provider-1', title: 'Work account', kind: 'OpenAI', model: 'gpt-4.1', enabled: 1, is_shared: 0, thinking_effort: 'Medium', has_api_key: true, can_edit: true, models: 'gpt-4.1\ngpt-4.1-mini\ngpt-4o' }];
+  const providers = [
+    { name: 'provider-1', title: 'Work account', kind: 'OpenAI', model: 'gpt-4.1', enabled: 1, is_shared: 0, thinking_effort: 'Medium', has_api_key: true, can_edit: true, models: 'gpt-4.1\ngpt-4.1-mini\ngpt-4o' },
+    { name: 'provider-2', title: 'Research bench', kind: 'OpenAI', model: 'gpt-4.1', enabled: 1, is_shared: 0, thinking_effort: 'Medium', has_api_key: true, can_edit: true, models: 'gpt-4.1\ngpt-4.1-mini\ngpt-4o\ngpt-4o-mini\no1\no3\no3-mini\no4-mini\ngpt-3.5-turbo' },
+    { name: 'provider-3', title: 'Local gateway', kind: 'Custom', model: 'kimi-k3', enabled: 1, is_shared: 0, thinking_effort: 'Auto', has_api_key: true, can_edit: true, models: '' }
+  ];
   const conversations = [
-    { name: 'chat-1', title: 'Review outstanding sales orders', provider: 'provider-1', modified: timestamp, active_run: scene === 'approval' ? 'run-1' : null, archived: 0, owner: 'jamie@example.invalid', shared: 0 },
+    { name: 'chat-1', title: 'Review outstanding sales orders', provider: 'provider-1', modified: timestamp, active_run: (scene === 'approval' || scene === 'bulk') ? 'run-1' : null, archived: 0, owner: 'jamie@example.invalid', shared: 0 },
     { name: 'chat-2', title: 'A clearer month-end checklist', provider: 'provider-1', modified: '2026-09-15 15:12:00', archived: 0, owner: 'jamie@example.invalid', shared: 0 },
     { name: 'chat-3', title: 'Understand our delivery workflow', provider: 'provider-1', modified: '2026-09-14 10:11:00', archived: 0, owner: 'jamie@example.invalid', shared: 0 },
     { name: 'chat-4', title: 'Notes from the supplier review', provider: 'provider-1', modified: '2026-09-12 09:45:00', archived: 0, owner: 'jamie@example.invalid', shared: 0 }
@@ -28,6 +32,24 @@
   if (scene === 'approval') {
     snapshots['chat-1'].run = { name: 'run-1', state: 'awaiting_approval', step_count: 1 };
     snapshots['chat-1'].approvals = [{ name: 'approval-1', tool_name: 'create_record', status: 'pending', expires_at: '2026-09-17 10:24:00', creation: timestamp, preview: { action: "Create Supplier 'Acme Corp'", summary: 'Create the fictional supplier record Acme Corp with default payment terms.', doctype: 'Supplier', name: 'Acme Corp', fields: { supplier_name: 'Acme Corp', supplier_group: 'Commercial' }, changes: [{ field: 'supplier_name', label: 'Supplier name', before: '-', after: 'Acme Corp' }], details: { fields: ['supplier_name', 'supplier_group'], limit: 1 } } }];
+  }
+  if (scene === 'bulk') {
+    const t = (minute) => '2026-09-16 10:' + String(minute).padStart(2, '0') + ':00';
+    snapshots['chat-1'].run = { name: 'run-1', state: 'awaiting_approval', step_count: 3 };
+    snapshots['chat-1'].approvals = [
+      { name: 'approval-b1', tool_name: 'create_record', status: 'pending', expires_at: '2026-09-17 10:24:00', creation: t(25), preview: { action: "Create Supplier 'Acme Corp'", summary: 'Create the fictional supplier record Acme Corp.', doctype: 'Supplier', name: 'Acme Corp', fields: { supplier_name: 'Acme Corp', supplier_group: 'Commercial' }, changes: [{ field: 'supplier_name', label: 'Supplier name', before: '-', after: 'Acme Corp' }], details: { fields: ['supplier_name', 'supplier_group'] } } },
+      { name: 'approval-b2', tool_name: 'update_record', status: 'pending', expires_at: '2026-09-17 10:24:00', creation: t(26), preview: { action: "Update Sales Order 'SO-DEMO-1042'", summary: 'Update the fictional sales order delivery note.', doctype: 'Sales Order', name: 'SO-DEMO-1042', fields: { delivery_date: '2026-09-25' }, changes: [{ field: 'delivery_date', label: 'Delivery date', before: '2026-09-18', after: '2026-09-25' }], details: { fields: ['delivery_date'] } } },
+      { name: 'approval-b3', tool_name: 'delete_record', status: 'pending', expires_at: '2026-09-17 10:24:00', creation: t(27), preview: { action: "Delete ToDo 'TODO-DEMO-9'", summary: 'Delete the fictional follow-up ToDo.', doctype: 'ToDo', name: 'TODO-DEMO-9', operation: 'delete', details: {} } }
+    ];
+  }
+  if (scene === 'auto') {
+    const t = (minute) => '2026-09-16 10:' + String(minute).padStart(2, '0') + ':00';
+    snapshots['chat-1'].run = { name: 'run-1', state: 'completed', step_count: 2 };
+    snapshots['chat-1'].approvals = [
+      { name: 'approval-a1', tool_name: 'read_record', status: 'succeeded', decided_by: '', source: 'policy:Read auto-approve', creation: t(25), preview: { summary: "Read Supplier 'Acme Corp'.", operation: 'read', target: { doctype: 'Supplier', name: 'Acme Corp' }, details: { fields: ['name', 'supplier_group'] } } },
+      { name: 'approval-a2', tool_name: 'search_records', status: 'succeeded', decided_by: 'jamie@example.invalid', creation: t(26), preview: { summary: 'Search permitted Item records.', operation: 'search', target: { doctype: 'Item' }, details: { limit: 5 } } }
+    ];
+    snapshots['chat-1'].messages.push({ name: 'message-40', role: 'assistant', content: 'The policy auto-approved the read; the search had an existing manual approval. All figures are mock preview data.', status: 'complete', creation: t(27) });
   }
   const memories = [{ name: 'memory-1', scope: 'personal', content: 'Use a Monday-to-Sunday week when reviewing delivery schedules.' }];
   const skillsData = {
@@ -118,6 +140,17 @@
         setTimeout(() => {
           if (args.decision !== 'deny') approval.status = 'succeeded';
           finish(match, 'completed', args.decision !== 'deny' ? '### Review complete\n\nThis is **fictional preview data**, not a live report. Your approved request completed in the mock host.\n\n| Order | Customer | Delivery |\n| --- | --- | --- |\n| SO-DEMO-1042 | Northstar Components | 18 Sep |\n| SO-DEMO-1048 | Fieldwork Supply | 21 Sep |\n\nNo records were changed. You can ask a follow-up question or leave this conversation and return later.' : 'The request was denied. No records were read or changed.');
+        }, 750); return match.run;
+      }
+      case 'decide_approvals': {
+        const names = JSON.parse(args.names || '[]');
+        const match = Object.values(snapshots).find((row) => row.approvals.some((approval) => names.includes(approval.name)));
+        if (!match) throw { userMessage: 'Approvals not found.' };
+        for (const approval of match.approvals) if (names.includes(approval.name) && approval.status === 'pending') approval.status = args.decision === 'deny' ? 'denied' : 'approved';
+        match.run.state = 'running'; changed(match);
+        setTimeout(() => {
+          for (const approval of match.approvals) if (approval.status === 'approved') approval.status = 'succeeded';
+          finish(match, 'completed', args.decision === 'deny' ? 'The requests were denied. No records were changed.' : '### Review complete\n\nEvery approved request completed in the mock host. This is **fictional preview data**, not a live report.');
         }, 750); return match.run;
       }
       case 'cancel': {
