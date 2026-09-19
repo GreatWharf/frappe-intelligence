@@ -41,12 +41,33 @@ let browser;
   const strip = page.locator('.fi-drawer-resize');
   const before = (await drawer.boundingBox()).width;
   const handle = await strip.boundingBox();
-  const startX = handle.x + handle.width / 2, startY = handle.y + handle.height / 2;
+  // Aim at the strip's inner sliver: its midpoint is exactly the shell's
+  // border pixel, which hit-tests differently across platforms.
+  const startX = handle.x + handle.width - 1, startY = handle.y + handle.height / 2;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX - 120, startY, { steps: 6 });
   const dragged = (await drawer.boundingBox()).width;
-  assert.ok(Math.abs(dragged - (before + 120)) <= 6, 'dragging the strip widens the drawer: ' + before + ' -> ' + dragged);
+  if (Math.abs(dragged - (before + 120)) > 6) {
+    const diag = await page.evaluate(
+      ([x, y]) => {
+        const shell = document.querySelector('.fi-drawer-shell');
+        const hit = document.elementFromPoint(x, y);
+        const rect = shell.getBoundingClientRect();
+        return {
+          hit: hit ? hit.className || hit.tagName : null,
+          shellRect: { left: rect.left, width: rect.width },
+          shellClass: shell.className,
+          innerWidth: window.innerWidth,
+          computedWidth: getComputedStyle(shell).width,
+        };
+      },
+      [startX, startY]
+    );
+    throw new assert.AssertionError({
+      message: 'dragging the strip widens the drawer: ' + before + ' -> ' + dragged + '; at the press point: ' + JSON.stringify(diag) + '; page errors: ' + JSON.stringify(errors),
+    });
+  }
   await page.mouse.up();
   await page.waitForFunction(() => !document.querySelector('.fi-drawer-shell').classList.contains('is-resizing'));
   await screenshot('panel-drawer-resized');
