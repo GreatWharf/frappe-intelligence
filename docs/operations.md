@@ -38,6 +38,15 @@ In Docker, code/dependencies/assets belong in the image build; installing/migrat
 
 Once a provider is referenced by conversation history, create a new provider record to change its vendor, endpoint or model. This avoids silently disclosing existing history to another destination. Credentials can still be rotated; disabled providers stop new execution but do not erase history.
 
+## Approval policies and standing grants
+
+Out of the box, decisions follow the site approval mode. Two levers cut the click count without weakening the execution rechecks:
+
+- **Intelligence Policy** rows let managers require approval, auto-approve or deny by tool, DocType, operation (read, create, update, delete, submit, report), role and amount threshold with its currency. Rows are evaluated by priority, then specificity, and ship disabled as examples; enable one only after reviewing its reason text, which is what a denied user sees.
+- When approving, the user chooses whether the answer holds once, for the rest of the conversation, or always for that tool, optionally narrowed to the DocType in question. Standing grants live in **Intelligence Tool Grant** and can be revoked at any time; revocation applies to the next proposal. When a run queues several requests, the approval card decides them one by one or all together, and remembering the choice stores one grant per tool.
+
+Policies and grants only ever answer the proposal; permissions, revisions and expiry are still rechecked at execution, and every decision, human or automatic, is recorded with its source.
+
 ## Background execution
 
 Submitting a message creates a durable Run and queues work after the database commit. Closing the page/drawer does not cancel that run. The UI subscribes to user-scoped status events and polls authorized state as a reconnect fallback.

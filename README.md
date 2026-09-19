@@ -30,8 +30,13 @@ Intelligence brings a ChatGPT-class assistant into Frappe and ERPNext without ha
 <br />
 <p align="center"><i>The workspace: multiple private conversations, provider and model selection, and a pending approval with a full before/after diff.</i></p>
 <img src="dev/screenshots/workspace-approval-desktop.png" alt="Workspace with approval card" />
-<p align="center"><i>The contextual drawer: help beside the record you're looking at, included explicitly, never scraped.</i></p>
-<img src="dev/screenshots/contextual-drawer.png" alt="Contextual drawer open over a Desk record" />
+<p align="center"><i>The docked panel: Ctrl/Cmd+I over any Desk screen, aware of the record you're looking at, included explicitly, never scraped.</i></p>
+<img src="dev/screenshots/panel-drawer-context.png" alt="Docked panel open over a Desk record with the record context chip" />
+<p align="center"><i>Approvals at scale: policies auto-approve within the rules managers set, and a queue of pending requests clears in one decision.</i></p>
+<img src="dev/screenshots/approval-bulk-desktop.png" alt="A batch of pending approvals being decided together" />
+<img src="dev/screenshots/auto-approved-row.png" alt="A tool call auto-approved by policy, recorded in the audit trail" />
+<p align="center"><i>A one-off model pick for a single message, straight from the composer.</i></p>
+<img src="dev/screenshots/composer-model-picked.png" alt="Composer with a one-off model override selected" />
 <p align="center"><i>Approvals hold up in the dark and on the phone; work survives closing the window.</i></p>
 <img src="dev/screenshots/workspace-approval-dark.png" alt="Workspace approval in dark mode" />
 <img src="dev/screenshots/approval-mobile.png" alt="Approval card on mobile" />
@@ -45,11 +50,13 @@ ERP systems hold the answers people actually need (what's owed, what shipped, wh
 
 ### Key Features
 
-- **A real chat workspace:** multiple private conversations with search, rename, and archive; automatic titles from the first message; optional read-only sharing with colleagues; paginated history; readable code, tables, and links; a dedicated Desk page plus a contextual drawer beside any record.
-- **Bring your own provider:** OpenAI, Anthropic, Google Gemini, OpenRouter, xAI, and administrator-allowlisted custom OpenAI-compatible endpoints. Personal keys stay private; managers can offer shared providers to chosen roles. Models are configured by their real provider model IDs, with no baked-in catalog that ages.
+- **A real chat workspace:** multiple private conversations with search, rename, and archive; automatic titles from the first message; optional read-only sharing with colleagues; paginated history; readable code, tables, and links; a dedicated Desk page plus a docked panel beside any record.
+- **A panel docked over Desk:** press Ctrl/Cmd+I (or the floating button) and the assistant docks at the right edge of any Desk screen, already holding the context of the record you're looking at. Drag the edge to widen it, Esc to close it, and hand off to the full page when you need the room. The width you leave it at is the width you find it at.
+- **Watch it work, not just answer:** before each step the assistant says what it's doing and why, and every tool call collapses into a one-line row you can expand for the full input and result.
+- **Bring your own provider:** OpenAI, Anthropic, Google Gemini, OpenRouter, xAI, and administrator-allowlisted custom OpenAI-compatible endpoints. Personal keys stay private; managers can offer shared providers to chosen roles. Models are configured by their real provider model IDs, with no baked-in catalog that ages, and the composer can override the provider default for a single message.
 - **Permission-native tools:** the assistant searches and reads only administrator-allowlisted DocTypes through the user's own permissions, and answers financial questions from reviewed ERPNext report adapters (Balance Sheet, Profit &amp; Loss, Cash Flow, Trial Balance, General Ledger, receivables and payables).
-- **Explicit approval for every action:** read tools ask too, by default. Three approval modes let a site choose between approving every step, approving writes only, or full automation; policy auto-approvals are recorded in the same audit trail as human decisions. Write proposals show their target and a before/after diff, and execution rechecks permissions and record revisions, so a stale approval cannot silently authorize a different change.
-- **Durable runs:** submitted work lives on the server, not in the browser tab. Close the drawer, come back tomorrow, and pick up the conversation, or the pending approval, exactly where it was.
+- **Approvals that scale past the first invoice:** every action still asks, by default, but the answer no longer has to be one click per step. Approval policies let managers require approval, auto-approve, or deny by tool, DocType, operation, role, and amount threshold; an approval can be granted once, for the whole conversation, or always; and a queue of pending requests can be decided together. Three site-wide modes still choose between approving every step, approving writes only, or full automation. Write proposals show their target and a before/after diff, execution rechecks permissions and record revisions so a stale approval cannot silently authorize a different change, and human and policy decisions share one audit trail.
+- **Durable runs:** submitted work lives on the server, not in the browser tab. Close the panel, come back tomorrow, and pick up the conversation, or the pending approval, exactly where it was.
 - **Documents and memory on your terms:** upload PDFs and text files and choose when the assistant may read them; keep personal or per-conversation notes, with site-wide guidance curated by managers. No invisible harvesting.
 
 ### See It Working
