@@ -6,7 +6,7 @@
   "scripts": {
     "test": "node --test tests/js/*.test.js",
     "test:dom": "FI_REAL_DOM=1 node --test tests/js/*.test.js",
-    "test:browser": "node tests/js/browser.cjs && node tests/js/native-ui.cjs && node tests/js/panel-browser.cjs",
+    "test:browser": "node tests/js/ci-browser.cjs",
     "preview": "node dev/preview-server.cjs",
     "check": "node --check frappe_intelligence/public/js/intelligence.js && node --check frappe_intelligence/public/js/fi/store.js && node --check frappe_intelligence/public/js/fi/thread.js && node --check frappe_intelligence/public/js/fi/composer.js && node --check frappe_intelligence/public/js/fi/panel.js && node --check frappe_intelligence/public/js/fi/app.js && node --check frappe_intelligence/frappe_intelligence/page/intelligence/intelligence.js"
   },
