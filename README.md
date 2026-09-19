@@ -63,6 +63,10 @@ ERP systems hold the answers people actually need (what's owed, what shipped, wh
 
 Captured from a live ERPNext v16 site running the flows recorded in [the verification record](docs/verification.md).
 
+| Docked over any Desk screen, one shortcut away | Narration and collapsible tool rows |
+| --- | --- |
+| ![The docked panel over the Desk home, with the composer and its provider and model pickers](docs/screenshots/panel-docked.png) | ![A run narrating its steps, with a collapsed tool group and a data table](docs/screenshots/narration-tool-rows.png) |
+
 | Welcome, personalized by name and time | Bring your own provider |
 | --- | --- |
 | ![Welcome screen](docs/screenshots/welcome.png) | ![Providers and models](docs/screenshots/providers.png) |

@@ -101,6 +101,16 @@ Every write in these runs went through an approval card; the assistant holds no 
 
 Image `ghcr.io/greatwharf/frappe-intelligence:0.5.0` (tag `v0.5.0`, commit `2df801a`) was deployed to the same disposable ERPNext v16 site and driven through a real Chromium session. Verified end to end: a single "Intelligence" entry on the apps screen and in the Desk sidebar, same-tab navigation into `/desk/intelligence`, the composer pinned to the viewport at desktop and phone widths, the inline provider picker, approval cards with **Always allow** (the standing grant auto-approved the repeat search in the follow-up run with zero further prompts), collapsed tool groups with narration between steps, and an AI-generated conversation title ("Unpaid Sales Invoices Overview") replacing the placeholder after the first reply. Captures: [screenshots/approval-waiting.png](screenshots/approval-waiting.png), [screenshots/conversation-answer.png](screenshots/conversation-answer.png), [screenshots/follow-up-answer.png](screenshots/follow-up-answer.png).
 
+## Live verification of 0.6.0, 19 September 2026
+
+Image `ghcr.io/greatwharf/frappe-intelligence:0.6.0` (commit `eb3bf46`) was deployed to the same disposable ERPNext v16 site. Local gates before the push: **688 Python tests**, **135 dependency-free UI tests** in both DOM modes, three Chromium suites against the mocked preview, ruff lint and formatting, all green; GitHub Actions ran green on the same tree (unit, browser, real-Frappe integration, image build).
+
+After the deploy, **26/26 REST checks passed** against the running site: login; bootstrap and the 14-field settings policy with no secret fields; the 0.6.0 schema on Intelligence Run (`model`), Intelligence Tool Grant (`scope`, `conversation`) and the full Intelligence Policy matrix; both seeded example policies present, disabled, with their template reasons; `list_grants`; the new `revoke_grant` input guard answering "Invalid request data." to a non-string name (proving the 0.6.0 API, not a stale build); the seven-link sidebar plus empty module sentinel; global-search registration; and all eleven advertised assets resolving, with `panel.js` carrying the drawer markup.
+
+A real Chromium session then drove the live UI: the floating button docked the panel over the Desk home with the welcome state, pickers and approval-mode caption visible, and a fresh run ("List the first five Customer records") narrated its plan, showed the approval card under Approve Every Step, was approved once, and settled with the collapsed "Used 2 tools" group and the answer table. Captures: [screenshots/panel-docked.png](screenshots/panel-docked.png), [screenshots/narration-tool-rows.png](screenshots/narration-tool-rows.png).
+
+One verification lesson is recorded for future deploys: the version endpoint reports the new release as soon as the web container serves it, while `bench migrate` (which creates the new tables and seeds the example policies) can still be running. A readiness check must wait for a migrate-completed signal, such as the seeded policies being countable, not just for the version string; the first check run raced the migrate and the second passed 26/26 unchanged.
+
 ## Remaining validation boundaries
 
 - Actual Frappe/ERPNext install, migration, native permission dispatch and RQ/realtime behavior on the target site.
