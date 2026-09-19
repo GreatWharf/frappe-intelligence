@@ -48,7 +48,6 @@ NO_APPROVAL_TOOLS = frozenset({"recall_memory", "save_memory"})
 # substitute that module wholesale). Execute-class tools never equal a policy's
 # operation, so they match only operation=Any rows.
 _OPERATION_CLASSES = frozenset({"Read", "Create", "Update", "Delete", "Submit", "Report", "Execute"})
-_POLICY_OPERATIONS = ("Any", "Read", "Create", "Update", "Delete", "Submit", "Report")
 _AMOUNT_CANDIDATES = ("grand_total", "rounded_total", "total", "paid_amount", "amount", "base_grand_total")
 GRANT_SCOPES = ("Always", "This Conversation")
 MAX_CALLS_PER_TURN = 8
@@ -73,6 +72,8 @@ _GROUND_RULES = (
     "- When asked to draft something that lives in ERPNext (an email reply, a note), create the "
     "draft record and answer with a link to it; never paste the full draft text.\n"
     "- Never retry a denied action unless the user asks.\n"
+    "- Before each tool call, write one short sentence on what you are doing and why; "
+    "never call a tool silently.\n"
     "- Financial posting, document submission, workflow changes and ledger or stock writes are "
     "always off-limits; propose drafts instead.\n"
     "- Reference records as markdown links with a human label, e.g. "
@@ -299,6 +300,18 @@ def get_provider_config(provider_name, user=None):
     )
 
 
+def _run_config(run):
+    """Provider config for a run, with the caller's one-off model pick applied.
+
+    get_provider_config builds a fresh config every call, so the override can be
+    stamped on it directly; nothing shares the instance.
+    """
+    config = get_provider_config(run.provider)
+    if run.get("model"):
+        config.model = run.model
+    return config
+
+
 def append_message(conversation, role, content, **values):
     """Server-only canonical append; sequence allocation is conversation-locked."""
     allowed = {"run", "tool_calls", "tool_call_id", "status"}
@@ -366,7 +379,31 @@ def _validate_attachments(conversation, attachments):
     return list(dict.fromkeys(attachments))
 
 
-def submit_message(conversation, content, context=None, attachments=None):
+def _validate_model(provider_name, model):
+    """A one-off model pick for the run, checked against the provider's catalog.
+
+    Providers with no stored catalog (Custom kind) accept any well-formed id;
+    a pick equal to the provider default needs no stored override.
+    """
+    if model is None:
+        return ""
+    if not isinstance(model, str):
+        frappe.throw("Invalid request data.", frappe.ValidationError)
+    model = model.strip()
+    if not model:
+        return ""
+    if len(model) > 140:
+        frappe.throw("Invalid request data.", frappe.ValidationError)
+    doc = frappe.get_doc("Intelligence Provider", provider_name)
+    if model == (doc.model or "").strip():
+        return ""
+    catalog = [line.strip() for line in (doc.get("models") or "").splitlines() if line.strip()]
+    if catalog and model not in catalog:
+        frappe.throw("This model is not in the provider's catalog.", frappe.ValidationError)
+    return model
+
+
+def submit_message(conversation, content, context=None, attachments=None, model=None):
     user = require_user()
     settings = get_settings()
     if not settings.enabled:
@@ -399,6 +436,7 @@ def submit_message(conversation, content, context=None, attachments=None):
     if len(consumed) >= quota:
         frappe.throw("Your daily Intelligence run limit has been reached.", frappe.ValidationError)
     get_provider_config(doc.provider)
+    model = _validate_model(doc.provider, model)
     context = _validate_context(context)
     attachments = _validate_attachments(conversation, attachments)
     run = _insert(
@@ -412,6 +450,7 @@ def submit_message(conversation, content, context=None, attachments=None):
         cancel_requested=0,
         input_tokens=0,
         output_tokens=0,
+        model=model,
         context_json=_json(context),
         attachments_json=_json(attachments),
     )
@@ -1224,7 +1263,7 @@ def _provider_turn(run_name, token):
 
     run = _locked_run(run_name)
     _fence(run, token)
-    config = get_provider_config(run.provider)
+    config = _run_config(run)
     history = _history(run)
     context = _tool_context(run)
     prompt = _system_prompt(run, context)
@@ -1379,7 +1418,7 @@ def _maybe_generate_title(run):
         )
         if not first_user:
             return
-        config = get_provider_config(run.provider)
+        config = _run_config(run)
         # A reasoning model burns a tiny budget on thinking before any visible
         # text, then finishes "length": the title silently never landed on
         # kimi-k3 (24 tokens, default thinking). Give the call room and ask for

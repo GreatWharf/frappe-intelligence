@@ -19,7 +19,13 @@
 		stop() { this.generation++; if (this.timer !== null) this.clear(this.timer); this.timer = null; }
 	}
 	function subscribeRealtime(handler) {
-		if (global.frappe && global.frappe.realtime && global.frappe.realtime.on) global.frappe.realtime.on("intelligence_update", handler);
+		// intelligence_run_event (fine-grained lifecycle) arrives before the legacy
+		// intelligence_update snapshot at every transition; both carry the
+		// conversation name, and polling stays the correctness floor either way.
+		if (global.frappe && global.frappe.realtime && global.frappe.realtime.on) {
+			global.frappe.realtime.on("intelligence_run_event", handler);
+			global.frappe.realtime.on("intelligence_update", handler);
+		}
 	}
 	Object.assign(fi, { Poller, subscribeRealtime });
 });

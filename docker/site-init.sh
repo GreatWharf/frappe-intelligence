@@ -375,7 +375,10 @@ fi
 # which is a failed init, not a warning.
 link_app_assets || true
 assets_verified=1
-for asset in js/intelligence.js css/intelligence.css images/intelligence.svg; do
+for asset in \
+    js/intelligence.js js/fi/store.js js/fi/thread.js js/fi/composer.js js/fi/panel.js js/fi/app.js \
+    css/intelligence.css css/fi/thread.css css/fi/composer.css css/fi/panel.css \
+    images/intelligence.svg; do
     if [ ! -r "$ASSET_TARGET/$asset" ]; then
         log "ERROR: sites/assets/$APP_NAME/$asset does not resolve; the Desk would 404 on it."
         assets_verified=0

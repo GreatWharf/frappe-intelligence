@@ -956,6 +956,51 @@ def test_a_custom_titled_conversation_is_never_renamed(env):
     assert env.frappe.get_doc("Intelligence Conversation", "titled").title == "Quarterly review"
 
 
+def test_a_model_override_is_stored_on_the_run_and_reaches_the_provider(env):
+    env.frappe.get_doc("Intelligence Provider", "provider").models = "test\nother\nthird"
+    seen = []
+    complete = sys.modules["frappe_intelligence.providers"].complete
+
+    def spy(config, messages, tools):
+        seen.append(config)
+        return complete(config, messages, tools)
+
+    sys.modules["frappe_intelligence.providers"].complete = spy
+    try:
+        result = env.engine.submit_message("conversation", "Help me", model=" other ")
+        env.frappe.db.commit()
+        name = result["name"]
+        assert env.frappe.get_doc("Intelligence Run", name).model == "other", "whitespace is stripped"
+        env.replies.append(reply(text="Done."))
+        env.engine.process_run(name)
+        assert seen and seen[0].model == "other", "the one-off pick replaces the provider default"
+    finally:
+        sys.modules["frappe_intelligence.providers"].complete = complete
+
+
+def test_a_model_override_must_come_from_the_provider_catalog(env):
+    env.frappe.get_doc("Intelligence Provider", "provider").models = "test\nother"
+    with pytest.raises(ValueError):
+        env.engine.submit_message("conversation", "Help me", model="not-listed")
+    with pytest.raises(ValueError):
+        env.engine.submit_message("conversation", "Help me", model=42)
+    with pytest.raises(ValueError):
+        env.engine.submit_message("conversation", "Help me", model="x" * 141)
+    # The provider default needs no stored override.
+    result = env.engine.submit_message("conversation", "Help me", model="test")
+    assert env.frappe.get_doc("Intelligence Run", result["name"]).model == ""
+
+
+def test_an_empty_catalog_accepts_any_well_formed_model(env):
+    result = env.engine.submit_message("conversation", "Help me", model="frontier-lab-9")
+    assert env.frappe.get_doc("Intelligence Run", result["name"]).model == "frontier-lab-9"
+    env.frappe.db.commit()
+    env.frappe.get_doc("Intelligence Run", result["name"]).state = "completed"
+    env.frappe.get_doc("Intelligence Conversation", "conversation").active_run = None
+    result = env.engine.submit_message("conversation", "Again", model="")
+    assert env.frappe.get_doc("Intelligence Run", result["name"]).model == "", "blank means no pick"
+
+
 def test_automatic_mode_auto_approves_and_requeues_the_run(env):
     env.frappe.settings.approval_mode = "Automatic"
     name = submit(env)

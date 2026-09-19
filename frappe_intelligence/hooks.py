@@ -7,8 +7,23 @@ app_license = "MIT"
 app_home = "/desk/intelligence"
 app_logo_url = "/assets/frappe_intelligence/images/intelligence.svg"
 
-app_include_js = ["/assets/frappe_intelligence/js/intelligence.js"]
-app_include_css = ["/assets/frappe_intelligence/css/intelligence.css"]
+# Keep these lists in the exact order of tests/js/load.cjs FILES and
+# dev/preview.html: the fi/ modules destructure the entry's identifiers at load
+# time and the fi/ stylesheets layer on the base sheet.
+app_include_js = [
+    "/assets/frappe_intelligence/js/intelligence.js",
+    "/assets/frappe_intelligence/js/fi/store.js",
+    "/assets/frappe_intelligence/js/fi/thread.js",
+    "/assets/frappe_intelligence/js/fi/composer.js",
+    "/assets/frappe_intelligence/js/fi/panel.js",
+    "/assets/frappe_intelligence/js/fi/app.js",
+]
+app_include_css = [
+    "/assets/frappe_intelligence/css/intelligence.css",
+    "/assets/frappe_intelligence/css/fi/thread.css",
+    "/assets/frappe_intelligence/css/fi/composer.css",
+    "/assets/frappe_intelligence/css/fi/panel.css",
+]
 
 add_to_apps_screen = [
     dict(

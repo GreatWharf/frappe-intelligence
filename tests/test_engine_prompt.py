@@ -377,7 +377,10 @@ def test_ground_rules_memory_and_adaptive_guidance_are_present(env):
     # Live runs showed the model confirming writes in text first and never
     # calling the tool; the rules must state the approval card IS the check.
     assert "call the write tool" in prompt
-    assert len(env.engine._GROUND_RULES) < 1200
+    # Narration prose between steps is a 0.6.0 surface feature; it needs the
+    # model instructed to never act silently.
+    assert "never call a tool silently" in prompt
+    assert len(env.engine._GROUND_RULES) < 1400
 
 
 def test_skills_block_lists_only_enabled_own_and_shared_skills(env):

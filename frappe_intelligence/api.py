@@ -223,11 +223,15 @@ def get_conversation(conversation, before_sequence=None):
 
 @frappe.whitelist(methods=["POST"])
 @_safe
-def send_message(conversation, content, context=None, attachments=None):
+def send_message(conversation, content, context=None, attachments=None, model=None):
     from .engine import submit_message
 
     return submit_message(
-        conversation, content, context=_decode(context, dict) or None, attachments=_decode(attachments, list)
+        conversation,
+        content,
+        context=_decode(context, dict) or None,
+        attachments=_decode(attachments, list),
+        model=model,
     )
 
 
@@ -551,6 +555,8 @@ def list_grants():
 @_safe
 def revoke_grant(name):
     user = require_user()
+    if not isinstance(name, str):
+        frappe.throw("Invalid request data.", frappe.ValidationError)
     doc = frappe.get_doc("Intelligence Tool Grant", name, for_update=True)
     if doc.get("user") != user and not MANAGER_ROLES.intersection(frappe.get_roles(user)):
         frappe.throw("You cannot revoke this grant.", frappe.PermissionError)

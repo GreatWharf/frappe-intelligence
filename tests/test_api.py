@@ -277,6 +277,38 @@ def test_revoke_grant_is_owner_or_manager_only(api):
     assert "g2" not in store, "managers can revoke any grant"
 
 
+def test_revoke_grant_rejects_a_non_string_name(api):
+    module, _, store = api
+    store["g1"] = Row(doctype="Intelligence Tool Grant", name="g1", user="owner@example.test")
+    with pytest.raises(ValueError):
+        module.revoke_grant({"name": "g1"})
+    with pytest.raises(ValueError):
+        module.revoke_grant(["g1"])
+    assert "g1" in store, "nothing was deleted"
+
+
+def test_send_message_forwards_the_model_override(api, monkeypatch):
+    module, _, _ = api
+    seen = {}
+    engine_stub = ModuleType("frappe_intelligence.engine")
+
+    def submit_message(conversation, content, context=None, attachments=None, model=None):
+        seen.update(
+            conversation=conversation, content=content, context=context, attachments=attachments, model=model
+        )
+        return {"name": "r1"}
+
+    engine_stub.submit_message = submit_message
+    monkeypatch.setitem(sys.modules, "frappe_intelligence.engine", engine_stub)
+    import frappe_intelligence
+
+    monkeypatch.setattr(frappe_intelligence, "engine", engine_stub, raising=False)
+    module.send_message("c", "Hello", model="other")
+    assert seen["model"] == "other"
+    module.send_message("c", "Hello")
+    assert seen["model"] is None
+
+
 def test_rename_conversation_marks_the_title_as_manual(api):
     module, _, store = api
     store["c"] = Row(

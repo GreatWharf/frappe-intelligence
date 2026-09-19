@@ -22,6 +22,13 @@
       "reqd": 1
     },
     {
+      "fieldname": "model",
+      "label": "Model",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "description": "One-off model pick for this run; empty means the provider default."
+    },
+    {
       "fieldname": "user",
       "label": "User",
       "fieldtype": "Link",
@@ -116,6 +123,7 @@
   "field_order": [
     "conversation",
     "provider",
+    "model",
     "user",
     "site",
     "state",
