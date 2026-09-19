@@ -28,15 +28,26 @@ let browser;
   await page.route('**/*', async (route) => { if (!route.request().url().startsWith(base)) { outbound.push(route.request().url()); await route.abort(); } else await route.continue(); });
   const screenshot = (name) => page.screenshot({ path: path.join(output, name + '.png'), fullPage: true });
   const drawer = page.locator('.fi-drawer-shell');
+  // The drawer clears [hidden] first, then animateOpen() applies is-open on the
+  // next frame and the shell slides in over .22s. A :not([hidden]) wait resolves
+  // while the shell is still translated off-screen, so measuring or pressing the
+  // resize strip then can land outside the viewport on a slow runner.
+  const waitForDrawerSettled = () => page.waitForFunction(() => {
+    const shell = document.querySelector('.fi-drawer-shell');
+    if (!shell || shell.hidden || !shell.classList.contains('is-open')) return false;
+    const rect = shell.getBoundingClientRect();
+    return Math.abs(rect.right - window.innerWidth) < 1;
+  });
   await page.goto(base + '/?scene=context');
   await page.waitForSelector('.fi-drawer-shell:not([hidden]) .fi-context-chip');
+  await waitForDrawerSettled();
   assert.ok((await page.locator('.fi-context-chip').textContent()).includes('Northstar Components'), 'the drawer opens with the record context chip');
   await screenshot('panel-drawer-context');
   await page.keyboard.press('Control+Shift+I');
   await page.waitForSelector('.fi-drawer-shell', { state: 'hidden' });
   assert.equal(await drawer.isVisible(), false, 'Ctrl+Shift+I closes the drawer');
   await page.locator('.fi-global-toggle').click();
-  await page.waitForSelector('.fi-drawer-shell:not([hidden])');
+  await waitForDrawerSettled();
   assert.equal(await drawer.isVisible(), true, 'the pill reopens the drawer');
   const strip = page.locator('.fi-drawer-resize');
   const before = (await drawer.boundingBox()).width;
@@ -56,9 +67,11 @@ let browser;
         const rect = shell.getBoundingClientRect();
         return {
           hit: hit ? hit.className || hit.tagName : null,
+          press: { x, y },
           shellRect: { left: rect.left, width: rect.width },
           shellClass: shell.className,
           innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
           computedWidth: getComputedStyle(shell).width,
         };
       },
@@ -72,7 +85,7 @@ let browser;
   await page.waitForFunction(() => !document.querySelector('.fi-drawer-shell').classList.contains('is-resizing'));
   await screenshot('panel-drawer-resized');
   await page.reload();
-  await page.waitForSelector('.fi-drawer-shell:not([hidden])');
+  await waitForDrawerSettled();
   const restored = (await drawer.boundingBox()).width;
   assert.ok(Math.abs(restored - dragged) <= 6, 'the dragged width survives reload: ' + dragged + ' -> ' + restored);
   await page.locator('[data-action="open-full-page"]').click();
