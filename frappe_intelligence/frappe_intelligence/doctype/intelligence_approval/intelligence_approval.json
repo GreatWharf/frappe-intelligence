@@ -80,6 +80,12 @@
       "fieldname": "decided_at",
       "label": "Decided At",
       "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "source",
+      "label": "Source",
+      "fieldtype": "Data",
+      "description": "Automatic decisions only: policy:<name> or grant:<name>. Blank decided_by marks the same policy path."
     }
   ],
   "field_order": [
@@ -94,7 +100,8 @@
     "status",
     "expires_at",
     "decided_by",
-    "decided_at"
+    "decided_at",
+    "source"
   ],
   "permissions": [
     {

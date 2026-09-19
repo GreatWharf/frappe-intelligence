@@ -1,0 +1,127 @@
+{
+  "doctype": "DocType",
+  "name": "Intelligence Policy",
+  "module": "Frappe Intelligence",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "issingle": 0,
+  "fields": [
+    {
+      "fieldname": "enabled",
+      "label": "Enabled",
+      "fieldtype": "Check",
+      "default": "1",
+      "in_list_view": 1,
+      "description": "Only enabled rows take part in approval resolution."
+    },
+    {
+      "fieldname": "priority",
+      "label": "Priority",
+      "fieldtype": "Int",
+      "default": "100",
+      "in_list_view": 1,
+      "description": "Higher priority rows win; ties go to the more specific row."
+    },
+    {
+      "fieldname": "tool",
+      "label": "Tool",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "description": "Optional reviewed tool name, for example create_document. Empty matches every tool."
+    },
+    {
+      "fieldname": "target_doctype",
+      "label": "Target DocType",
+      "fieldtype": "Link",
+      "options": "DocType",
+      "in_list_view": 1,
+      "description": "Optional: match only calls that target this DocType."
+    },
+    {
+      "fieldname": "operation",
+      "label": "Operation",
+      "fieldtype": "Select",
+      "options": "Any\nRead\nCreate\nUpdate\nDelete\nSubmit\nReport",
+      "default": "Any",
+      "reqd": 1,
+      "in_list_view": 1,
+      "description": "Matched against the tool's declared operation class."
+    },
+    {
+      "fieldname": "role",
+      "label": "Role",
+      "fieldtype": "Link",
+      "options": "Role",
+      "description": "Optional: match only run owners who hold this role."
+    },
+    {
+      "fieldname": "amount_condition",
+      "label": "Amount Condition",
+      "fieldtype": "Select",
+      "options": "Any amount\nAt or below limit\nAbove limit",
+      "default": "Any amount",
+      "reqd": 1,
+      "description": "Amounts are compared by magnitude as raw numbers; no currency conversion."
+    },
+    {
+      "fieldname": "amount_limit",
+      "label": "Amount Limit",
+      "fieldtype": "Float",
+      "description": "Required when the amount condition is not Any amount."
+    },
+    {
+      "fieldname": "currency",
+      "label": "Currency",
+      "fieldtype": "Link",
+      "options": "Currency",
+      "description": "Informational only: name the limit's currency in the reason; resolution never converts."
+    },
+    {
+      "fieldname": "decision",
+      "label": "Decision",
+      "fieldtype": "Select",
+      "options": "Require approval\nAuto-approve\nDeny",
+      "reqd": 1,
+      "in_list_view": 1,
+      "description": "Auto-approve and Deny record the same audit trail as a human decision."
+    },
+    {
+      "fieldname": "reason",
+      "label": "Reason",
+      "fieldtype": "Small Text",
+      "description": "Optional explanation shown with the automatic decision."
+    }
+  ],
+  "field_order": [
+    "enabled",
+    "priority",
+    "tool",
+    "target_doctype",
+    "operation",
+    "role",
+    "amount_condition",
+    "amount_limit",
+    "currency",
+    "decision",
+    "reason"
+  ],
+  "permissions": [
+    {
+      "role": "Intelligence Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1,
+      "delete": 1
+    },
+    {
+      "role": "System Manager",
+      "read": 1,
+      "create": 1,
+      "write": 1,
+      "delete": 1
+    }
+  ],
+  "track_changes": 0,
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

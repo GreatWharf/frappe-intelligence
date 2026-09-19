@@ -60,6 +60,25 @@ def migrator(monkeypatch):
     fake = ModuleType("frappe")
     fake.__version__ = "16.0.0"
     store = {}
+    fake.flags = SimpleNamespace(in_import=False)
+
+    # The app's own doctypes autoname by hash. Real Frappe naming discards a
+    # name passed in the document dict unless the insert runs under
+    # frappe.flags.in_import (the fixture-sync path), then generates a random
+    # hash name; framework doctypes seeded here (Workspace, Desktop Icon, ...)
+    # keep their prompt/field-derived names either way.
+    HASH_NAMED = {
+        "Intelligence Skill",
+        "Intelligence Policy",
+        "Intelligence Conversation",
+        "Intelligence Message",
+        "Intelligence Run",
+        "Intelligence Approval",
+        "Intelligence Tool Execution",
+        "Intelligence Tool Grant",
+        "Intelligence Memory",
+        "Intelligence Provider",
+    }
 
     class Doc:
         def __init__(self, **data):
@@ -79,15 +98,17 @@ def migrator(monkeypatch):
             return self
 
         def insert(self, **kwargs):
-            # Emulate field:title / field:label autoname so exists() sees seeded docs.
-            name = (
-                self.__dict__.get("name")
-                or self.__dict__.get("title")
-                or self.__dict__.get("label")
-                or self.__dict__.get("role_name")
-                or f"doc-{len(store)}"
-            )
-            self.__dict__.setdefault("name", name)
+            name = self.__dict__.get("name")
+            if self.doctype in HASH_NAMED and not fake.flags.in_import:
+                name = None  # hash autoname wipes the dict-passed name
+            if not name:
+                name = (
+                    self.__dict__.get("title")
+                    or self.__dict__.get("label")
+                    or self.__dict__.get("role_name")
+                    or f"doc-{len(store)}"
+                )
+            self.__dict__["name"] = name
             store[(self.doctype, name)] = self
             return self
 
@@ -150,6 +171,37 @@ def test_after_migrate_preserves_user_edits_to_seeded_skills(migrator):
     assert len(seeded(store)) == 6
     doc = store[("Intelligence Skill", "daily-briefing")]
     assert doc.instructions == "User-customized playbook."
+
+
+def test_hash_named_doctypes_discard_dict_names_outside_the_import_context(migrator):
+    """Pin the real-Frappe naming rule the seed idempotency relies on.
+
+    Both seeded doctypes autoname by hash: a name passed in the document dict
+    is discarded on insert unless frappe.flags.in_import is set (the fixture
+    sync mechanism). If the fake ever stops emulating this, the seed
+    idempotency tests silently assert the mock instead of the behavior.
+    """
+    _, fake, _ = migrator
+    doc = fake.get_doc({"doctype": "Intelligence Policy", "name": "chosen", "decision": "Deny"}).insert()
+    assert doc.name != "chosen", "hash autoname mints its own name outside the import context"
+    fake.flags.in_import = True
+    try:
+        doc = fake.get_doc({"doctype": "Intelligence Policy", "name": "chosen", "decision": "Deny"}).insert()
+        assert doc.name == "chosen", "the import context preserves the provided name"
+    finally:
+        fake.flags.in_import = False
+
+
+def test_seed_inserts_keep_deterministic_names_and_restore_the_import_flag(migrator):
+    module, fake, store = migrator
+    module.after_migrate()
+    assert fake.flags.in_import is False, "the import context never leaks past a seed insert"
+    assert ("Intelligence Policy", "example-read-auto-approve") in store
+    assert ("Intelligence Policy", "example-delete-require-approval") in store
+    assert ("Intelligence Skill", "ingest-invoice") in store
+    module.after_migrate()
+    assert len([key for key in store if key[0] == "Intelligence Policy"]) == 2
+    assert len([key for key in store if key[0] == "Intelligence Skill"]) == 6
 
 
 def test_seed_scopes_keep_write_inside_read_and_playbooks_bounded(migrator):

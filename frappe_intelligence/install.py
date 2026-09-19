@@ -366,6 +366,51 @@ def _global_search():
     )
 
 
+# Two DISABLED example policies document the policy matrix shape on every site.
+# Defaults never weaken a site's stance: both rows are inert until a manager
+# deliberately enables one, and an enabled auto-approve row is never seeded.
+SEED_POLICIES = (
+    {
+        "name": "example-read-auto-approve",
+        "enabled": 0,
+        "priority": 100,
+        "operation": "Read",
+        "amount_condition": "Any amount",
+        "decision": "Auto-approve",
+        "reason": "Example: auto-approve read-only tools. Enable deliberately.",
+    },
+    {
+        "name": "example-delete-require-approval",
+        "enabled": 0,
+        "priority": 100,
+        "operation": "Delete",
+        "amount_condition": "Any amount",
+        "decision": "Require approval",
+        "reason": "Example: destructive operations always ask. Enable deliberately.",
+    },
+)
+
+
+def _insert_seeded(fields):
+    """Insert a seed record under its deterministic name.
+
+    Both seeded doctypes autoname by hash: on a real site the naming layer
+    discards a name passed in the document dict unless the insert runs in the
+    import context (the same mechanism fixture sync relies on), so a plain
+    insert would mint a random hash name and the exists() guards above could
+    never match - every migrate would add duplicates. Flag the insert as
+    import-like, keep the name, restore the flag exactly as found.
+    """
+    doc = frappe.get_doc(fields)
+    previous = getattr(frappe.flags, "in_import", False)
+    frappe.flags.in_import = True
+    try:
+        doc.insert(ignore_permissions=True)
+    finally:
+        frappe.flags.in_import = previous
+    return doc
+
+
 def _seed_skills():
     """Insert the reviewed seed skills once; never overwrite a site's copy.
 
@@ -375,7 +420,7 @@ def _seed_skills():
     for skill in SEED_SKILLS:
         if frappe.db.exists("Intelligence Skill", skill["name"]):
             continue
-        frappe.get_doc(
+        _insert_seeded(
             {
                 "doctype": "Intelligence Skill",
                 "origin": "Seeded",
@@ -384,7 +429,19 @@ def _seed_skills():
                 "version": 1,
                 **skill,
             }
-        ).insert(ignore_permissions=True)
+        )
+
+
+def _seed_policies():
+    """Insert the two disabled example policies once; never overwrite or enable.
+
+    Idempotent by policy name: a row the site edited (or deliberately enabled)
+    is left exactly as it is on every migrate.
+    """
+    for policy in SEED_POLICIES:
+        if frappe.db.exists("Intelligence Policy", policy["name"]):
+            continue
+        _insert_seeded({"doctype": "Intelligence Policy", **policy})
 
 
 def before_install():
@@ -423,10 +480,12 @@ def after_migrate():
         ("Intelligence Memory", ["owner", "scope"], "intelligence_memory_owner"),
         ("Intelligence Skill", ["owner", "shared"], "intelligence_skill_owner"),
         ("Intelligence Tool Grant", ["user", "tool"], "intelligence_tool_grant_user"),
+        ("Intelligence Policy", ["enabled", "priority"], "intelligence_policy_priority"),
     ):
         frappe.db.add_index(doctype, fields, name)
     _navigation()
     _seed_skills()
+    _seed_policies()
     _global_search()
 
 

@@ -195,5 +195,6 @@ def specs(context):
             _SCHEMA,
             read_attachment,
             preview,
+            operation="Read",
         )
     ]

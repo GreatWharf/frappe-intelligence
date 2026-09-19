@@ -175,5 +175,6 @@ def specs(context):
             _SCHEMA,
             run_report,
             preview,
+            operation="Report",
         )
     ]

@@ -37,12 +37,20 @@ APPROVAL = "Intelligence Approval"
 EXECUTION = "Intelligence Tool Execution"
 SKILL = "Intelligence Skill"
 GRANT = "Intelligence Tool Grant"
+POLICY = "Intelligence Policy"
 TERMINAL = frozenset({"completed", "failed", "cancelled", "needs_reconciliation"})
 ACTIVE = ("queued", "running", "awaiting_approval")
 # Memory tools only read or append the caller's own notes (the memory service
 # still enforces ownership and manager curation), so a per-step approval adds a
 # click without adding a checkpoint.
 NO_APPROVAL_TOOLS = frozenset({"recall_memory", "save_memory"})
+# Mirrors tools.OPERATIONS without importing the tool boundary module (tests
+# substitute that module wholesale). Execute-class tools never equal a policy's
+# operation, so they match only operation=Any rows.
+_OPERATION_CLASSES = frozenset({"Read", "Create", "Update", "Delete", "Submit", "Report", "Execute"})
+_POLICY_OPERATIONS = ("Any", "Read", "Create", "Update", "Delete", "Submit", "Report")
+_AMOUNT_CANDIDATES = ("grand_total", "rounded_total", "total", "paid_amount", "amount", "base_grand_total")
+GRANT_SCOPES = ("Always", "This Conversation")
 MAX_CALLS_PER_TURN = 8
 MAX_MESSAGE_CHARS = 30000
 MAX_HISTORY_CHARS = 250000
@@ -158,6 +166,25 @@ def _event(run):
         user=run.user,
         after_commit=True,
     )
+
+
+def _run_event(run, kind, **extra):
+    """Realtime run lifecycle event for the live conversation surface.
+
+    Events only accelerate the UI; polling stays the correctness floor, so a
+    missing or failing realtime transport must never break a run. Emitted
+    BEFORE the legacy intelligence_update snapshot wherever both fire, keeping
+    the snapshot the last event of every transition.
+    """
+    try:
+        frappe.publish_realtime(
+            event="intelligence_run_event",
+            message={"conversation": run.conversation, "run": run.name, "kind": kind, **extra},
+            user=run.user,
+            after_commit=True,
+        )
+    except Exception:
+        pass
 
 
 def _notify(run, subject):
@@ -281,9 +308,10 @@ def append_message(conversation, role, content, **values):
         frappe.throw("Invalid message content.", frappe.ValidationError)
     _lock(CONVERSATION, conversation)
     doc = get_conversation(conversation, write=True)
+    run_doc = None
     if values.get("run"):
-        run = frappe.get_doc(RUN, values["run"])
-        if run.conversation != conversation or run.user != frappe.session.user:
+        run_doc = frappe.get_doc(RUN, values["run"])
+        if run_doc.conversation != conversation or run_doc.user != frappe.session.user:
             frappe.throw("Invalid message run binding.", frappe.PermissionError)
     if isinstance(values.get("tool_calls"), list):
         values["tool_calls"] = _json(values["tool_calls"])
@@ -297,6 +325,8 @@ def append_message(conversation, role, content, **values):
         **dict({"status": "complete"}, **values),
     )
     _save(doc, message_count=sequence)
+    if run_doc is not None:
+        _run_event(run_doc, "message", role=role, message=result.name)
     return result
 
 
@@ -404,6 +434,7 @@ def submit_message(conversation, content, context=None, attachments=None):
             updates["title"] = title
     _save(fresh, **updates)
     _enqueue(run)
+    _run_event(run, "queued")
     _event(run)
     return _public(run)
 
@@ -431,6 +462,7 @@ def _finish(run, state, error=""):
     # An uncertain effect blocks further runs until a deliberate reconciliation.
     if conversation.active_run == run.name and state != "needs_reconciliation":
         _save(conversation, active_run=None)
+    _run_event(run, "done" if state == "completed" else "error", state=state)
     _event(run)
     if state == "completed":
         _notify(run, f"Intelligence finished: {conversation.title}")
@@ -509,12 +541,16 @@ def _verify_approval(run, approval):
 
 
 def _approval_exempt(run, call, preview):
-    """Proposals that never wait on a per-step approval, by design.
+    """Proposals that never wait on a per-step approval BY DEFAULT, by design.
 
     recall_memory/save_memory only read or append the caller's own notes (the
     memory service still enforces ownership and manager curation). read_attachment
     on a file attached to THIS conversation reads back the user's own upload;
     prepare() already rejected files attached to anything else.
+
+    This is the default stance only: _proposal_decision consults grants and
+    the policy matrix first, so a manager's explicit Deny or Require approval
+    row naming one of these tools still decides the call.
     """
     if call["name"] in NO_APPROVAL_TOOLS:
         return True
@@ -524,43 +560,256 @@ def _approval_exempt(run, call, preview):
     return False
 
 
-def _granted(run, call):
-    """The user's standing always-allow grant covers this tool proposal.
+def _matching_grant(run, call):
+    """The standing grant covering this tool proposal, if one exists.
 
-    A grant with a blank scope_doctype covers every call of the tool; a scoped
-    grant covers calls whose validated arguments name that DocType.
+    Conversation-scoped grants for the active conversation win over Always
+    grants. Within each tier, a grant with a blank scope_doctype covers every
+    call of the tool; a scoped grant covers calls whose validated arguments
+    name that DocType. Rows predating the scope field read as Always.
     """
     rows = frappe.get_all(
         GRANT,
         filters={"user": run.user, "tool": call["name"]},
-        fields=["name", "scope_doctype"],
+        fields=["name", "scope_doctype", "scope", "conversation"],
         limit_page_length=20,
     )
     if not rows:
-        return False
+        return None
     scoped = call["arguments"].get("doctype")
-    return any(not row.get("scope_doctype") or row.get("scope_doctype") == scoped for row in rows)
+
+    def covers(row):
+        return not row.get("scope_doctype") or row.get("scope_doctype") == scoped
+
+    for tier in ("This Conversation", "Always"):
+        for row in rows:
+            if (row.get("scope") or "Always") != tier or not covers(row):
+                continue
+            if tier == "This Conversation" and row.get("conversation") != run.conversation:
+                continue
+            return row.name
+    return None
 
 
-def _record_grant(run, approval):
+def _record_grant(run, approval, scope="Always"):
     """Persist the standing grant an "always" decision implies. Idempotent.
 
-    The scope comes from the approval's validated arguments; a scope that no
-    longer resolves to a real DocType refuses to widen into an unscoped grant.
+    The DocType scope comes from the approval's validated arguments; a scope
+    that no longer resolves to a real DocType refuses to widen into an
+    unscoped grant. A conversation-scoped grant binds the run's conversation.
     """
     arguments = _parse(approval.arguments_json, {})
     raw = arguments.get("doctype") if isinstance(arguments, dict) else None
-    scope = raw.strip() if isinstance(raw, str) else ""
-    if raw is not None and (not scope or len(scope) > 140 or not frappe.db.exists("DocType", scope)):
-        return
-    if frappe.get_all(
-        GRANT,
-        filters={"user": run.user, "tool": approval.tool_name, "scope_doctype": scope},
-        fields=["name"],
-        limit_page_length=1,
+    scope_doctype = raw.strip() if isinstance(raw, str) else ""
+    if raw is not None and (
+        not scope_doctype or len(scope_doctype) > 140 or not frappe.db.exists("DocType", scope_doctype)
     ):
         return
-    _insert(GRANT, user=run.user, tool=approval.tool_name, scope_doctype=scope)
+    conversation = None
+    if scope == "This Conversation":
+        if not run.conversation:
+            frappe.throw("A conversation-scoped grant needs an active conversation.", frappe.ValidationError)
+        conversation = run.conversation
+    for row in frappe.get_all(
+        GRANT,
+        filters={"user": run.user, "tool": approval.tool_name, "scope_doctype": scope_doctype},
+        fields=["name", "scope", "conversation"],
+        limit_page_length=20,
+    ):
+        if (row.get("scope") or "Always") == scope and (row.get("conversation") or None) == conversation:
+            return
+    _insert(
+        GRANT,
+        user=run.user,
+        tool=approval.tool_name,
+        scope_doctype=scope_doctype,
+        scope=scope,
+        conversation=conversation,
+    )
+
+
+def extract_amount(doctype, payload):
+    """Best-effort amount of a tool call's business payload; None when ambiguous.
+
+    Ordered canonical candidates first, then the largest numeric field whose
+    name ends in _amount or _total. A zero canonical value is a stub, not
+    evidence: it never shadows a later candidate, and only stands when no
+    non-zero value exists anywhere in the payload. Currency is informational:
+    comparison is the raw number, never FX. Callers fail closed on None.
+    """
+    if not isinstance(payload, dict):
+        return None
+    zero_seen = False
+    for key in _AMOUNT_CANDIDATES:
+        value = payload.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if value:
+                return float(value)
+            zero_seen = True
+    best = None
+    for key, value in payload.items():
+        if not isinstance(key, str) or not (key.endswith("_amount") or key.endswith("_total")):
+            continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if best is None or abs(float(value)) > abs(best):
+                best = float(value)
+    if best:
+        return best
+    # Every candidate read as zero (a genuinely free/zero-sized write) or no
+    # numeric field existed at all.
+    return 0.0 if zero_seen or best is not None else None
+
+
+def _amount_payload(call):
+    """Flat value map for threshold policies: arguments plus field/value pairs."""
+    arguments = call.get("arguments")
+    if not isinstance(arguments, dict):
+        return {}
+    payload = dict(arguments)
+    for key in ("fields", "changes"):
+        pairs = arguments.get(key)
+        if isinstance(pairs, list):
+            for pair in pairs:
+                if isinstance(pair, dict) and isinstance(pair.get("field"), str):
+                    payload[pair["field"]] = pair.get("value")
+    return payload
+
+
+def _decision_context(run, call, spec, preview):
+    """The policy matching input: tool, operation class, target, roles, amount."""
+    operation = getattr(spec, "operation", "") or ""
+    if callable(operation):
+        # Tools whose class depends on the call (adaptive extensions) derive it
+        # here, straight after prepare validated the arguments.
+        operation = operation(_tool_context(run), dict(call["arguments"])) or ""
+    if operation not in _OPERATION_CLASSES:
+        operation = ""
+    target = ""
+    if isinstance(preview, dict):
+        raw = (preview.get("target") or {}).get("doctype")
+        target = raw if isinstance(raw, str) else ""
+    if not target:
+        raw = call["arguments"].get("doctype")
+        target = raw if isinstance(raw, str) else ""
+    return {
+        "tool": call["name"],
+        "operation": operation,
+        "target_doctype": target,
+        "roles": set(frappe.get_roles(run.user)),
+        "amount": extract_amount(target, _amount_payload(call)),
+    }
+
+
+def _policy_specificity(row):
+    return sum(
+        (
+            bool(row.get("tool")),
+            bool(row.get("target_doctype")),
+            bool(row.get("role")),
+            (row.get("operation") or "Any") != "Any",
+            (row.get("amount_condition") or "Any amount") != "Any amount",
+        )
+    )
+
+
+def _policy_matches(row, context):
+    if row.get("tool") and row.get("tool") != context["tool"]:
+        return False
+    if row.get("target_doctype") and row.get("target_doctype") != context["target_doctype"]:
+        return False
+    operation = row.get("operation") or "Any"
+    if operation != "Any" and operation != context["operation"]:
+        return False
+    if row.get("role") and row.get("role") not in context["roles"]:
+        return False
+    condition = row.get("amount_condition") or "Any amount"
+    if condition != "Any amount":
+        # Fail-closed on ambiguity: no extractable amount, no match.
+        amount = context["amount"]
+        limit = row.get("amount_limit")
+        if amount is None or limit is None:
+            return False
+        # Thresholds bound the SIZE of a write, so comparison is by magnitude:
+        # a return or credit invoice of -10,000,000 is a ten-million write,
+        # never an "at or below 1000" one, and it must trip "above 1000" Deny
+        # rows. Currency stays informational; the numbers are never converted.
+        size = abs(float(amount))
+        bound = abs(float(limit))
+        if condition == "At or below limit" and size > bound:
+            return False
+        if condition == "Above limit" and size <= bound:
+            return False
+    return True
+
+
+def _policy_priority(row):
+    """Stored priority, defaulting to 100 only when the column is unset.
+
+    Zero is a deliberate choice (a backstop row below every default row) and
+    must survive: ``row.get("priority") or 100`` would silently re-rank it to
+    the default and invert resolution for that row in both directions.
+    """
+    priority = row.get("priority")
+    return int(priority) if priority is not None else 100
+
+
+def _policy_decision(context):
+    """First matching enabled policy by (priority desc, specificity desc, name asc)."""
+    rows = frappe.get_all(
+        POLICY,
+        filters={"enabled": 1},
+        fields=[
+            "name",
+            "priority",
+            "tool",
+            "target_doctype",
+            "operation",
+            "role",
+            "amount_condition",
+            "amount_limit",
+            "decision",
+            "reason",
+        ],
+        limit_page_length=500,
+    )
+    matches = [row for row in rows if _policy_matches(row, context)]
+    if not matches:
+        return None
+    matches.sort(key=lambda row: (-_policy_priority(row), -_policy_specificity(row), row.name))
+    top = matches[0]
+    return top.get("decision") or "Require approval", top
+
+
+def _proposal_decision(run, call, spec, preview, mode):
+    """Resolution order: grant (conversation, then Always) -> policy -> exemption -> mode.
+
+    Returns (outcome, source): outcome is auto/pending/deny; source marks the
+    auto-approval path as policy:<name> or grant:<name> for the audit trail.
+    Deny carries the policy reason as its source for the tool error.
+
+    The design exemption (own-memory tools, own-conversation file reads) is a
+    DEFAULT, not an override: it sits after the policy matrix so a manager's
+    Deny or Require approval row naming one of those tools still fires. With
+    no grant and no matching policy, exempt calls auto-approve as before.
+    """
+    grant = _matching_grant(run, call)
+    if grant:
+        return ("auto", f"grant:{grant}")
+    verdict = _policy_decision(_decision_context(run, call, spec, preview))
+    if verdict:
+        decision, policy = verdict
+        if decision == "Auto-approve":
+            return ("auto", f"policy:{policy.name}")
+        if decision == "Deny":
+            reason = (policy.get("reason") or "").strip() or "This action is denied by site policy."
+            return ("deny", reason[:500])
+        return ("pending", "")
+    if _approval_exempt(run, call, preview):
+        return ("auto", "")
+    # Fallback: the existing approval_mode setting, unchanged semantics.
+    if mode == "Automatic" or (mode == "Approve Writes Only" and not spec.mutates):
+        return ("auto", "")
+    return ("pending", "")
 
 
 def _children(doctype, run):
@@ -588,10 +837,12 @@ def _started_receipts(run):
     return [doc for doc in _children(EXECUTION, run) if doc.state == "started"]
 
 
-def decide_approval(approval_name, decision):
+def decide_approval(approval_name, decision, scope="Always"):
     require_user()
     if decision not in {"approve", "deny", "always"}:
         frappe.throw("Decision must be approve, deny or always.", frappe.ValidationError)
+    if scope not in GRANT_SCOPES:
+        frappe.throw("Scope must be Always or This Conversation.", frappe.ValidationError)
     run_name = frappe.db.get_value(APPROVAL, approval_name, "run")
     run = _locked_run(run_name)
     _owned(run)
@@ -612,6 +863,7 @@ def decide_approval(approval_name, decision):
             # Never affirm an approval whose window has closed; execution demotes
             # it anyway, so the API answer should agree.
             _save(approval, status="expired")
+            _run_event(run, "decision", approval=approval.name, decision="expired")
             _event(run)
         return _public(run)
     if run.state in TERMINAL or run.cancel_requested:
@@ -620,12 +872,62 @@ def decide_approval(approval_name, decision):
         wanted = "expired"
     _save(approval, status=wanted, decided_by=frappe.session.user, decided_at=_now())
     if decision == "always" and wanted == "approved":
-        _record_grant(run, approval)
+        _record_grant(run, approval, scope)
+    _run_event(run, "decision", approval=approval.name, decision=wanted)
     if not _approval_rows(run, ("pending",)):
         _release(run)
     else:
         _event(run)
     return _public(run)
+
+
+def decide_approvals(names, decision, scope="Always"):
+    """Bulk counterpart of decide_approval: one call, one write per name, one resume.
+
+    Every name is validated (exists, pending, owned by the caller, unexpired,
+    same run) BEFORE any decision is written, so a bad entry rejects the whole
+    batch instead of deciding a prefix. Grants are written per name on always.
+    """
+    user = require_user()
+    if decision not in {"approve", "deny", "always"}:
+        frappe.throw("Decision must be approve, deny or always.", frappe.ValidationError)
+    if scope not in GRANT_SCOPES:
+        frappe.throw("Scope must be Always or This Conversation.", frappe.ValidationError)
+    if not isinstance(names, (list, tuple)) or not names or len(names) > 50:
+        frappe.throw("Provide between one and fifty approval names.", frappe.ValidationError)
+    if any(not isinstance(name, str) or not name for name in names) or len(set(names)) != len(names):
+        frappe.throw("Invalid approval list.", frappe.ValidationError)
+    run_names = {frappe.db.get_value(APPROVAL, name, "run") for name in names}
+    if len(run_names) != 1 or None in run_names:
+        frappe.throw("Every approval must belong to a single run.", frappe.ValidationError)
+    run = _locked_run(run_names.pop())
+    _owned(run)
+    proposals = []
+    for name in names:
+        _lock(APPROVAL, name)
+        proposal = frappe.get_doc(APPROVAL, name, for_update=True)
+        proposal.check_permission("write")
+        _verify_approval(run, proposal)
+        if proposal.status != "pending":
+            frappe.throw("Every approval must still be pending.", frappe.ValidationError)
+        if run.state in TERMINAL or run.cancel_requested:
+            frappe.throw("This run is no longer accepting approvals.", frappe.ValidationError)
+        if _date(proposal.expires_at) <= _now():
+            frappe.throw("Every approval must be unexpired.", frappe.ValidationError)
+        proposals.append(proposal)
+    wanted = "denied" if decision == "deny" else "approved"
+    outcomes = []
+    for proposal in proposals:
+        _save(proposal, status=wanted, decided_by=user, decided_at=_now())
+        if decision == "always":
+            _record_grant(run, proposal, scope)
+        _run_event(run, "decision", approval=proposal.name, decision=wanted)
+        outcomes.append({"name": proposal.name, "status": wanted})
+    if not _approval_rows(run, ("pending",)):
+        _release(run)
+    else:
+        _event(run)
+    return {"run": _public(run), "outcomes": outcomes}
 
 
 def _mark_uncertain(run, error):
@@ -957,6 +1259,26 @@ def _provider_turn(run_name, token):
             rejections.append((call, exc))
         else:
             proposals.append((call, available[call["name"]], preview))
+    # Resolution order per proposal: conversation-scoped grant, Always grant,
+    # the policy matrix, the design exemptions (a default stance the matrix can
+    # override), then the approval-mode fallback with unchanged semantics. A
+    # policy Deny is fail-closed, exactly like a prepare rejection: nothing
+    # executes, no approval is offered, the reason returns as a tool result
+    # and the batch requeues under the step budget.
+    # Auto-approvals keep the same durable approval, digest, preview and
+    # execution receipts, with a blank decided_by plus a policy:/grant: source
+    # marker, so the audit trail always answers "who allowed this".
+    mode = (get_settings().get("approval_mode") or "Approve Every Step").strip()
+    decisions = {}
+    kept = []
+    for call, spec, preview in proposals:
+        outcome, source = _proposal_decision(run, call, spec, preview, mode)
+        if outcome == "deny":
+            rejections.append((call, frappe.PermissionError(source)))
+        else:
+            decisions[call["id"]] = (outcome == "auto", source)
+            kept.append((call, spec, preview))
+    proposals = kept
     append_message(run.conversation, "assistant", reply.text or "", run=run.name, tool_calls=calls or None)
     for call, exc in rejections:
         append_message(
@@ -973,22 +1295,10 @@ def _provider_turn(run_name, token):
         output_tokens=int(run.output_tokens or 0) + _number(usage.get("output_tokens"), 0, 0, 10000000),
     )
     expires = _now() + timedelta(minutes=_number(get_settings().approval_expiry_minutes, 1440, 1, 10080))
-    mode = (get_settings().get("approval_mode") or "Approve Every Step").strip()
-    # Approve Writes Only auto-approves read-only tools; Automatic auto-approves
-    # the whole reviewed set. Design exemptions (memory notes, own attachments)
-    # and the user's standing always-allow grants apply in every mode.
-    # Auto-approvals keep the same durable approval, digest, preview and
-    # execution receipts, so the audit trail is identical.
-    auto_all = mode == "Automatic"
-    auto_reads = mode == "Approve Writes Only"
     pending = 0
+    proposed = []
     for call, spec, preview in proposals:
-        automatic = (
-            auto_all
-            or (auto_reads and not spec.mutates)
-            or _approval_exempt(run, call, preview)
-            or _granted(run, call)
-        )
+        automatic, source = decisions[call["id"]]
         proposal = frappe._dict(
             conversation=run.conversation,
             run=run.name,
@@ -1004,16 +1314,22 @@ def _provider_turn(run_name, token):
             # A blank decided_by marks the policy auto-approval: a human decision
             # always stamps the deciding user (see decide_approval).
             proposal["decided_at"] = _now()
+            if source:
+                proposal["source"] = source
         else:
             pending += 1
-        _insert(APPROVAL, **proposal, digest=_digest(run, proposal))
+        inserted = _insert(APPROVAL, **proposal, digest=_digest(run, proposal))
+        if not automatic:
+            proposed.append(inserted)
+    for inserted in proposed:
+        _run_event(run, "approval", approval=inserted.name, tool=inserted.tool_name)
     if pending:
         _release(run, "awaiting_approval")
         _notify(run, "Intelligence is waiting for your approval.")
     elif proposals or calls:
         # Auto-approved proposals run in the next step; when every proposed call
-        # was rejected at prepare, the tool errors are already in history and the
-        # model adapts on the requeue.
+        # was rejected at prepare or denied by policy, the tool errors are
+        # already in history and the model adapts on the requeue.
         _release(run)
     else:
         _finish(run, "completed")
@@ -1209,6 +1525,7 @@ def _execute_approval(run_name, token, approval_name):
                 error=str(exc)[:500],
             )
             _tool_result(run, approval, {"error": str(exc)[:500]})
+            _run_event(run, "step", approval=approval.name, tool=approval.tool_name, state="failed")
             return
         raise  # unexpected errors fail the run; process_run sanitizes the message
     if spec.external:
@@ -1223,6 +1540,7 @@ def _execute_approval(run_name, token, approval_name):
     _save(receipt, state="succeeded", result_json=encoded, finished_at=_now())
     _save(approval, status="succeeded")
     _tool_result(run, approval, result)
+    _run_event(run, "step", approval=approval.name, tool=approval.tool_name, state="succeeded")
 
 
 def process_run(run_name):
@@ -1274,6 +1592,7 @@ def process_run(run_name):
             started_at=run.started_at or _now(),
             heartbeat_at=_now(),
         )
+        _run_event(run, "started")
         _event(run)
         frappe.db.commit()
         if outstanding:

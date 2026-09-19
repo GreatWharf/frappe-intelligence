@@ -30,6 +30,14 @@ class ToolContext:
     run: str
 
 
+# Operation classes the approval policy matrix can target. Execute is the
+# extension-only escape hatch: it never appears in the policy Select, so an
+# Execute-class tool matches only operation=Any policy rows. A spec may declare
+# a callable(context, arguments) instead of a string to derive the class per
+# call (the engine resolves it at decision time, straight after prepare).
+OPERATIONS = frozenset({"Read", "Create", "Update", "Delete", "Submit", "Report", "Execute"})
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
@@ -40,6 +48,7 @@ class ToolSpec:
     mutates: bool = False
     external: bool = False
     version: str = "1"
+    operation: object = ""
 
 
 class Registry:
@@ -57,6 +66,8 @@ class Registry:
             raise ValueError("Duplicate or invalid tool registration.")
         if not callable(spec.execute) or not callable(spec.preview) or not spec.version:
             raise ValueError("Invalid tool registration.")
+        if spec.operation and not callable(spec.operation) and spec.operation not in OPERATIONS:
+            raise ValueError("Invalid tool operation class.")
         if spec.external:
             raise ValueError("External extension actions are not enabled in this release.")
         if not isinstance(roles, (list, tuple)) or any(not isinstance(role, str) for role in roles):
@@ -125,6 +136,19 @@ def _version_number(value):
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def registered_tool_names(user):
+    """Every assembled tool name for `user`, enabled or not; metadata only.
+
+    Used by the Intelligence Policy doctype to validate its tool constraint
+    against the real registry (builtins plus reviewed extensions). Carries no
+    execution authority and binds no conversation or run.
+    """
+    import frappe
+
+    context = ToolContext(frappe.local.site, user, "", "")
+    return set(_assemble(context).tools)
 
 
 def skill_scopes(user, settings):

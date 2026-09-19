@@ -248,6 +248,13 @@ class FakeFrappe(types.ModuleType):
     def publish_realtime(self, event, message, **kwargs):
         self.events.append((event, message, kwargs))
 
+    def run_events(self, kind=None):
+        """Captured intelligence_run_event publishes, optionally filtered by kind."""
+        events = [event for event in self.events if event[0] == "intelligence_run_event"]
+        if kind:
+            events = [event for event in events if event[1].get("kind") == kind]
+        return events
+
     def log_error(self, *args, **kwargs):
         pass
 

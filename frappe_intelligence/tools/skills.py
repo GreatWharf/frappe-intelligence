@@ -280,6 +280,7 @@ def specs(context):
             propose_skill,
             preview_propose_skill,
             mutates=True,
+            operation="Create",
         ),
         ToolSpec(
             "update_skill",
@@ -288,6 +289,7 @@ def specs(context):
             update_skill,
             preview_update_skill,
             mutates=True,
+            operation="Update",
         ),
         ToolSpec(
             "retire_skill",
@@ -296,5 +298,6 @@ def specs(context):
             retire_skill,
             preview_retire_skill,
             mutates=True,
+            operation="Delete",
         ),
     ]

@@ -97,6 +97,58 @@ def test_conversation_approvals_carry_creation_for_chronological_rendering(api, 
     assert result["approvals"][0]["creation"] == "2026-09-17 09:01:00"
 
 
+def stub_engine_and_files(module, monkeypatch):
+    """get_conversation needs only get_run and the attachment list."""
+    engine_stub = ModuleType("frappe_intelligence.engine")
+    engine_stub.get_run = lambda name: {"name": name, "state": "completed"}
+    monkeypatch.setitem(sys.modules, "frappe_intelligence.engine", engine_stub)
+    import frappe_intelligence
+
+    monkeypatch.setattr(frappe_intelligence, "engine", engine_stub, raising=False)
+    files_stub = ModuleType("frappe_intelligence.files")
+    files_stub.list_attachments = lambda conversation: []
+    monkeypatch.setattr(module, "files", files_stub)
+
+
+def test_conversation_approvals_expose_the_auto_decision_source(api, monkeypatch):
+    """The audit tag needs source/decided_by: policy:x or grant:y, blank decider."""
+    module, _, store = api
+    store["c"] = Row(doctype="Intelligence Conversation", name="c", owner="owner@example.test", archived=0)
+    store["r"] = Row(doctype="Intelligence Run", name="r", conversation="c")
+    store["auto"] = Row(
+        doctype="Intelligence Approval",
+        name="auto",
+        run="r",
+        conversation="c",
+        tool_name="create_document",
+        preview_json="{}",
+        status="approved",
+        expires_at=None,
+        creation="2026-09-19 09:00:00",
+        source="policy:p-auto",
+        decided_by=None,
+    )
+    store["human"] = Row(
+        doctype="Intelligence Approval",
+        name="human",
+        run="r",
+        conversation="c",
+        tool_name="update_document",
+        preview_json="{}",
+        status="approved",
+        expires_at=None,
+        creation="2026-09-19 09:05:00",
+        decided_by="owner@example.test",
+    )
+    stub_engine_and_files(module, monkeypatch)
+    result = module.get_conversation("c")
+    by_name = {row["name"]: row for row in result["approvals"]}
+    assert by_name["auto"]["source"] == "policy:p-auto"
+    assert by_name["auto"]["decided_by"] == "", "policy approvals stay unattributed to a human"
+    assert by_name["human"]["source"] == "", "a human decision carries no policy marker"
+    assert by_name["human"]["decided_by"] == "owner@example.test"
+
+
 def test_bootstrap_returns_first_name_only(api):
     module, fake, _ = api
     fake.db.get_value = lambda *a, **kw: "Rishi Sharma"

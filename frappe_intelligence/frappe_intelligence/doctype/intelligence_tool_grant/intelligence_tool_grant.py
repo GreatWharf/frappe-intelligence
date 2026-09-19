@@ -17,6 +17,7 @@ from frappe_intelligence.access import MANAGER_ROLES, USER_ROLES
 
 TOOL_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 DOCTYPE_LIMIT = 140
+SCOPES = ("Always", "This Conversation")
 
 
 def _eligible(user):
@@ -33,6 +34,11 @@ def _manager(user):
     return bool(MANAGER_ROLES.intersection(frappe.get_roles(user)))
 
 
+def _normalized_scope(row):
+    """Pre-0.6.0 rows predate the scope field; they are Always grants."""
+    return row.get("scope") or "Always"
+
+
 class IntelligenceToolGrant(Document):
     def validate(self):
         if not self.get("user"):
@@ -44,16 +50,32 @@ class IntelligenceToolGrant(Document):
             frappe.throw(f"scope_doctype must be at most {DOCTYPE_LIMIT} characters.")
         if self.scope_doctype and not frappe.db.exists("DocType", self.scope_doctype):
             frappe.throw(f"{self.scope_doctype} is not a DocType on this site.")
+        scope = self.get("scope") or "Always"
+        if scope not in SCOPES:
+            frappe.throw("Unknown grant scope.")
+        self.scope = scope
+        conversation = (self.get("conversation") or "").strip() or None
+        if scope == "This Conversation":
+            if not conversation:
+                frappe.throw("A conversation-scoped grant needs a conversation.")
+            if not frappe.db.exists("Intelligence Conversation", conversation):
+                frappe.throw("That conversation does not exist on this site.")
+        else:
+            conversation = None
+        self.conversation = conversation
         if self.get("user") != frappe.session.user and not _manager(frappe.session.user):
             frappe.throw("You can only manage your own tool grants.", frappe.PermissionError)
         siblings = frappe.get_all(
             "Intelligence Tool Grant",
             filters={"user": self.user, "tool": self.tool, "scope_doctype": self.scope_doctype},
-            fields=["name"],
-            limit_page_length=2,
+            fields=["name", "scope", "conversation"],
+            limit_page_length=20,
         )
-        if any(row.name != self.name for row in siblings):
-            frappe.throw("This tool is already always allowed for you.")
+        for row in siblings:
+            if row.name == self.name:
+                continue
+            if _normalized_scope(row) == scope and (row.get("conversation") or None) == conversation:
+                frappe.throw("This tool is already always allowed for you.")
 
 
 def permission_query_conditions(user=None, doctype=None):

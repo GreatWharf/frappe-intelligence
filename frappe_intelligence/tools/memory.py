@@ -81,6 +81,7 @@ def specs(context):
             _READ,
             recall_memory,
             preview_recall,
+            operation="Read",
         ),
         ToolSpec(
             "save_memory",
@@ -89,5 +90,6 @@ def specs(context):
             save_memory,
             preview_save,
             mutates=True,
+            operation="Create",
         ),
     ]

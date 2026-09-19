@@ -436,6 +436,7 @@ def specs(context):
             _SEARCH,
             search_records,
             preview_search,
+            operation="Read",
         ),
         ToolSpec(
             "read_document",
@@ -443,6 +444,7 @@ def specs(context):
             _READ,
             read_document,
             preview_read,
+            operation="Read",
         ),
         ToolSpec(
             "create_todo",
@@ -451,6 +453,7 @@ def specs(context):
             create_todo,
             preview_create,
             mutates=True,
+            operation="Create",
         ),
     ]
     for name, doctype, fields in (
@@ -465,6 +468,7 @@ def specs(context):
                 lambda c, a, dt=doctype: update_document(c, a, dt),
                 lambda c, a, dt=doctype: preview_update(c, a, dt),
                 mutates=True,
+                operation="Update",
             )
         )
     # Wiki v3 uses Wiki Document. The legacy Wiki Page controller is deprecated
@@ -482,6 +486,7 @@ def specs(context):
                 lambda c, a: update_document(c, a, "Wiki Document"),
                 lambda c, a: preview_update(c, a, "Wiki Document"),
                 mutates=True,
+                operation="Update",
             )
         )
     return tools

@@ -183,7 +183,16 @@ def get_conversation(conversation, before_sequence=None):
         for row in frappe.get_all(
             "Intelligence Approval",
             filters={"run": run["name"], "conversation": doc.name},
-            fields=["name", "tool_name", "preview_json", "status", "expires_at", "creation"],
+            fields=[
+                "name",
+                "tool_name",
+                "preview_json",
+                "status",
+                "expires_at",
+                "creation",
+                "source",
+                "decided_by",
+            ],
             order_by="creation asc",
             limit_page_length=256,
         ):
@@ -195,6 +204,10 @@ def get_conversation(conversation, before_sequence=None):
                     "status": row.status,
                     "expires_at": row.expires_at,
                     "creation": row.creation,
+                    # policy:<name>/grant:<name> marks an automatic decision; a
+                    # blank decided_by distinguishes it from a human's click.
+                    "source": row.get("source") or "",
+                    "decided_by": row.get("decided_by") or "",
                 }
             )
     return {
@@ -220,10 +233,19 @@ def send_message(conversation, content, context=None, attachments=None):
 
 @frappe.whitelist(methods=["POST"])
 @_safe
-def approve(approval, decision):
+def approve(approval, decision, scope="Always"):
     from .engine import decide_approval
 
-    return decide_approval(approval, decision)
+    return decide_approval(approval, decision, scope=scope)
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def decide_approvals(names, decision, scope="Always"):
+    """Grouped approvals: decide several pending approvals of one run at once."""
+    from .engine import decide_approvals as decide
+
+    return decide(_decode(names, list), decision, scope=scope)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -505,7 +527,7 @@ def list_grants():
     manager = bool(MANAGER_ROLES.intersection(frappe.get_roles(user)))
     rows = frappe.get_all(
         "Intelligence Tool Grant",
-        fields=["name", "user", "tool", "scope_doctype", "creation", "modified"],
+        fields=["name", "user", "tool", "scope_doctype", "scope", "conversation", "creation", "modified"],
         order_by="modified desc",
         limit_page_length=500,
     )
@@ -515,6 +537,8 @@ def list_grants():
             "user": row.get("user"),
             "tool": row.get("tool"),
             "scope_doctype": row.get("scope_doctype") or "",
+            "scope": row.get("scope") or "Always",
+            "conversation": row.get("conversation") or "",
             "creation": row.get("creation"),
             "modified": row.get("modified"),
         }

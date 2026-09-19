@@ -29,12 +29,31 @@
       "fieldtype": "Data",
       "in_list_view": 1,
       "description": "Optional: limit the grant to calls that name this DocType."
+    },
+    {
+      "fieldname": "scope",
+      "label": "Scope",
+      "fieldtype": "Select",
+      "options": "Always\nThis Conversation",
+      "default": "Always",
+      "reqd": 1,
+      "in_list_view": 1,
+      "description": "Always applies to every conversation; This Conversation applies only inside the linked conversation."
+    },
+    {
+      "fieldname": "conversation",
+      "label": "Conversation",
+      "fieldtype": "Link",
+      "options": "Intelligence Conversation",
+      "description": "Required when Scope is This Conversation."
     }
   ],
   "field_order": [
     "user",
     "tool",
-    "scope_doctype"
+    "scope_doctype",
+    "scope",
+    "conversation"
   ],
   "permissions": [
     {

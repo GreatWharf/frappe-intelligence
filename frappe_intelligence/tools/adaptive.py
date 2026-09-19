@@ -404,6 +404,10 @@ def update_document(context, args):
 
 
 def specs(context):
+    # Each adaptive tool maps to exactly one operation class, so the class is
+    # declared per spec; the engine resolves spec.operation per call, straight
+    # after prepare, and also accepts a callable for tools whose class depends
+    # on the call's arguments.
     return [
         ToolSpec(
             "list_doctypes",
@@ -411,6 +415,7 @@ def specs(context):
             _LIST_DOCTYPES,
             list_doctypes,
             preview_list_doctypes,
+            operation="Read",
         ),
         ToolSpec(
             "describe_doctype",
@@ -418,6 +423,7 @@ def specs(context):
             _DESCRIBE,
             describe_doctype,
             preview_describe_doctype,
+            operation="Read",
         ),
         ToolSpec(
             "create_document",
@@ -426,6 +432,7 @@ def specs(context):
             create_document,
             preview_create_document,
             mutates=True,
+            operation="Create",
         ),
         ToolSpec(
             "update_document",
@@ -434,5 +441,6 @@ def specs(context):
             update_document,
             preview_update_document,
             mutates=True,
+            operation="Update",
         ),
     ]
