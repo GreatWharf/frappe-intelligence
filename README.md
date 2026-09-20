@@ -99,7 +99,7 @@ Captured from a live ERPNext v16 site running the flows recorded in [the verific
 | --- | --- |
 | ![Approval card waiting for a decision](docs/screenshots/approval-waiting.png) | ![Follow-up answer grouping invoices by customer](docs/screenshots/follow-up-answer.png) |
 
-Recorded sessions: [welcome tour](docs/screenshots/welcome-tour.webm) and [bank reconciliation end to end](docs/screenshots/bank-reconciliation.webm).
+Recorded sessions: [0.6.0 panel demo](docs/screenshots/panel-demo-060.webm) (docked over Desk, narrated run, conversation-scoped grant auto-approving the follow-up, record context chip, full-page handoff), [welcome tour](docs/screenshots/welcome-tour.webm) and [bank reconciliation end to end](docs/screenshots/bank-reconciliation.webm).
 
 ### Under the Hood
 
