@@ -190,7 +190,7 @@
 				+ '<div class="fi-bottom"><div class="fi-run" data-slot="run" aria-live="polite" hidden></div><div class="fi-context-list" data-slot="context"></div>'
 				+ '<div class="fi-readonly" data-slot="readonly" hidden></div>'
 				+ '<form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form>'
-				+ '<div class="fi-composer-caption"><span>' + icon("lock") + ' <span data-slot="approval-mode">You approve every tool action</span></span><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>';
+				+ '<div class="fi-composer-caption"><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>';
 		}
 		$(selector) { return this.root.querySelector(selector); }
 		slot(name) { return this.$('[data-slot="' + name + '"]'); }
@@ -222,7 +222,7 @@
 				try { this.loading = true; this.render(); this.boot = await this.api("bootstrap"); if (!this.boot || !this.boot.enabled) { this.error = "Intelligence is disabled on this site. Contact your system manager."; return; }
 					this.provider = this.provider || this.boot.defaults && this.boot.defaults.provider || this.boot.providers && this.boot.providers[0] && this.boot.providers[0].name || "";
 					await this.refreshList(); this.error = "";
-				} catch (error) { this.error = userError(error); } finally { this.loading = false; this.render(); this.poller.start(0); this.initializing = null; }
+				} catch (error) { this.error = userError(error); } finally { this.loading = false; this.render(); this.poller.start(0); this.initializing = null; this.refitViewport(); }
 			})(); return this.initializing;
 		}
 		show(host, mode) {
@@ -232,7 +232,7 @@
 			if (this.mode === "page" && global.innerWidth && global.innerWidth <= 760) { this.root.classList.add("fi-sidebar-collapsed"); const trigger = this.$('[data-action="sidebar"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 			this.render();
 			if (!this.boot) this.init(); else this.poller.start(0);
-			this.fitViewport();
+			this.fitViewport(); this.refitViewport();
 			if (!this.viewportBound && global.addEventListener) { this.viewportBound = true; global.addEventListener("resize", () => this.fitViewport()); }
 		}
 		hide() { this.visible = false; this.closeMenu(); this.poller.stop(); if (this.watched.size) this.poller.start(1000); }
@@ -250,6 +250,10 @@
 			const available = Math.floor(viewport - rect.top - 8);
 			if (available >= 320 && rect.height > available + 4) this.root.style.height = available + "px";
 		}
+		// On a hard reload Desk chrome is still laying out when show() measures, so
+		// the pin never applies and the whole document grows instead of the thread
+		// scrolling. Re-measure on the next frame and after each async load settles.
+		refitViewport() { if (global.requestAnimationFrame) global.requestAnimationFrame(() => this.fitViewport()); }
 		closeMenu() { const menu = this.slot("menu"); if (menu) menu.hidden = true; const trigger = this.$('[data-action="menu"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 		async refreshList() {
 			const version = ++this.listVersion;
@@ -285,7 +289,7 @@
 				// poll loop: fall back to the home view instead of retrying forever.
 				if (version === this.selectVersion) { this.selected = null; this.snapshot = null; this.navigate(null); this.watched.delete(name); this.error = userError(error); }
 			}
-			finally { if (version === this.selectVersion) { this.loadingConversation = false; this.render(); this.poller.start(0); } }
+			finally { if (version === this.selectVersion) { this.loadingConversation = false; this.render(); this.poller.start(0); this.refitViewport(); } }
 		}
 		newConversation() {
 			if (this.pending.has("send") || this.pending.has("upload")) { this.navigate(this.selected); return; }
@@ -358,8 +362,6 @@
 			const archive = this.$('[data-action="archive"]'); const archived = !!(this.snapshot && Number(this.snapshot.conversation.archived));
 			archive.setAttribute("aria-label", archived ? "Restore conversation" : "Archive conversation"); archive.title = archived ? "Restore conversation" : "Archive conversation";
 			const share = this.$('[data-action="share"]'); share.setAttribute("aria-label", shared ? "Stop sharing this conversation" : "Share conversation (read only link)"); share.title = share.getAttribute("aria-label");
-			const mode = this.boot && this.boot.defaults && this.boot.defaults.approval_mode;
-			this.slot("approval-mode").textContent = mode ? "Approval mode: " + mode : "You approve every tool action";
 		}
 		conversationRowsHTML(rows) {
 			const list = Array.isArray(rows) ? rows : this.conversations;

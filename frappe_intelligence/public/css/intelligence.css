@@ -67,7 +67,6 @@
 .fi-settings-btn .fi-icon {width: 15px; height: 15px; color: var(--fi-muted);}
 .fi-settings-btn > span {flex: 1;}
 .fi-settings-btn > .fi-icon:last-child {width: 11px; height: 11px;}
-.fi-menu-up {top: auto; bottom: calc(100% + 6px); right: auto; left: 0;}
 .fi-private-note {display: flex; align-items: center; gap: 7px; padding: 10px 9px 0; font-size: 9px; color: var(--fi-muted);}
 .fi-private-note .fi-icon {height: 11px; width: 11px;}
 .fi-list-empty {padding: 20px 10px; color: var(--fi-muted); font-size: 12px;}
@@ -94,6 +93,9 @@
 .fi-shared-chip .fi-icon {width: 12px; height: 12px;}
 .fi-menu-wrap {position: relative;}
 .fi-menu {position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 210px; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--fi-bg); border: 1px solid var(--fi-border); border-radius: 8px; box-shadow: 0 10px 36px rgb(24 35 43 / 14%);}
+/* Upward variant: must follow .fi-menu or its top resets while bottom also
+   applies, collapsing the menu to zero height and clipping it to one row. */
+.fi-menu-up {top: auto; bottom: calc(100% + 6px); right: auto; left: 0;}
 .fi-menu button {display: flex; align-items: center; gap: 9px; width: 100%; border: 0; border-radius: 6px; background: transparent; color: var(--fi-text); padding: 8px 10px; font-size: 12px; text-align: left;}
 .fi-menu button:hover {background: var(--fi-soft);}
 .fi-menu .fi-icon {width: 14px; height: 14px; color: var(--fi-muted);}
