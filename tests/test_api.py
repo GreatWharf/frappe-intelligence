@@ -79,10 +79,10 @@ def test_conversation_approvals_carry_creation_for_chronological_rendering(api, 
     )
     engine_stub = ModuleType("frappe_intelligence.engine")
     # The services fixture stubs the access module, so the real engine cannot
-    # import here; get_conversation only needs its get_run serializer. When an
+    # import here; get_conversation only needs its get_run_readonly serializer. When an
     # earlier test has already imported the real engine, the package attribute
     # shadows the sys.modules entry, so patch both.
-    engine_stub.get_run = lambda name: {"name": name, "state": "completed"}
+    engine_stub.get_run_readonly = lambda name: {"name": name, "state": "completed"}
     monkeypatch.setitem(sys.modules, "frappe_intelligence.engine", engine_stub)
     import frappe_intelligence
 
@@ -98,9 +98,9 @@ def test_conversation_approvals_carry_creation_for_chronological_rendering(api, 
 
 
 def stub_engine_and_files(module, monkeypatch):
-    """get_conversation needs only get_run and the attachment list."""
+    """get_conversation needs only get_run_readonly and the attachment list."""
     engine_stub = ModuleType("frappe_intelligence.engine")
-    engine_stub.get_run = lambda name: {"name": name, "state": "completed"}
+    engine_stub.get_run_readonly = lambda name: {"name": name, "state": "completed"}
     monkeypatch.setitem(sys.modules, "frappe_intelligence.engine", engine_stub)
     import frappe_intelligence
 

@@ -25,6 +25,7 @@ from frappe_intelligence.access import (
     can_use_provider,
     get_conversation,
     get_settings,
+    has_read_share,
     internal_write,
     provider_secret_access,
     require_user,
@@ -259,6 +260,20 @@ def _assert_active(run):
 def get_run(run_name):
     run = frappe.get_doc(RUN, run_name)
     _owned(run)
+    run.check_permission("read")
+    return _public(run)
+
+
+def get_run_readonly(run_name):
+    """Read-only run view: the owner, or a user holding a DocShare read on the conversation.
+
+    Shared viewers see the run and its tool activity exactly as the owner does;
+    execution operations (approve, cancel, post) stay behind _owned.
+    """
+    run = frappe.get_doc(RUN, run_name)
+    user = require_user()
+    if run.site != frappe.local.site or (run.user != user and not has_read_share(run.conversation, user)):
+        frappe.throw("Not permitted to access this run.", frappe.PermissionError)
     run.check_permission("read")
     return _public(run)
 

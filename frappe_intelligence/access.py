@@ -64,13 +64,21 @@ def get_conversation(name, write=False):
 
 
 def shared_conversation_names(user):
-    """Conversation names shared with this user through native DocShare reads."""
-    rows = frappe.share.get_shared("Intelligence Conversation", user, rights=["read"]) or []
+    """Conversation names shared with this user through native DocShare reads.
+
+    Direct DocShare query: the same semantics has_read_share proves on every
+    read, independent of framework share-API behavior across versions.
+    """
     names = []
-    for row in rows:
-        name = row.get("share_name") if isinstance(row, dict) else getattr(row, "share_name", None)
-        if name:
-            names.append(str(name))
+    for row in frappe.get_all(
+        "DocShare",
+        filters={"share_doctype": "Intelligence Conversation", "read": 1},
+        fields=["share_name", "user", "everyone"],
+    ):
+        if row.get("user") == user or row.get("everyone"):
+            name = row.get("share_name")
+            if name:
+                names.append(str(name))
     return names
 
 

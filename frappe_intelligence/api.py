@@ -189,7 +189,7 @@ def get_conversation(conversation, before_sequence=None):
         order_by="creation desc",
         limit_page_length=1,
     )
-    run = engine.get_run(latest[0].name) if latest else None
+    run = engine.get_run_readonly(latest[0].name) if latest else None
     approvals = []
     if run:
         for row in frappe.get_all(

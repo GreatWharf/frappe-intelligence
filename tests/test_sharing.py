@@ -149,3 +149,26 @@ def test_conversation_permission_and_query_follow_docshare(env):
     assert not env.access.conversation_permission(doc, user="bob", permission_type="read")
     sql = env.access.conversation_query("bob")
     assert "'conversation'" not in sql
+
+
+def test_a_shared_reader_sees_the_run_and_its_tool_activity(api, env):
+    """Live-found regression: run reads must honor DocShare, not only the owner."""
+    env.frappe.seed(
+        "Intelligence Run",
+        "run-1",
+        conversation="conversation",
+        user="alice",
+        provider="provider",
+        site="site.test",
+        state="completed",
+    )
+    api.share_conversation("conversation", user="bob")
+    env.frappe.session.user = "bob"
+    result = api.get_conversation("conversation")
+    assert result["can_post"] is False
+    assert result["run"] and result["run"]["name"] == "run-1"
+    assert result["run"]["state"] == "completed"
+    env.frappe.session.user = "manager"
+    with pytest.raises(PermissionError):
+        # A manager without a share still gets nothing, run included.
+        api.get_conversation("conversation")
