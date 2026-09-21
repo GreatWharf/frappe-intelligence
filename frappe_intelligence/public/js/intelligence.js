@@ -333,11 +333,14 @@
 			const title = this.snapshot && this.snapshot.conversation.title || (this.selected ? "Conversation" : "New conversation");
 			if (!this.renaming) this.slot("title").textContent = title;
 			const row = this.providerRow();
-			const effort = row && EFFORTS.includes(row.thinking_effort) ? row.thinking_effort : "Auto";
+			const conversationModel = this.snapshot && this.snapshot.conversation.model ? String(this.snapshot.conversation.model) : "";
+			const conversationEffort = this.snapshot && EFFORTS.includes(this.snapshot.conversation.effort) ? this.snapshot.conversation.effort : "";
+			const providerEffort = row && EFFORTS.includes(row.thinking_effort) ? row.thinking_effort : "Auto";
+			const effort = conversationEffort && conversationEffort !== "Auto" ? conversationEffort : providerEffort;
 			let subtitle;
 			if (this.snapshot && Number(this.snapshot.conversation.archived)) subtitle = "Archived · read only";
 			else if (this.snapshot && this.snapshot.can_post === false) subtitle = "Shared by " + (this.snapshot.conversation.owner || "another user") + " · read only";
-			else if (row) subtitle = row.title + " · " + row.model + " · effort " + effort;
+			else if (row) subtitle = row.title + " · " + (conversationModel || row.model) + " · effort " + effort;
 			else subtitle = "Private · only you";
 			this.slot("subtitle").textContent = subtitle;
 			const shared = !!(this.snapshot && Number(this.snapshot.conversation.shared));
@@ -350,7 +353,7 @@
 			this.$('[data-action="expand"]').hidden = this.mode !== "drawer"; this.$('[data-action="close"]').hidden = this.mode !== "drawer";
 			const archive = this.$('[data-action="archive"]'); const archived = !!(this.snapshot && Number(this.snapshot.conversation.archived));
 			archive.setAttribute("aria-label", archived ? "Restore conversation" : "Archive conversation"); archive.title = archived ? "Restore conversation" : "Archive conversation";
-			const share = this.$('[data-action="share"]'); share.setAttribute("aria-label", shared ? "Stop sharing this conversation" : "Share conversation (read only link)"); share.title = share.getAttribute("aria-label");
+			const share = this.$('[data-action="share"]'); share.setAttribute("aria-label", shared ? "Manage conversation sharing" : "Share conversation"); share.title = share.getAttribute("aria-label");
 		}
 		renderBanner() {
 			const banner = this.slot("banner"); const message = this.error || (!this.online ? "Connection interrupted. Reconnecting automatically; your run continues on the server." : this.notice);
@@ -525,42 +528,59 @@
 			const modal = this.dialog(restore ? "Restore this conversation?" : "Archive this conversation?", '<p class="fi-dialog-copy">' + copy + "</p><footer>" + button("modal-close", "Keep it here") + button("confirm-archive", restore ? "Restore conversation" : "Archive conversation", "archive", "fi-primary") + "</footer>");
 			modal.element.querySelector('[data-action="confirm-archive"]').addEventListener("click", () => modal.run(async () => commit(modal)));
 		}
-		shareLink() {
-			const origin = global.location && global.location.origin ? global.location.origin : "";
-			return origin + "/desk/" + PAGE + "/" + this.selected;
-		}
-		copyShareLink(link, done) {
-			if (global.navigator && global.navigator.clipboard) global.navigator.clipboard.writeText(link).then(() => done && done(true)).catch(() => done && done(false));
-		}
 		shareDialog() {
-			if (!this.snapshot) return; const name = this.selected, shared = !!Number(this.snapshot.conversation.shared);
-			const link = this.shareLink();
-			const copy = shared ? "Anyone with the link and Intelligence access can read this conversation. Only you can post or approve." : "Sharing gives colleagues a read only view of this conversation, including files and tool actions. Only you can post or approve.";
-			const commit = async (modal, next) => { await this.api("share_conversation", { conversation: name, shared: next }); this.accept(name, await this.fetchConversation(name)); await this.refreshList(); modal.busy = false; modal.close(); this.notice = next ? "Conversation shared. Anyone with the link can read it." : "Sharing turned off."; this.renderBanner(); };
+			if (!this.snapshot) return;
+			const name = this.selected;
+			const copy = "People you share with get a read only view of this conversation, including files and tool actions. Only you can post or approve.";
+			let shares = [];
+			const listHTML = () => shares.length
+				? '<ul class="fi-share-list">' + shares.map((row) => '<li class="fi-share-row"><span class="fi-share-user"><strong>' + esc(row.full_name || row.user) + "</strong><span>" + esc(row.user) + "</span></span>" + button("unshare-user", "Stop sharing with " + (row.full_name || row.user), "close", "fi-text-btn", 'data-user="' + esc(row.user) + '"') + "</li>").join("") + "</ul>"
+				: '<div class="fi-share-empty">Not shared with anyone yet.</div>';
+			const applyUpdate = (result) => {
+				if (result && result.conversation && this.snapshot && this.selected === name) { Object.assign(this.snapshot.conversation, result.conversation); this.renderHeader(); }
+				if (result && Array.isArray(result.shares)) shares = result.shares;
+			};
+			const loadShares = async () => { const rows = await this.api("conversation_share_users", { conversation: name }); if (Array.isArray(rows)) shares = rows; };
 			const frappe = global.frappe;
 			if (frappe && frappe.ui && frappe.ui.Dialog) {
-				this.nativeForm(frappe, {
-					title: shared ? "Conversation is shared" : "Share this conversation?",
+				const modal = this.nativeForm(frappe, {
+					title: "Share conversation",
 					size: "small",
 					fields: [
 						{ fieldtype: "HTML", fieldname: "copy", options: '<p class="fi-dialog-copy">' + copy + "</p>" },
-						{ fieldname: "link", label: "Read only link", fieldtype: "Data", read_only: 1, default: link }
+						{ fieldtype: "HTML", fieldname: "shares", options: '<div data-shares-host><div class="fi-share-empty">Loading…</div></div>' },
+						{ fieldname: "share_with", label: "Share with", fieldtype: "Link", options: "User", description: "They find the conversation in their own list and global search." }
 					],
-					primary_action_label: shared ? "Stop sharing" : "Share conversation",
-					primary_action: (values, modal) => commit(modal, shared ? 0 : 1),
-					secondary_action_label: "Copy link",
-					secondary_action: (modal) => this.copyShareLink(link, (ok) => { if (!ok) { modal.error({ userMessage: "Could not copy. Select the link and copy it directly." }); return; } if (frappe.show_alert) frappe.show_alert({ message: "Link copied.", indicator: "green" }); })
+					primary_action_label: "Share",
+					primary_action: async (values, m) => {
+						const user = String((values && values.share_with) || "").trim();
+						if (!user) { m.error({ userMessage: "Choose a user to share with." }); return; }
+						applyUpdate(await this.api("share_conversation", { conversation: name, user }));
+						paint();
+						await m.set("share_with", "");
+						if (frappe.show_alert) frappe.show_alert({ message: "Shared with " + user + ".", indicator: "green" });
+					}
 				});
+				const paint = () => { const host = modal.bodyHost() && modal.bodyHost().querySelector("[data-shares-host]"); if (host) host.innerHTML = listHTML(); };
+				if (modal.element) modal.element.addEventListener("click", (event) => {
+					const target = event.target.closest && event.target.closest('[data-action="unshare-user"]');
+					if (!target || modal.busy) return;
+					modal.run(async () => { applyUpdate(await this.api("unshare_conversation", { conversation: name, user: target.dataset.user })); paint(); });
+				});
+				modal.run(async () => { await loadShares(); paint(); });
 				return;
 			}
-			const modal = this.dialog(shared ? "Conversation is shared" : "Share this conversation?", '<p class="fi-dialog-copy">' + copy + '</p><label class="fi-field control-label">Read only link<input class="form-control" readonly value="' + esc(link) + '" data-share-link onfocus="this.select()"></label><footer>' + (shared ? "" : button("modal-close", "Cancel")) + (shared ? button("confirm-unshare", "Stop sharing", null, "fi-danger") : "") + button("copy-share-link", "Copy link", "link", shared ? "" : "fi-text-btn") + (shared ? "" : button("confirm-share", "Share conversation", "share", "fi-primary")) + "</footer>");
+			const modal = this.dialog("Share conversation", '<p class="fi-dialog-copy">' + copy + '</p><div data-shares-host><div class="fi-share-empty">Loading…</div></div><label class="fi-field control-label">Share with<input class="form-control" data-share-with placeholder="colleague@example.com" autocomplete="off" maxlength="140"></label><footer>' + button("modal-close", "Done") + button("confirm-share", "Share", "share", "fi-primary") + "</footer>");
+			const paint = () => { const host = modal.element.querySelector("[data-shares-host]"); if (host) host.innerHTML = listHTML(); };
 			modal.element.addEventListener("click", (event) => {
 				const target = event.target.closest("[data-action]"); if (!target || modal.busy) return;
-				if (target.dataset.action === "copy-share-link") { this.copyShareLink(link, (ok) => { if (!ok) return; const label = target.querySelector("span"); if (label) { label.textContent = "Copied"; global.setTimeout(() => { label.textContent = "Copy link"; }, 1800); } }); return; }
-				const next = target.dataset.action === "confirm-share" ? 1 : target.dataset.action === "confirm-unshare" ? 0 : null;
-				if (next === null) return;
-				modal.run(async () => commit(modal, next));
+				if (target.dataset.action === "unshare-user") { modal.run(async () => { applyUpdate(await this.api("unshare_conversation", { conversation: name, user: target.dataset.user })); paint(); }); return; }
+				if (target.dataset.action !== "confirm-share") return;
+				const input = modal.element.querySelector("[data-share-with]"), user = String(input.value || "").trim();
+				if (!user) { input.focus(); return; }
+				modal.run(async () => { applyUpdate(await this.api("share_conversation", { conversation: name, user })); input.value = ""; paint(); });
 			});
+			modal.run(async () => { await loadShares(); paint(); });
 		}
 		providerDialog() {
 			if (!this.boot) return;
@@ -744,7 +764,7 @@
 		async providerDialogNative(frappe) {
 			const providers = this.boot.managed_providers || this.boot.providers || [];
 			const isManager = !!this.boot.is_manager;
-			let loadVersion = 0, readOnly = false, modal = null;
+			let loadVersion = 0, readOnly = false, modal = null, catalogOptions = [];
 			const listHTML = '<nav class="fi-provider-list fi-provider-list-native" aria-label="Configured providers">'
 				+ providers.map((provider) => '<button type="button" data-provider="' + esc(provider.name) + '"><strong>' + esc(provider.title) + "</strong><span>" + esc(provider.kind + " · " + provider.model) + "</span></button>").join("")
 				+ '<button type="button" data-provider="">' + icon("plus") + " Add provider</button></nav>";
@@ -757,7 +777,8 @@
 					try {
 						const result = await this.api("fetch_provider_models", { name: values.name || null, kind: values.kind || "OpenAI", base_url: values.kind === "Custom" ? String(values.base_url || "").trim() : null, api_key: values.api_key || null });
 						const models = result && Array.isArray(result.models) ? result.models : [];
-						if (models.length) modal.set("models", models.join("\n"));
+						catalogOptions = models.slice();
+						if (models.length) modal.set("models", models.join(", "));
 						if (frappe.show_alert) frappe.show_alert({ message: models.length ? models.length + " models fetched." : "No models returned by the provider.", indicator: models.length ? "green" : "orange" });
 					} finally { if (frappe.ui.unfreeze) frappe.ui.unfreeze(); }
 				});
@@ -768,9 +789,10 @@
 					const data = name ? await this.api("provider_details", { name }) : {};
 					if (version !== loadVersion || modal.closed) return;
 					readOnly = !!(name && (data.can_edit === false || (Number(data.is_shared) && !isManager)));
+					catalogOptions = lines(data.models || "");
 					if (modal.instance.set_values) await modal.instance.set_values({
 						name: data.name || "", title: data.title || "", kind: data.kind || "OpenAI", model: data.model || "",
-						base_url: data.base_url || "", api_key: "", allowed_roles: data.allowed_roles || "", models: data.models || "",
+						base_url: data.base_url || "", api_key: "", allowed_roles: data.allowed_roles || "", models: catalogOptions.join(", "),
 						max_tokens: data.max_tokens || 4096, timeout: data.timeout || 60,
 						thinking_effort: EFFORTS.includes(data.thinking_effort) ? data.thinking_effort : "Auto",
 						enabled: name ? (Number(data.enabled) ? 1 : 0) : 1, is_shared: Number(data.is_shared) ? 1 : 0
@@ -797,7 +819,7 @@
 					...(isManager ? [{ fieldname: "is_shared", label: "Shared with this site", fieldtype: "Check" }, { fieldname: "allowed_roles", label: "Allowed roles", fieldtype: "Small Text", depends_on: "eval:doc.is_shared==1", description: "One Frappe role per line. Blank allows all authorized Intelligence users." }] : []),
 					{ fieldname: "max_tokens", label: "Output token limit", fieldtype: "Int", default: 4096 },
 					{ fieldname: "timeout", label: "Timeout (seconds)", fieldtype: "Int", default: 60 },
-					{ fieldname: "models", label: "Model catalog", fieldtype: "Small Text", description: "One model ID per line. Blank allows any model." },
+					{ fieldname: "models", label: "Model catalog", fieldtype: "MultiSelect", ignore_validation: 1, get_data: () => catalogOptions, description: "Model IDs offered in the composer picker. Blank allows any model." },
 					{ fieldtype: "HTML", fieldname: "provider_actions", options: '<button type="button" class="fi-btn fi-danger" data-native-delete hidden>Delete provider</button>' }
 				],
 				primary_action_label: "Save provider",
@@ -811,7 +833,7 @@
 						api_key: values.api_key || null, base_url: baseURL,
 						enabled: values.enabled ? 1 : 0, is_shared: values.is_shared ? 1 : 0,
 						allowed_roles: values.allowed_roles || "", max_tokens: Number(values.max_tokens) || 4096,
-						timeout: Number(values.timeout) || 60, models: values.models || ""
+						timeout: Number(values.timeout) || 60, models: String(values.models || "").split(",").map((entry) => entry.trim()).filter(Boolean).join("\n")
 					});
 					this.boot = await this.api("bootstrap");
 					if (!this.selected && !(this.boot.providers || []).some((provider) => provider.name === this.provider)) this.provider = this.boot.providers[0] && this.boot.providers[0].name || "";
@@ -1012,6 +1034,15 @@
 			}
 			return out;
 		}
+		ragStatusHTML() {
+			const rag = this.boot && this.boot.rag;
+			if (!rag) return "";
+			const available = !!rag.available;
+			const detail = available
+				? "Available through " + esc(rag.provider || "a configured provider") + (rag.model ? " (" + esc(rag.model) + ")" : "") + ". Uploaded files and knowledge sources are searched for context."
+				: esc(rag.reason || "Not offered by the configured providers.");
+			return '<div class="fi-rag-status' + (available ? " is-available" : "") + '" role="status">' + icon(available ? "check" : "info") + '<div class="fi-rag-copy"><strong>Context retrieval (RAG)</strong><span>' + detail + "</span></div></div>";
+		}
 		async settingsDialogNative(frappe) {
 			const readOnly = !this.boot.is_manager;
 			let data;
@@ -1019,7 +1050,9 @@
 			try { data = await this.api("get_settings"); }
 			catch (error) { this.error = userError(error); this.renderBanner(); return; }
 			finally { if (frappe.ui.unfreeze) frappe.ui.unfreeze(); }
-			const fields = [{ fieldtype: "HTML", fieldname: "settings_copy", options: '<p class="fi-dialog-copy">' + (readOnly ? "Only system managers can change these settings. Your current configuration is shown here." : "Site-wide assistant behavior. Changes apply to every user and every run.") + "</p>" }].concat(SETTINGS_FIELDS.map((field) => Object.assign({}, field, { default: data && data[field.fieldname] !== undefined && data[field.fieldname] !== null ? data[field.fieldname] : field.fieldtype === "Check" ? 0 : "", read_only: readOnly ? 1 : 0 })));
+			const intro = [{ fieldtype: "HTML", fieldname: "settings_copy", options: '<p class="fi-dialog-copy">' + (readOnly ? "Only system managers can change these settings. Your current configuration is shown here." : "Site-wide assistant behavior. Changes apply to every user and every run.") + "</p>" }];
+			if (this.boot.rag) intro.push({ fieldtype: "HTML", fieldname: "rag_status", options: this.ragStatusHTML() });
+			const fields = intro.concat(SETTINGS_FIELDS.map((field) => Object.assign({}, field, { default: data && data[field.fieldname] !== undefined && data[field.fieldname] !== null ? data[field.fieldname] : field.fieldtype === "Check" ? 0 : "", read_only: readOnly ? 1 : 0 })));
 			this.nativeForm(frappe, {
 				title: "Intelligence settings",
 				fields,
@@ -1049,7 +1082,7 @@
 			try { data = await this.api("get_settings"); }
 			catch (error) { if (!modal.closed) body.innerHTML = '<div class="fi-inline-error" role="alert"><p>' + esc(userError(error)) + "</p></div>"; return; }
 			if (modal.closed) return;
-			body.innerHTML = SETTINGS_FIELDS.map((field) => this.settingsFieldHTML(field, data[field.fieldname], readOnly)).join("");
+			body.innerHTML = this.ragStatusHTML() + SETTINGS_FIELDS.map((field) => this.settingsFieldHTML(field, data[field.fieldname], readOnly)).join("");
 			for (const field of SETTINGS_FIELDS) {
 				const input = form.elements[field.fieldname];
 				if (!input) continue;

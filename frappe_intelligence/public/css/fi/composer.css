@@ -40,6 +40,9 @@
 .fi-dropdown-value {overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;}
 .fi-dropdown-menu {position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 6; min-width: 190px; max-width: min(300px, 74vw); max-height: 266px; overflow-y: auto; scrollbar-width: thin; padding: 4px; background: var(--fi-bg); border: 1px solid var(--fi-border); border-radius: 8px; box-shadow: var(--shadow-xl, 0 0 1px rgb(0 0 0 / 19%), 0 1px 2px rgb(0 0 0 / 7%), 0 6px 15px -5px rgb(0 0 0 / 11%));}
 .fi-dropdown[data-picker="model"] .fi-dropdown-menu {left: auto; right: 0;}
+.fi-dropdown[data-picker="effort"] .fi-dropdown-menu {min-width: 140px;}
+@keyframes fi-dropdown-in {from {opacity: 0; transform: translateY(4px);}}
+.fi-dropdown-menu:not([hidden]) {animation: fi-dropdown-in .15s ease;}
 .fi-dropdown-search {display: block; width: 100%; margin-bottom: 4px; padding: 6px 9px; border: 1px solid var(--fi-border); border-radius: 6px; background: var(--fi-control); color: var(--fi-text); font-size: 11px; outline: none;}
 .fi-dropdown-option {display: flex; align-items: center; gap: 7px; min-width: 0; padding: 6px 8px; border-radius: 6px; font-size: 11px; color: var(--fi-text); cursor: pointer;}
 .fi-dropdown-option:hover, .fi-dropdown-option.is-active {background: var(--fi-soft);}
@@ -76,6 +79,9 @@
 @media (max-width: 480px) {
 	.fi-bottom {padding: 0 16px 12px;}
 	.fi-dropdown-btn {max-width: 132px; font-size: 9px;}
+}
+@media (prefers-reduced-motion: reduce) {
+	.fi-dropdown-menu:not([hidden]) {animation: none;}
 }
 @media print {
 	.fi-bottom {display: none !important;}

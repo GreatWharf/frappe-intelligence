@@ -452,8 +452,8 @@ function stubNativeDialogs(window) {
 const fieldsByName = (dialog) => { const out = {}; for (const field of dialog.options.fields) if (field.fieldname) out[field.fieldname] = field; return out; };
 
 test('providers dialog uses a declarative frappe.ui.Dialog when Desk controls exist', async (t) => {
-  const provider = { name: 'p1', title: 'Work', kind: 'OpenAI', model: 'configured-model', enabled: 1, is_shared: 0, thinking_effort: 'Medium', can_edit: true, models: 'configured-model' };
-  const { app, window, document, calls } = harness(t, { provider_details: () => copy(provider), save_provider: () => ({}), bootstrap: () => copy(boot), fetch_provider_models: () => ({ models: ['model-a'] }) });
+  const provider = { name: 'p1', title: 'Work', kind: 'OpenAI', model: 'configured-model', enabled: 1, is_shared: 0, thinking_effort: 'Medium', can_edit: true, models: 'configured-model\nbackup-model' };
+  const { app, window, document, calls } = harness(t, { provider_details: () => copy(provider), save_provider: () => ({}), bootstrap: () => copy(boot), fetch_provider_models: () => ({ models: ['model-a', 'model-b'] }) });
   app.boot.managed_providers = [provider];
   const dialogs = stubNativeDialogs(window);
   app.providerDialog(); await tick(); await tick(); await tick();
@@ -469,11 +469,17 @@ test('providers dialog uses a declarative frappe.ui.Dialog when Desk controls ex
   assert.equal(byField.thinking_effort.fieldtype, 'Select');
   assert.deepEqual(copy(byField.thinking_effort.options), ['Auto', 'Low', 'Medium', 'High', 'Max']);
   assert.equal(byField.base_url.depends_on, 'eval:doc.kind=="Custom"', 'custom endpoint only for Custom providers');
+  assert.equal(byField.models.fieldtype, 'MultiSelect', 'the catalog is a native multi-select on Desk');
+  assert.equal(byField.models.ignore_validation, 1, 'custom model IDs survive Desk validation');
+  assert.equal(typeof byField.models.get_data, 'function', 'the catalog feeds live suggestions');
   assert.equal(dialog.get_value('thinking_effort'), 'Medium', 'saved effort restored');
   assert.equal(dialog.get_value('title'), 'Work');
+  assert.equal(dialog.get_value('models'), 'configured-model, backup-model', 'the saved catalog loads comma-separated');
+  assert.deepEqual(copy(byField.models.get_data()), ['configured-model', 'backup-model'], 'the saved catalog seeds the suggestions');
   byField.fetch_models.click(); await tick(); await tick();
   assert.ok(calls.some((call) => call.method === 'fetch_provider_models'), 'fetch models button calls the API');
-  assert.equal(dialog.get_value('models'), 'model-a', 'fetched catalog lands in the models field');
+  assert.equal(dialog.get_value('models'), 'model-a, model-b', 'fetched catalog lands comma-separated');
+  assert.deepEqual(copy(byField.models.get_data()), ['model-a', 'model-b'], 'the fetched catalog refreshes the suggestions');
   dialog.set_value('title', 'Renamed provider'); dialog.set_value('api_key', 'fixture-key');
   dialog.options.primary_action(dialog.get_values()); await tick(); await tick(); await tick();
   const save = calls.find((call) => call.method === 'save_provider');
@@ -481,6 +487,7 @@ test('providers dialog uses a declarative frappe.ui.Dialog when Desk controls ex
   assert.equal(save.args.title, 'Renamed provider');
   assert.equal(save.args.api_key, 'fixture-key');
   assert.equal(save.args.thinking_effort, 'Medium');
+  assert.equal(save.args.models, 'model-a\nmodel-b', 'the catalog saves one model ID per line');
 });
 
 test('the settings dialog on Desk is a native form over get_settings and save_settings', async (t) => {
@@ -518,6 +525,40 @@ test('the native settings dialog drops its save action for non-managers', async 
   assert.ok(dialog.options.fields.every((field) => !field.fieldname || field.fieldtype === 'HTML' || field.read_only), 'every input read-only');
 });
 
+test('the native settings dialog surfaces the RAG status from bootstrap', async (t) => {
+  const ragBoot = Object.assign(copy(boot), { rag: { available: true, provider: 'Work', model: 'text-embedding-3-large' } });
+  const { app, window } = harness(t, { get_settings: () => copy(settingsDoc), bootstrap: () => copy(ragBoot) });
+  app.boot = copy(ragBoot);
+  const dialogs = stubNativeDialogs(window);
+  await app.settingsDialog(); await tick();
+  const dialog = dialogs[0];
+  const byField = fieldsByName(dialog);
+  assert.ok(byField.rag_status, 'a RAG status field is injected');
+  assert.equal(dialog.options.fields[0].fieldname, 'settings_copy');
+  assert.equal(dialog.options.fields[1].fieldname, 'rag_status', 'the status sits right under the intro copy');
+  assert.ok(byField.rag_status.options.includes('Context retrieval (RAG)'));
+  assert.ok(byField.rag_status.options.includes('Available through Work (text-embedding-3-large).'));
+  assert.ok(byField.rag_status.options.includes('is-available'), 'the available state is styled');
+});
+
+test('the settings dialogs report honestly when RAG is unavailable', async (t) => {
+  const ragBoot = Object.assign(copy(boot), { rag: { available: false, reason: 'No embedding provider is configured.' } });
+  const { app, window, document } = harness(t, { get_settings: () => copy(settingsDoc), bootstrap: () => copy(ragBoot) });
+  app.boot = copy(ragBoot);
+  const dialogs = stubNativeDialogs(window);
+  await app.settingsDialog(); await tick();
+  const byField = fieldsByName(dialogs[0]);
+  assert.ok(byField.rag_status.options.includes('No embedding provider is configured.'), 'the reason is shown verbatim');
+  assert.ok(!byField.rag_status.options.includes('is-available'), 'no available styling when down');
+  dialogs[0].hide();
+  app.modal = null;
+  delete window.frappe.ui.Dialog;
+  app.settingsDialog(); await tick(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  assert.ok(modal.querySelector('.fi-rag-status'), 'the fallback dialog renders the status too');
+  assert.ok(modal.querySelector('.fi-rag-status').textContent.includes('No embedding provider is configured.'));
+});
+
 test('the memory dialog on Desk is a native form and saves scoped memories', async (t) => {
   const rows = [];
   const { app, window, calls } = harness(t, { list_memories: () => copy(rows), save_memory: (args) => { rows.push(Object.assign({ name: 'mem1' }, args)); return rows[0]; } });
@@ -538,6 +579,46 @@ test('the memory dialog on Desk is a native form and saves scoped memories', asy
   const scopeInput = dialog.fields_dict.memory_scope.input;
   scopeInput.value = 'conversation'; scopeInput.dispatchEvent(new window.Event('change', { bubbles: true })); await tick(); await tick();
   assert.ok(calls.some((call) => call.method === 'list_memories' && call.args.scope === 'conversation' && call.args.conversation === 'c1'), 'scope switch re-queries the list');
+});
+
+test('the share dialog on Desk manages per-user read-only grants natively', async (t) => {
+  const shares = [{ user: 'colleague@example.test', full_name: 'Colleague One' }];
+  const { app, window, document, calls, snapshot } = harness(t, {
+    conversation_share_users: () => copy(shares),
+    share_conversation: (args) => { shares.push({ user: args.user, full_name: 'New Person' }); return { conversation: { shared: 1 }, shares: copy(shares) }; },
+    unshare_conversation: (args) => { shares.splice(shares.findIndex((row) => row.user === args.user), 1); return { conversation: { shared: 0 }, shares: copy(shares) }; }
+  });
+  app.selected = 'c1'; app.snapshot = snapshot;
+  const dialogs = stubNativeDialogs(window);
+  app.shareDialog(); await tick(); await tick();
+  assert.equal(document.querySelector('.fi-modal-overlay'), null, 'no custom overlay on Desk');
+  assert.equal(dialogs.length, 1);
+  const dialog = dialogs[0];
+  assert.equal(dialog.options.title, 'Share conversation');
+  const byField = fieldsByName(dialog);
+  assert.equal(byField.share_with.fieldtype, 'Link');
+  assert.equal(byField.share_with.options, 'User', 'the picker is a native User link field');
+  assert.ok(byField.copy.options.includes('read only view'), 'explains the read-only grant');
+  const host = dialog.body.querySelector('[data-shares-host]');
+  assert.ok(host.textContent.includes('Colleague One'), 'current shares load on open');
+  assert.ok(host.textContent.includes('colleague@example.test'));
+  assert.equal(calls.find((call) => call.method === 'conversation_share_users').args.conversation, 'c1');
+  dialog.options.primary_action({ share_with: '' }); await tick(); await tick();
+  assert.ok(dialog.body.querySelector('.fi-modal-error').textContent.includes('Choose a user'), 'an empty user is rejected inline');
+  assert.equal(calls.some((call) => call.method === 'share_conversation'), false, 'no API call for an empty user');
+  dialog.options.primary_action({ share_with: 'person@example.test' }); await tick(); await tick(); await tick();
+  const grant = calls.find((call) => call.method === 'share_conversation');
+  assert.deepEqual(copy(grant.args), { conversation: 'c1', user: 'person@example.test' });
+  assert.ok(host.textContent.includes('New Person'), 'the list repaints and the dialog stays open');
+  assert.equal(dialog.get_value('share_with'), '', 'the user field clears for the next share');
+  assert.equal(app.snapshot.conversation.shared, 1, 'the snapshot merges the new shared flag');
+  const unshare = Array.from(host.querySelectorAll('[data-action="unshare-user"]')).find((node) => node.dataset.user === 'person@example.test');
+  assert.ok(unshare, 'the granted user has a revoke button');
+  unshare.click(); await tick(); await tick(); await tick();
+  const revoke = calls.find((call) => call.method === 'unshare_conversation');
+  assert.deepEqual(copy(revoke.args), { conversation: 'c1', user: 'person@example.test' });
+  assert.equal(host.textContent.includes('New Person'), false, 'the revoked user leaves the list');
+  assert.equal(app.snapshot.conversation.shared, 0);
 });
 
 test('the skills dialog on Desk renders learned skills as native checkboxes that save on toggle', async (t) => {

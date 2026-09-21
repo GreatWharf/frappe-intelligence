@@ -1,5 +1,5 @@
 'use strict';
-/* Composer: provider and model pickers, attachment chips, send payload. */
+/* Composer: provider, model and effort pickers, attachment chips, send payload. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const client = require('./load.cjs').load();
@@ -166,13 +166,135 @@ test('model menu marks the default and empty catalogs offer a custom model row',
   assert.ok(rows.some((row) => row.dataset.value === 'my-fine-tune-9' && row.getAttribute('aria-selected') === 'true'), 'custom value listed and checked');
 });
 
-test('both pickers lock while a conversation is open', (t) => {
+test('the provider picker locks mid-conversation while model and effort stay live', (t) => {
   const { app, snapshot } = harness(t);
   app.selected = 'c1';
   app.accept('c1', copy(snapshot));
-  assert.equal(button(app, 'provider').disabled, true);
-  assert.equal(button(app, 'model').disabled, true);
+  assert.equal(button(app, 'provider').disabled, true, 'provider stays locked');
+  assert.equal(button(app, 'model').disabled, false, 'model can change mid-conversation');
+  assert.equal(button(app, 'effort').disabled, false, 'effort can change mid-conversation');
   assert.ok(button(app, 'provider').title.includes('original provider'), 'existing tooltip kept');
+});
+
+test('picking a model mid-conversation persists it and merges the reply', async (t) => {
+  const { app, snapshot, calls } = harness(t, {
+    set_conversation_model: (args) => ({ name: 'c1', title: 'Private chat', provider: 'p1', model: args.model, effort: '', owner: 'owner@example.test', shared: 0, archived: 0 }),
+  });
+  app.selected = 'c1';
+  app.accept('c1', copy(snapshot));
+  const btn = button(app, 'model');
+  assert.equal(btn.disabled, false, 'model picker stays live');
+  assert.equal(btn.title, 'Change the model for this conversation');
+  assert.ok(btn.textContent.includes('gpt-4.1'), 'unset conversation model falls back to the provider default');
+  btn.click();
+  const rows = options(app, 'model');
+  assert.equal(rows.length, 9, 'catalog rows listed');
+  assert.equal(rows[0].getAttribute('aria-selected'), 'true', 'provider default current while unset');
+  rows[2].click();
+  assert.equal(menu(app, 'model').hidden, true, 'menu closes after the pick');
+  for (let index = 0; index < 20 && !calls.some((call) => call.method === 'set_conversation_model'); index++) await tick();
+  await tick(); await tick();
+  const call = calls.find((entry) => entry.method === 'set_conversation_model');
+  assert.deepEqual(copy(call.args), { conversation: 'c1', provider: 'p1', model: 'gpt-4o' });
+  assert.equal(app.snapshot.conversation.model, 'gpt-4o', 'reply merged into the snapshot');
+  assert.ok(button(app, 'model').textContent.includes('gpt-4o'), 'button repaints from the merged snapshot');
+  assert.ok(!app.draft().model, 'no draft override is stashed for an open conversation');
+});
+
+test('a custom model mid-conversation persists through the same setter', async (t) => {
+  const { app, window, snapshot, calls } = harness(t, {
+    set_conversation_model: (args) => ({ name: 'c1', title: 'Private chat', provider: args.provider, model: args.model, effort: '', owner: 'owner@example.test', shared: 0, archived: 0 }),
+  });
+  snapshot.conversation.provider = 'p2';
+  app.selected = 'c1';
+  app.accept('c1', copy(snapshot));
+  assert.equal(app.provider, 'p2', 'the conversation provider wins');
+  button(app, 'model').click();
+  const rows = options(app, 'model');
+  assert.equal(rows.length, 2, 'no catalog: default row plus the custom row');
+  rows[1].click();
+  const custom = app.$('[data-picker-custom]');
+  assert.ok(custom, 'inline input revealed mid-conversation');
+  custom.value = 'my-fine-tune-9';
+  key(window, custom, 'Enter');
+  for (let index = 0; index < 20 && !calls.some((call) => call.method === 'set_conversation_model'); index++) await tick();
+  await tick(); await tick();
+  const call = calls.find((entry) => entry.method === 'set_conversation_model');
+  assert.deepEqual(copy(call.args), { conversation: 'c1', provider: 'p2', model: 'my-fine-tune-9' });
+  assert.equal(app.snapshot.conversation.model, 'my-fine-tune-9');
+  assert.ok(button(app, 'model').textContent.includes('my-fine-tune-9'), 'button shows the persisted custom model');
+});
+
+test('the effort picker lists every effort with the provider default hinted', (t) => {
+  const { app } = harness(t);
+  const btn = button(app, 'effort');
+  assert.ok(btn, 'effort picker rendered next to provider and model');
+  assert.equal(btn.getAttribute('aria-label'), 'Reasoning effort');
+  assert.equal(btn.title, 'Reasoning effort for the next run');
+  assert.ok(btn.textContent.includes('Medium'), 'provider default effort shown on the button');
+  btn.click();
+  assert.equal(menu(app, 'effort').hidden, false, 'menu opens');
+  const list = app.$('[data-picker-options="effort"]');
+  assert.equal(list.getAttribute('role'), 'listbox');
+  assert.equal(list.getAttribute('aria-label'), 'Reasoning effort');
+  const rows = options(app, 'effort');
+  assert.deepEqual(rows.map((row) => row.dataset.value), ['Auto', 'Low', 'Medium', 'High', 'Max']);
+  assert.equal(rows[2].getAttribute('aria-selected'), 'true', 'the provider default is the current value');
+  assert.ok(rows[2].textContent.includes('Default'), 'provider default hinted');
+  assert.equal(rows[0].getAttribute('aria-selected'), 'false');
+  assert.ok(!rows[0].textContent.includes('Default'), 'other rows unhinted');
+  assert.equal(btn.getAttribute('aria-activedescendant'), 'fi-picker-effort-2', 'the default row is announced');
+  assert.ok(!app.$('[data-picker-search="effort"]'), 'five rows: no search box');
+});
+
+test('a fresh effort choice rides the send payload and clears afterwards', async (t) => {
+  const { app, window, calls } = harness(t);
+  button(app, 'effort').click();
+  options(app, 'effort')[3].click();
+  assert.equal(app.draft().effort, 'High', 'the pick lands on the draft');
+  assert.ok(button(app, 'effort').textContent.includes('High'), 'button shows the pick');
+  type(app, window, 'hello there');
+  await app.send();
+  await tick(); await tick();
+  const sent = calls.find((call) => call.method === 'send_message');
+  assert.equal(sent.args.effort, 'High', 'effort rides the payload');
+  assert.ok(!('model' in sent.args), 'no model picked, no model key');
+  assert.equal(app.draft().effort, '', 'the draft effort clears after send');
+  assert.ok(button(app, 'effort').textContent.includes('Medium'), 'button falls back to the provider default');
+});
+
+test('picking an effort mid-conversation persists it and merges the reply', async (t) => {
+  const { app, snapshot, calls } = harness(t, {
+    set_conversation_effort: (args) => ({ name: 'c1', title: 'Private chat', provider: 'p1', model: '', effort: args.effort, owner: 'owner@example.test', shared: 0, archived: 0 }),
+  });
+  app.selected = 'c1';
+  app.accept('c1', copy(snapshot));
+  const btn = button(app, 'effort');
+  assert.equal(btn.disabled, false, 'effort picker stays live');
+  assert.equal(btn.title, 'Change the reasoning effort for this conversation');
+  assert.ok(btn.textContent.includes('Medium'), 'empty stored effort falls back to the provider default');
+  btn.click();
+  const rows = options(app, 'effort');
+  assert.equal(rows[2].getAttribute('aria-selected'), 'true', 'provider default current while unset');
+  rows[4].click();
+  assert.equal(menu(app, 'effort').hidden, true, 'menu closes after the pick');
+  for (let index = 0; index < 20 && !calls.some((call) => call.method === 'set_conversation_effort'); index++) await tick();
+  await tick(); await tick();
+  const call = calls.find((entry) => entry.method === 'set_conversation_effort');
+  assert.deepEqual(copy(call.args), { conversation: 'c1', effort: 'Max' });
+  assert.ok(!calls.some((entry) => entry.method === 'set_conversation_model'), 'effort never touches the model setter');
+  assert.equal(app.snapshot.conversation.effort, 'Max', 'reply merged into the snapshot');
+  assert.ok(button(app, 'effort').textContent.includes('Max'), 'button repaints from the merged snapshot');
+});
+
+test('read-only conversations disable all three pickers', (t) => {
+  const { app, snapshot } = harness(t);
+  snapshot.can_post = false;
+  app.selected = 'c1';
+  app.accept('c1', copy(snapshot));
+  assert.equal(button(app, 'provider').disabled, true);
+  assert.equal(button(app, 'model').disabled, true, 'model locks for a read-only viewer');
+  assert.equal(button(app, 'effort').disabled, true, 'effort locks for a read-only viewer');
 });
 
 test('attachment chips show size and truncate long names with a title', (t) => {

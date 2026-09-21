@@ -575,3 +575,37 @@ test('a shared read-only conversation replaces the composer and hides approval b
   assert.ok(app.slot('messages').textContent.includes('Waiting for the owner to decide.'));
   assert.equal(app.$('[data-action="share"]').hidden, true, 'viewers cannot re-share');
 });
+
+test('the share dialog grants and revokes read-only access per user', async (t) => {
+  const shares = [{ user: 'colleague@example.test', full_name: 'Colleague One' }];
+  const { app, document, calls, snapshot } = harness(t, {
+    conversation_share_users: () => copy(shares),
+    share_conversation: (args) => { shares.push({ user: args.user, full_name: 'New Person' }); snapshot.conversation.shared = 1; return { conversation: copy(snapshot.conversation), shares: copy(shares) }; },
+    unshare_conversation: (args) => { shares.splice(shares.findIndex((row) => row.user === args.user), 1); snapshot.conversation.shared = shares.length ? 1 : 0; return { conversation: copy(snapshot.conversation), shares: copy(shares) }; }
+  });
+  app.selected = 'c1'; app.accept('c1', copy(snapshot));
+  app.$('[data-action="share"]').click(); await tick(); await tick();
+  const modal = document.querySelector('.fi-modal-overlay');
+  assert.ok(modal, 'the fallback modal opens');
+  assert.ok(modal.textContent.includes('read only view'), 'explains the read-only grant');
+  const host = modal.querySelector('[data-shares-host]');
+  assert.ok(host.textContent.includes('Colleague One'), 'current shares load on open');
+  assert.ok(host.textContent.includes('colleague@example.test'));
+  assert.equal(calls.find((call) => call.method === 'conversation_share_users').args.conversation, 'c1');
+  const input = modal.querySelector('[data-share-with]');
+  input.value = 'person@example.test';
+  modal.querySelector('[data-action="confirm-share"]').click(); await tick(); await tick(); await tick();
+  const grant = calls.find((call) => call.method === 'share_conversation');
+  assert.deepEqual(copy(grant.args), { conversation: 'c1', user: 'person@example.test' });
+  assert.ok(host.textContent.includes('New Person'), 'the list repaints without closing');
+  assert.equal(input.value, '', 'the input clears for the next share');
+  assert.equal(app.snapshot.conversation.shared, 1, 'the header chip source updates in place');
+  assert.ok(app.slot('shared-chip').textContent.includes('Shared'), 'the header chip repaints');
+  const unshare = Array.from(modal.querySelectorAll('[data-action="unshare-user"]')).find((node) => node.dataset.user === 'person@example.test');
+  assert.ok(unshare, 'the granted user has a revoke button');
+  unshare.click(); await tick(); await tick(); await tick();
+  const revoke = calls.find((call) => call.method === 'unshare_conversation');
+  assert.deepEqual(copy(revoke.args), { conversation: 'c1', user: 'person@example.test' });
+  assert.equal(host.textContent.includes('New Person'), false, 'the revoked user leaves the list');
+  assert.ok(host.textContent.includes('Colleague One'), 'remaining shares stay listed');
+});
