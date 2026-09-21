@@ -108,6 +108,7 @@ RUN bench build --app frappe_intelligence \
     && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/thread.js \
     && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/composer.js \
     && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/panel.js \
+    && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/desk_compat.js \
     && test -r apps/frappe_intelligence/frappe_intelligence/public/js/fi/app.js \
     && test -r apps/frappe_intelligence/frappe_intelligence/public/css/fi/thread.css \
     && test -r apps/frappe_intelligence/frappe_intelligence/public/css/fi/composer.css \

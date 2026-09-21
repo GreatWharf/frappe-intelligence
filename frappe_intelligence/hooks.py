@@ -16,6 +16,7 @@ app_include_js = [
     "/assets/frappe_intelligence/js/fi/thread.js",
     "/assets/frappe_intelligence/js/fi/composer.js",
     "/assets/frappe_intelligence/js/fi/panel.js",
+    "/assets/frappe_intelligence/js/fi/desk_compat.js",
     "/assets/frappe_intelligence/js/fi/app.js",
 ]
 app_include_css = [
@@ -24,6 +25,11 @@ app_include_css = [
     "/assets/frappe_intelligence/css/fi/composer.css",
     "/assets/frappe_intelligence/css/fi/panel.css",
 ]
+
+# Conversations are worked with on the chat page, not in Form views: list rows
+# link straight to it and any Form route (search hits) redirects there.
+doctype_js = {"Intelligence Conversation": "public/js/intelligence_conversation_form.js"}
+doctype_list_js = {"Intelligence Conversation": "public/js/intelligence_conversation_list.js"}
 
 add_to_apps_screen = [
     dict(
