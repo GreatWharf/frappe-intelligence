@@ -2,7 +2,7 @@
  "doctype": "Page",
  "name": "intelligence",
  "page_name": "intelligence",
- "title": "Intelligence",
+ "title": "Chat",
  "module": "Frappe Intelligence",
  "standard": "Yes",
  "system_page": 0,
