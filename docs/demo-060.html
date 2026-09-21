@@ -1,0 +1,397 @@
+<title>Intelligence Panel Demo</title>
+<style>
+  :root {
+    --ground: #f4f5f7;
+    --surface: #ffffff;
+    --chrome: #eceff3;
+    --ink: #1f2933;
+    --muted: #5b6572;
+    --faint: #8a94a0;
+    --line: #dfe4ea;
+    --accent: #1c74d8;
+    --accent-ink: #0f5ec0;
+    --accent-soft: #e8f1fd;
+    --amber: #8a6d1f;
+    --amber-soft: #fbf3dd;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.07), 0 10px 28px rgba(16, 24, 40, 0.09);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #12151a;
+      --surface: #1a1e25;
+      --chrome: #171b21;
+      --ink: #e7eaee;
+      --muted: #9aa4b0;
+      --faint: #6d7784;
+      --line: #2b323c;
+      --accent: #5ea8f5;
+      --accent-ink: #8ec2f8;
+      --accent-soft: #16283e;
+      --amber: #e3c26a;
+      --amber-soft: #2b2513;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #12151a;
+    --surface: #1a1e25;
+    --chrome: #171b21;
+    --ink: #e7eaee;
+    --muted: #9aa4b0;
+    --faint: #6d7784;
+    --line: #2b323c;
+    --accent: #5ea8f5;
+    --accent-ink: #8ec2f8;
+    --accent-soft: #16283e;
+    --amber: #e3c26a;
+    --amber-soft: #2b2513;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .wrap {
+    max-width: 1060px;
+    margin-inline: auto;
+    padding-inline: max(16px, 4vw);
+    padding-block: 40px 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 34px;
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    color: var(--accent-ink);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(26px, 4.4vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.12;
+    margin: 0 0 12px;
+    text-wrap: balance;
+  }
+  .lede {
+    max-width: 66ch;
+    color: var(--muted);
+    font-size: 16px;
+    margin: 0;
+  }
+
+  .window {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--line);
+    padding: 8px 12px;
+  }
+  .dots { display: flex; gap: 6px; flex: none; }
+  .dots span {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--line);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+  }
+  .host {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+  }
+  .live-tag {
+    flex: none;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--amber);
+    background: var(--amber-soft);
+    border-radius: 5px;
+    padding: 3px 8px;
+  }
+  video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 8 / 5;
+    max-width: 100%;
+    background: #0b0d10;
+  }
+
+  .section-head {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    color: var(--faint);
+    margin: 0 0 14px;
+  }
+
+  .chapters {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .chapter {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    gap: 16px;
+    align-items: baseline;
+  }
+  .chapter:hover { background: var(--surface); border-color: var(--line); }
+  .chapter:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .chapter.is-active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+  .tcode {
+    flex: none;
+    width: 3.4em;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .chapter.is-active .tcode { color: var(--accent-ink); }
+  .cbody { min-width: 0; }
+  .ctitle {
+    display: block;
+    font-weight: 650;
+    font-size: 14.5px;
+    letter-spacing: -0.01em;
+  }
+  .cdesc {
+    display: block;
+    color: var(--muted);
+    font-size: 13.5px;
+    margin-top: 1px;
+  }
+
+  .facts {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .fact {
+    background: var(--surface);
+    padding: 12px 16px;
+    min-width: 0;
+  }
+  .fact dt {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    color: var(--faint);
+    margin-bottom: 3px;
+  }
+  .fact dd {
+    margin: 0;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  footer {
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+  footer p { margin: 0 0 6px; max-width: 70ch; }
+  footer a { color: var(--accent-ink); text-decoration: none; font-weight: 550; }
+  footer a:hover { text-decoration: underline; }
+  kbd {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">FRAPPE INTELLIGENCE · 0.6.0 · RECORDED AGAINST A LIVE SITE</p>
+    <h1>The docked panel, working.</h1>
+    <p class="lede">
+      Eighty-eight seconds on a real ERPNext v16 site, one take, no mock server. The assistant
+      docks over Desk, asks before it acts, remembers that answer for the rest of the
+      conversation, and follows you onto a record. Press play, or jump straight to a beat below.
+    </p>
+  </header>
+
+  <figure class="window">
+    <div class="chrome" aria-hidden="true">
+      <div class="dots"><span></span><span></span><span></span></div>
+      <div class="host">erptest-erpnextv16-78a4e3-167-172-62-99.sslip.io</div>
+      <div class="live-tag">LIVE SITE</div>
+    </div>
+    <video id="demo" controls preload="metadata" playsinline
+           poster="screenshots/panel-demo-060-poster.png" src="screenshots/panel-demo-060.webm"></video>
+  </figure>
+
+  <section aria-label="Demo chapters">
+    <p class="section-head">CHAPTERS</p>
+    <ol class="chapters" id="chapters">
+      <li><button class="chapter" type="button" data-t="5">
+        <span class="tcode">0:05</span>
+        <span class="cbody">
+          <span class="ctitle">Docked over Desk</span>
+          <span class="cdesc">Ctrl+I docks the assistant at the right edge of any screen. The width you leave is the width you find.</span>
+        </span>
+      </button></li>
+      <li><button class="chapter" type="button" data-t="8">
+        <span class="tcode">0:08</span>
+        <span class="cbody">
+          <span class="ctitle">Ask in plain language</span>
+          <span class="cdesc">Provider and model pickers ride in the composer; the question goes in as typed.</span>
+        </span>
+      </button></li>
+      <li><button class="chapter" type="button" data-t="19">
+        <span class="tcode">0:19</span>
+        <span class="cbody">
+          <span class="ctitle">Nothing runs until you approve</span>
+          <span class="cdesc">The card names the exact tool. Approve action, Always allow, or For this conversation.</span>
+        </span>
+      </button></li>
+      <li><button class="chapter" type="button" data-t="25">
+        <span class="tcode">0:25</span>
+        <span class="cbody">
+          <span class="ctitle">Watch it work</span>
+          <span class="cdesc">The run narrates each step, then folds its tool calls into one-line rows you can expand.</span>
+        </span>
+      </button></li>
+      <li><button class="chapter" type="button" data-t="38">
+        <span class="tcode">0:38</span>
+        <span class="cbody">
+          <span class="ctitle">Answers inside your permissions</span>
+          <span class="cdesc">Five demo customers through the caller&rsquo;s own access. Then the follow-up: &ldquo;Now list five more.&rdquo;</span>
+        </span>
+      </button></li>
+      <li><button class="chapter" type="button" data-t="64">
+        <span class="tcode">1:04</span>
+        <span class="cbody">
+          <span class="ctitle">The grant answers for you</span>
+          <span class="cdesc">No card the second time. The conversation-scoped grant auto-approves, and the tool row says &ldquo;Auto-approved by grant.&rdquo;</span>
+        </span>
+      </button></li>
+      <li><button class="chapter" type="button" data-t="81">
+        <span class="tcode">1:21</span>
+        <span class="cbody">
+          <span class="ctitle">Context follows the record</span>
+          <span class="cdesc">Navigate to a Customer and the panel picks it up, shown as a chip above the composer.</span>
+        </span>
+      </button></li>
+      <li><button class="chapter" type="button" data-t="85">
+        <span class="tcode">1:25</span>
+        <span class="cbody">
+          <span class="ctitle">Hand off to the full page</span>
+          <span class="cdesc">One click carries the same conversation into the full Desk workspace.</span>
+        </span>
+      </button></li>
+    </ol>
+  </section>
+
+  <section aria-label="Recording provenance">
+    <p class="section-head">PROVENANCE</p>
+    <dl class="facts">
+      <div class="fact"><dt>RECORDED</dt><dd>20 Sep 2026 · single take</dd></div>
+      <div class="fact"><dt>SITE</dt><dd title="erptest-erpnextv16-78a4e3-167-172-62-99.sslip.io">erptest-erpnextv16-78a4e3-167-172-62-99.sslip.io</dd></div>
+      <div class="fact"><dt>IMAGE</dt><dd title="ghcr.io/greatwharf/frappe-intelligence:0.6.0">ghcr.io/greatwharf/frappe-intelligence:0.6.0</dd></div>
+      <div class="fact"><dt>RELEASE</dt><dd>v0.6.0 · commit c07c786</dd></div>
+      <div class="fact"><dt>PROVIDER</dt><dd>Kimi (kimi-k3) · site-configured</dd></div>
+      <div class="fact"><dt>VERIFIED</dt><dd title="26/26 live REST checks · docs/verification.md">26/26 live REST checks · docs/verification.md</dd></div>
+    </dl>
+  </section>
+
+  <footer>
+    <p>WebM (VP8) plays in Chrome, Firefox and Edge. Safari can&rsquo;t decode it; the same file
+    lives in the repo at <code>docs/screenshots/panel-demo-060.webm</code>.</p>
+    <p><a href="https://github.com/GreatWharf/frappe-intelligence/blob/staging/real-v16/docs/screenshots/panel-demo-060.webm">GreatWharf/frappe-intelligence</a></p>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var video = document.getElementById('demo');
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.chapter'));
+    var times = buttons.map(function (b) { return parseFloat(b.getAttribute('data-t')); });
+
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        video.currentTime = parseFloat(btn.getAttribute('data-t'));
+        video.play();
+      });
+    });
+
+    function mark() {
+      var t = video.currentTime;
+      var active = -1;
+      for (var i = 0; i < times.length; i++) {
+        if (times[i] <= t + 0.25) active = i;
+      }
+      buttons.forEach(function (btn, i) {
+        var on = i === active && !video.paused;
+        btn.classList.toggle('is-active', on);
+        if (on) btn.setAttribute('aria-current', 'true');
+        else btn.removeAttribute('aria-current');
+      });
+    }
+    video.addEventListener('timeupdate', mark);
+    video.addEventListener('pause', mark);
+    video.addEventListener('play', mark);
+  })();
+</script>
