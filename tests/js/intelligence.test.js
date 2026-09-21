@@ -167,7 +167,7 @@ test('list refresh sequencing ignores a stale server response', async (t) => {
   const { app } = harness(t, { list_conversations: (args) => Number(args && args.shared) ? [] : new Promise((done) => { resolve[call++] = done; }) });
   const old = app.refreshList(); const current = app.refreshList();
   resolve[1]([{ name: 'new', title: 'New match' }]); await current; resolve[0]([{ name: 'old', title: 'Wrong match' }]); await old;
-  assert.equal(app.conversations[0].name, 'new'); assert.ok(!app.slot('conversations').textContent.includes('Wrong match'));
+  assert.equal(app.conversations.length, 1); assert.equal(app.conversations[0].name, 'new');
 });
 test('approval controls enforce duplicate guards and exact decision API', async (t) => {
   let release;
@@ -272,18 +272,10 @@ test('pagination loads more than 200 rows without replacing current run, duplica
   assert.equal(app.snapshot.messages.length, 401); assert.equal(app.snapshot.messages[0].sequence, 1); assert.equal(app.snapshot.has_earlier_messages, false); assert.equal(app.snapshot.run.state, 'completed');
   assert.deepEqual(calls.filter((entry) => entry.method === 'get_conversation').map((entry) => entry.args.before_sequence), [202, 2]);
 });
-test('unchanged authoritative polls preserve focused sidebar and run controls', (t) => {
-  const { app, snapshot, document } = harness(t); app.conversations = [snapshot.conversation]; app.selected = 'c1'; snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
-  const row = app.$('[data-action="select"]'), cancel = app.$('[data-action="cancel"]'); row.focus(); app.accept('c1', copy(snapshot));
-  assert.equal(app.$('[data-action="select"]'), row); assert.equal(document.activeElement, row); assert.equal(app.$('[data-action="cancel"]'), cancel);
-});
-test('sidebar toggle collapses the conversation column and reports aria state', (t) => {
-  const { app } = harness(t); const toggle = app.$('[data-action="sidebar"]');
-  assert.equal(app.root.classList.contains('fi-sidebar-collapsed'), false);
-  toggle.click();
-  assert.equal(app.root.classList.contains('fi-sidebar-collapsed'), true); assert.equal(toggle.getAttribute('aria-expanded'), 'false');
-  toggle.click();
-  assert.equal(app.root.classList.contains('fi-sidebar-collapsed'), false); assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+test('unchanged authoritative polls preserve focused run controls', (t) => {
+  const { app, snapshot, document } = harness(t); app.selected = 'c1'; snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
+  const cancel = app.$('[data-action="cancel"]'); cancel.focus(); app.accept('c1', copy(snapshot));
+  assert.equal(app.$('[data-action="cancel"]'), cancel); assert.equal(document.activeElement, cancel);
 });
 test('archived conversation is read-only while history remains readable', (t) => {
   const { app, snapshot } = harness(t); app.selected = 'c1'; snapshot.conversation.archived = 1; app.accept('c1', snapshot);
@@ -582,14 +574,4 @@ test('a shared read-only conversation replaces the composer and hides approval b
   assert.equal(app.slot('messages').querySelector('[data-action="approve"]'), null, 'no approve buttons for viewers');
   assert.ok(app.slot('messages').textContent.includes('Waiting for the owner to decide.'));
   assert.equal(app.$('[data-action="share"]').hidden, true, 'viewers cannot re-share');
-});
-
-test('the shared-with-me section lists other people\'s shared conversations', async (t) => {
-  const sharedRow = { name: 'shared-1', title: 'Quarterly notes', owner: 'alex@example.test', shared: 1 };
-  const { app } = harness(t, { list_conversations: (args) => Number(args.shared) ? [copy(sharedRow)] : [] });
-  await app.refreshList();
-  const slot = app.slot('shared');
-  assert.equal(slot.hidden, false);
-  assert.ok(slot.textContent.includes('Quarterly notes'));
-  assert.ok(!app.slot('conversations').textContent.includes('Quarterly notes'), 'shared rows stay out of the own list');
 });

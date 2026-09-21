@@ -1,4 +1,4 @@
-/* Intelligence panel: global Desk surface (launcher pill, navbar entry, contextual drawer, persistence). */
+/* Intelligence panel: global Desk surface (launcher pill, contextual drawer, persistence). */
 (function (global, factory) {
 	"use strict";
 	factory(global);
@@ -7,10 +7,10 @@
 	"use strict";
 	const fi = global.fi;
 	if (!fi) throw new Error("Intelligence core must load before panel");
-	const { App, LOGO, PAGE, esc, contextFromRoute, trapFocus } = fi;
+	const { App, LOGO, contextFromRoute, trapFocus } = fi;
 	const STORAGE_KEY = "fi-panel-state";
 	const DEFAULT_WIDTH = 420, MIN_WIDTH = 360, VIEWPORT_MARGIN = 80, FULL_BLEED_MAX = 480;
-	let toggle, navbarButton, navbarItem, drawer, drawerFocus, pendingConversation = null, resizing = null;
+	let toggle, drawer, drawerFocus, pendingConversation = null, resizing = null;
 	function clampDrawerWidth(width, viewport) {
 		const size = Number(viewport);
 		const max = size > 0 ? Math.max(MIN_WIDTH, size - VIEWPORT_MARGIN) : Infinity;
@@ -42,15 +42,14 @@
 		return next;
 	}
 	function drawerVisible() { return !!(drawer && !drawer.hidden); }
-	function syncToggles(expanded) { for (const button of [toggle, navbarButton]) { if (button) button.setAttribute("aria-expanded", expanded ? "true" : "false"); } }
+	function syncToggles(expanded) { if (toggle) toggle.setAttribute("aria-expanded", expanded ? "true" : "false"); }
 	function hideDrawerChrome() { if (drawer) { drawer.hidden = true; drawer.classList.remove("is-open"); } syncToggles(false); writeState({ open: false }); }
-	// The floating pill and navbar entry stay available across Desk except on the
-	// Intelligence page itself, where the full app already fills the content area.
-	// syncDesk is called on install, on every route change and from the page lifecycle.
+	// The floating pill stays available across Desk except on the Intelligence page
+	// itself, where the full app already fills the content area. syncDesk is called
+	// on install, on every route change and from the page lifecycle.
 	function syncDesk() {
 		if (!fi.deskReady()) return;
 		if (toggle) toggle.hidden = fi.routeIsPage();
-		if (navbarItem) navbarItem.hidden = fi.routeIsPage();
 		const stale = global.document.querySelector("[data-fi-desk]"); if (stale) stale.remove();
 		if (global.document.body) global.document.body.classList.toggle("fi-desk-active", fi.routeIsPage());
 	}
@@ -60,8 +59,8 @@
 		const raf = global.requestAnimationFrame ? global.requestAnimationFrame.bind(global) : (fn) => global.setTimeout(fn, 16);
 		raf(() => { if (drawer && !drawer.hidden) drawer.classList.add("is-open"); });
 	}
-	// A conversation parked in panel state is selected through the same path the
-	// sidebar uses, but only once it is known to exist in the loaded list.
+	// A conversation parked in panel state is selected through the same path a
+	// conversation row uses, but only once it is known to exist in the loaded list.
 	function restoreConversation(app) {
 		if (!pendingConversation || !app) return;
 		if (app.selected === pendingConversation) { pendingConversation = null; return; }
@@ -187,35 +186,6 @@
 		if (app) { const host = fi.pageHost(); if (host && fi.routeIsPage()) app.show(host, "page"); else app.hide(); }
 		if (drawerFocus && drawerFocus.isConnected) drawerFocus.focus();
 	}
-	// A native-looking navbar entry next to the notifications bell. Purely
-	// progressive enhancement: hosts without a Desk navbar (test DOMs, the mock
-	// preview) simply skip it.
-	function installNavbarIcon() {
-		const doc = global.document;
-		if (!doc || doc.querySelector(".fi-navbar-toggle")) return;
-		const candidates = [".navbar .notifications-icon", ".navbar .dropdown-notifications", ".navbar li.dropdown-notifications", ".navbar .navbar-notifications"];
-		let anchor = null;
-		for (const selector of candidates) { anchor = doc.querySelector(selector); if (anchor) break; }
-		if (!anchor) return;
-		navbarButton = doc.createElement("button");
-		navbarButton.type = "button";
-		navbarButton.className = "fi-navbar-toggle";
-		navbarButton.setAttribute("aria-label", "Open Intelligence");
-		navbarButton.title = "Intelligence (Ctrl+I)";
-		navbarButton.innerHTML = '<img class="fi-toggle-logo" src="' + LOGO + '" alt="" aria-hidden="true">';
-		navbarButton.addEventListener("click", () => fi.toggle());
-		const item = anchor.closest ? anchor.closest("li") : null;
-		if (item && item.parentNode) {
-			const entry = doc.createElement("li");
-			entry.className = "nav-item fi-navbar-item";
-			entry.appendChild(navbarButton);
-			item.parentNode.insertBefore(entry, item);
-			navbarItem = entry;
-		} else if (anchor.parentNode) {
-			anchor.parentNode.insertBefore(navbarButton, anchor);
-			navbarItem = navbarButton;
-		}
-	}
 	function isEditable(node) {
 		if (!node || !node.tagName) return false;
 		const tag = String(node.tagName).toLowerCase();
@@ -249,7 +219,6 @@
 		toggle.innerHTML = '<img class="fi-toggle-logo" src="' + LOGO + '" alt="" aria-hidden="true"><span>Intelligence</span>';
 		toggle.addEventListener("click", openDrawer);
 		global.document.body.appendChild(toggle);
-		installNavbarIcon();
 		installShortcut();
 		// Ctrl/Cmd+Shift+I stays as an always-on alias, even inside text editors.
 		global.document.addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.shiftKey && String(event.key || "").toLowerCase() === "i") { event.preventDefault(); openDrawer(); } });
@@ -257,56 +226,6 @@
 		// recorded for later lifecycle use and never auto-opens the drawer here.
 		pendingConversation = readState().conversation;
 	}
-	// Drawer-mode header extras: a compact conversation switcher plus an "Open
-	// full page" control. Installed by wrapping the core renderer, so page mode
-	// keeps exactly the core output.
-	const EXTERNAL_ICON = '<svg class="fi-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>';
-	function syncSwitcher(app, select) {
-		const rows = Array.isArray(app.conversations) ? app.conversations : [];
-		const signature = JSON.stringify([rows.map((row) => [row && row.name, row && row.title]), app.selected]);
-		if (select.getAttribute("data-signature") !== signature) {
-			select.setAttribute("data-signature", signature);
-			select.innerHTML = '<option value="">New conversation</option>' + rows.map((row) => '<option value="' + esc(row.name) + '"' + (row.name === app.selected ? " selected" : "") + ">" + esc(row.title || "Untitled conversation") + "</option>").join("");
-		}
-		select.value = app.selected || "";
-	}
-	function augmentHeader(app) {
-		const header = app.$(".fi-header");
-		if (!header) return;
-		if (app.mode !== "drawer") {
-			const stale = header.querySelector(".fi-drawer-extras");
-			if (stale) stale.remove();
-			return;
-		}
-		let extras = header.querySelector(".fi-drawer-extras");
-		if (!extras) {
-			extras = app.doc.createElement("div");
-			extras.className = "fi-drawer-extras";
-			extras.innerHTML = '<select class="form-control fi-drawer-switcher" aria-label="Switch conversation"></select>'
-				+ '<button type="button" class="fi-icon-btn" data-action="open-full-page" aria-label="Open full page" title="Open full page">' + EXTERNAL_ICON + "</button>";
-			header.appendChild(extras);
-			extras.querySelector(".fi-drawer-switcher").addEventListener("change", (event) => {
-				const name = event.target.value;
-				if (name) app.select(name); else app.newConversation();
-			});
-		}
-		syncSwitcher(app, extras.querySelector(".fi-drawer-switcher"));
-	}
-	const coreRenderHeader = App.prototype.renderHeader;
-	App.prototype.renderHeader = function () {
-		coreRenderHeader.call(this);
-		augmentHeader(this);
-	};
-	// Registered through the entry's action seam (action_<name>); the underscored
-	// alias keeps the handler reachable as action_open_full_page as well.
-	function openFullPage() {
-		const name = this.selected || null;
-		writeState({ conversation: name });
-		fi.closeDrawer();
-		if (global.frappe && global.frappe.set_route) { if (name) global.frappe.set_route(PAGE, name); else global.frappe.set_route(PAGE); }
-	}
-	App.prototype["action_open-full-page"] = openFullPage;
-	App.prototype.action_open_full_page = openFullPage;
 	// Persist the parked conversation whenever the selection changes while the
 	// drawer is open, and retry a parked selection once the list has loaded.
 	const coreSelect = App.prototype.select;

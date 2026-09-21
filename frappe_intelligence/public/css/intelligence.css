@@ -24,11 +24,8 @@
 .fi-icon {display: inline-block; flex: 0 0 auto; vertical-align: middle;}
 /* Full-height layout: the page fills the Desk content area; only the thread scrolls. */
 .fi-page-host {display: flex; flex-direction: column; height: 100%; min-height: 0;}
-.fi-app {display: grid; grid-template-columns: 300px minmax(0,1fr); flex: 1 1 auto; min-height: min(480px, calc(100dvh - 120px)); height: 100%; max-height: 100%; position: relative; overflow: hidden; background: var(--fi-bg); border: 0; border-radius: 0; isolation: isolate;}
+.fi-app {display: grid; grid-template-columns: minmax(0,1fr); flex: 1 1 auto; min-height: min(480px, calc(100dvh - 120px)); height: 100%; max-height: 100%; position: relative; overflow: hidden; background: var(--fi-bg); border: 0; border-radius: 0; isolation: isolate;}
 .fi-native-main {padding: 0 !important; overflow: hidden; display: flex; flex-direction: column;}
-.fi-app.fi-sidebar-collapsed {grid-template-columns: 0 minmax(0,1fr);}
-.fi-app.fi-sidebar-collapsed > .fi-sidebar {visibility: hidden; border-right: 0;}
-.fi-sidebar {min-width: 0; display: flex; flex-direction: column; background: var(--fi-ground); border-right: 1px solid var(--fi-border); padding: 16px 12px 12px; overflow: hidden;}
 .fi-btn {border: 1px solid var(--fi-border); border-radius: var(--border-radius-sm, 6px); padding: 6px 10px; background: var(--btn-default-bg, var(--fi-control)); color: var(--fi-text); display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 500 !important; line-height: 1.5 !important; text-decoration: none; min-height: 32px; transition: background .1s ease, border-color .1s ease;}
 .fi-btn:hover:not(:disabled) {background: var(--fi-soft); border-color: var(--fi-muted);}
 .fi-btn .fi-icon {width: 15px; height: 15px;}
@@ -39,39 +36,8 @@
 .fi-btn.fi-text-btn:hover:not(:disabled) {background: var(--fi-soft); border-color: transparent;}
 .fi-icon-btn {display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; width: 32px; height: 32px; padding: 6px; color: var(--fi-muted); flex-shrink: 0; transition: background .1s ease, color .1s ease;}
 .fi-icon-btn:hover:not(:disabled) {background: var(--fi-soft); color: var(--fi-text);}
-.fi-sidebar-top {display: flex; flex-direction: column; gap: 12px;}
-.fi-new {justify-content: flex-start; padding: 8px 10px; box-shadow: none;}
-.fi-new .fi-icon {margin-right: 3px;}
-.fi-sidebar-label {display: flex; align-items: center; justify-content: space-between; padding-left: 9px; margin-top: 14px; font-size: 12px; letter-spacing: 0; font-weight: 500; color: var(--fi-muted);}
-.fi-sidebar-label .fi-icon-btn {width: 26px; height: 26px;}
-.fi-sidebar-label .fi-icon {width: 13px; height: 13px;}
-.fi-sidebar-label [aria-pressed="true"] {background: var(--fi-accent-soft); color: var(--fi-accent-text);}
-.fi-conversation-list {overflow-y: auto; min-height: 0; flex: 1; margin-top: 6px; padding-bottom: 8px; scrollbar-width: thin;}
-.fi-shared-list {flex: 0 1 auto; min-height: 0; max-height: 40%;}
-.fi-conversation {display: flex; align-items: center; gap: 9px; padding: 11px 9px; width: 100%; min-width: 0; border: 1px solid transparent; background: transparent; color: var(--fi-text); border-radius: 7px; text-align: left; margin-bottom: 3px;}
-.fi-conversation:hover {background: var(--fi-bg);}
-.fi-conversation.is-active {background: var(--fi-bg); border-color: var(--fi-border); box-shadow: 0 1px 2px rgb(0 0 0 / 2%);}
-.fi-conversation-icon {align-self: flex-start; color: var(--fi-muted); padding-top: 1px;}
-.fi-conversation-icon .fi-icon {width: 15px; height: 15px;}
-.fi-conversation.is-active .fi-conversation-icon {color: var(--fi-accent);}
-.fi-conversation-info {min-width: 0; flex: 1;}
-.fi-conversation-title {display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500;}
-.fi-conversation-meta {display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 10px; color: var(--fi-muted);}
-.fi-list-status {color: var(--fi-accent-text);}
-.fi-status-dot {height: 6px; width: 6px; border-radius: 50%; background: var(--fi-accent); flex-shrink: 0;}
-.fi-sidebar-footer {padding-top: 11px; border-top: 1px solid var(--fi-border);}
-/* Settings launcher pinned to the sidebar footer; its menu opens upward. */
-.fi-settings-menu {position: relative;}
-.fi-settings-btn {display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--fi-text); font-size: 12px; font-weight: 500; text-align: left;}
-.fi-settings-btn:hover {background: var(--fi-bg); border-color: var(--fi-border);}
-.fi-settings-btn .fi-icon {width: 15px; height: 15px; color: var(--fi-muted);}
-.fi-settings-btn > span {flex: 1;}
-.fi-settings-btn > .fi-icon:last-child {width: 11px; height: 11px;}
-.fi-private-note {display: flex; align-items: center; gap: 7px; padding: 10px 9px 0; font-size: 9px; color: var(--fi-muted);}
-.fi-private-note .fi-icon {height: 11px; width: 11px;}
 .fi-list-empty {padding: 20px 10px; color: var(--fi-muted); font-size: 12px;}
 /* Skeleton placeholders for the loading states. */
-.fi-skel-list {display: flex; flex-direction: column; gap: 10px; padding: 8px;}
 .fi-skel-thread {display: flex; flex-direction: column; gap: 14px; padding: 24px 0;}
 .fi-skel-line {display: block; height: 14px; border-radius: 6px; background: var(--fi-soft); animation: fi-skel-pulse 1.4s ease-in-out infinite;}
 .fi-skel-line.fi-skel-wide {width: 92%;}
@@ -240,7 +206,6 @@
 	.fi-modal-overlay * {animation: none !important; transition: none !important; scroll-behavior: auto !important;}
 }
 @media print {
-	.fi-sidebar {display: none !important;}
 	.fi-header-actions {display: none !important;}
 	.fi-modal-overlay {display: none !important;}
 	.fi-app {display: block; height: auto; overflow: visible; border: 0;}

@@ -1,6 +1,6 @@
 'use strict';
 /* Panel shell contract tests: state persistence, width clamping, shortcut guards,
-   navbar/pill entry points, drawer header extras and the full-page handoff. */
+   the pill as sole launcher and the full-page handoff. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const client = require('./load.cjs').load();
@@ -110,28 +110,18 @@ test('Ctrl+I toggles the panel but never steals italic from text editors', (t) =
   assert.equal(fi.drawerVisible(), false, 'the alias toggles the drawer closed');
 });
 
-test('a navbar button appears next to the notifications bell and toggles the panel', (t) => {
+test('the floating pill is the sole launcher and toggles the drawer', (t) => {
   const html = '<nav class="navbar"><ul class="navbar-nav"><li class="dropdown-notifications"><a class="notifications-icon" href="#"></a></li></ul></nav>';
   const { document, fi } = deskHarness(t, { html });
   fi.install();
-  const button = document.querySelector('.fi-navbar-toggle');
-  assert.ok(button, 'navbar toggle installed');
-  assert.equal(button.getAttribute('aria-label'), 'Open Intelligence');
-  const item = button.closest('li');
-  assert.ok(item.classList.contains('fi-navbar-item'), 'wrapped in its own navbar item');
-  assert.equal(item.nextSibling, document.querySelector('.dropdown-notifications'), 'inserted immediately before the bell');
+  const pill = document.querySelector('.fi-global-toggle');
+  assert.ok(pill, 'the floating pill installs alongside the Desk navbar');
+  assert.equal(document.querySelector('.fi-navbar-toggle'), null, 'no navbar entry is injected');
   assert.equal(fi.drawerVisible(), false);
-  button.click();
-  assert.equal(fi.drawerVisible(), true, 'the navbar button opens the drawer');
-  button.click();
+  pill.click();
+  assert.equal(fi.drawerVisible(), true, 'the pill opens the drawer');
+  pill.click();
   assert.equal(fi.drawerVisible(), false, 'and toggles it closed again');
-});
-
-test('navbar install is skipped silently when no Desk navbar exists', (t) => {
-  const { document, fi } = deskHarness(t);
-  fi.install();
-  assert.equal(document.querySelector('.fi-navbar-toggle'), null);
-  assert.ok(document.querySelector('.fi-global-toggle'), 'the floating pill remains the entry point');
 });
 
 test('boot restores width and conversation on the next open without auto-opening', async (t) => {
@@ -172,11 +162,11 @@ test('the resize strip drags the width within clamp bounds and persists on relea
   assert.equal(fi.panelState.read().width, 540, 'the width persists on release');
 });
 
-test('the drawer header gains a switcher and full-page button only in drawer mode', async (t) => {
-  const { window, document, fi } = deskHarness(t);
+test('the full-page action shows only in drawer mode and no extras row renders', async (t) => {
+  const { document, fi } = deskHarness(t);
   const api = async (method, args) => {
     if (method === 'bootstrap') return copy(boot);
-    if (method === 'list_conversations') return args && Number(args.shared) ? [] : [row('c1', 'First chat'), row('c2', 'Second chat')];
+    if (method === 'list_conversations') return [row('c1', 'First chat')];
     if (method === 'get_conversation') return fixtureFor(args.conversation);
     return {};
   };
@@ -186,30 +176,16 @@ test('the drawer header gains a switcher and full-page button only in drawer mod
   const pageHost = document.createElement('div'); document.body.appendChild(pageHost);
   const drawerHost = document.createElement('div'); document.body.appendChild(drawerHost);
   app.show(pageHost, 'page');
-  assert.equal(app.$('.fi-header .fi-drawer-extras'), null, 'page mode keeps the core header');
-  app.conversations = [row('c1', 'First chat'), row('c2', 'Second chat')];
-  app.selected = 'c1';
+  assert.equal(app.$('[data-action="expand"]').hidden, true, 'page mode hides the full-page action');
+  app.conversations = [row('c1', 'First chat')]; app.selected = 'c1';
   app.show(drawerHost, 'drawer');
-  const extras = app.$('.fi-header .fi-drawer-extras');
-  assert.ok(extras, 'drawer mode adds the extras row');
-  const switcher = extras.querySelector('select.fi-drawer-switcher');
-  assert.ok(switcher && switcher.classList.contains('form-control'), 'compact form-control switcher');
-  assert.equal(extras.querySelector('[data-action="open-full-page"]').getAttribute('aria-label'), 'Open full page');
-  const labels = Array.from(extras.querySelectorAll('option')).map((option) => option.textContent);
-  assert.deepEqual(labels, ['New conversation', 'First chat', 'Second chat']);
-  assert.equal(switcher.value, 'c1', 'the switcher reflects the current selection');
-  switcher.value = 'c2';
-  switcher.dispatchEvent(new window.Event('change', { bubbles: true }));
-  for (let index = 0; index < 20 && app.selected !== 'c2'; index++) await tick();
-  assert.equal(app.selected, 'c2', 'switcher change selects through the normal path');
-  switcher.value = '';
-  switcher.dispatchEvent(new window.Event('change', { bubbles: true }));
-  assert.equal(app.selected, null, 'the empty option starts a new conversation');
+  assert.equal(app.$('[data-action="expand"]').hidden, false, 'drawer mode shows the full-page action');
+  assert.equal(app.$('.fi-header .fi-drawer-extras'), null, 'no custom extras row is injected');
   app.show(pageHost, 'page');
-  assert.equal(app.$('.fi-header .fi-drawer-extras'), null, 'leaving drawer mode removes the extras');
+  assert.equal(app.$('[data-action="expand"]').hidden, true, 'leaving drawer mode hides it again');
 });
 
-test('open full page closes the drawer, parks the conversation and deep-links the page route', async (t) => {
+test('expand closes the drawer, parks the conversation and deep-links the page route', async (t) => {
   const { fi, routes } = deskHarness(t, { route: ['Form', 'Customer', 'C-1'] });
   fi.install();
   fi.openDrawer();
@@ -217,7 +193,7 @@ test('open full page closes the drawer, parks the conversation and deep-links th
   for (let index = 0; index < 30 && !app.boot; index++) await tick();
   await app.select('c1');
   assert.equal(fi.drawerVisible(), true);
-  const button = app.$('[data-action="open-full-page"]');
+  const button = app.$('[data-action="expand"]');
   assert.ok(button, 'the drawer header exposes the full-page action');
   button.click();
   assert.equal(fi.drawerVisible(), false, 'the drawer closes');
@@ -227,13 +203,13 @@ test('open full page closes the drawer, parks the conversation and deep-links th
   assert.equal(state.conversation, 'c1', 'the conversation stays parked for the next drawer session');
 });
 
-test('open full page with no selection routes to the bare page', async (t) => {
+test('expand with no selection routes to the bare page', async (t) => {
   const { fi, routes } = deskHarness(t, { route: ['home'] });
   fi.install();
   fi.openDrawer();
   const app = fi.currentApp();
   for (let index = 0; index < 30 && !app.boot; index++) await tick();
-  const button = app.$('[data-action="open-full-page"]');
+  const button = app.$('[data-action="expand"]');
   assert.ok(button);
   button.click();
   assert.equal(fi.drawerVisible(), false);
@@ -261,30 +237,6 @@ test('the resize strip is a focusable separator with keyboard steps that persist
   assert.equal(fi.panelState.read().width, 420);
 });
 
-test('hostile conversation titles stay inert text in the drawer switcher', async (t) => {
-  const { document, fi } = deskHarness(t);
-  const hostile = '<img src=x onerror="window.__fi_xss=1">';
-  const api = async (method) => {
-    if (method === 'bootstrap') return copy(boot);
-    if (method === 'list_conversations') return [row('c1', hostile)];
-    if (method === 'get_conversation') return fixtureFor('c1');
-    return {};
-  };
-  const app = new fi.App({ api, document });
-  t.after(() => app.poller.stop());
-  app.boot = copy(boot); app.provider = 'p1';
-  app.conversations = [row('c1', hostile)];
-  app.selected = 'c1';
-  const drawerHost = document.createElement('div'); document.body.appendChild(drawerHost);
-  app.show(drawerHost, 'drawer');
-  const extras = app.$('.fi-header .fi-drawer-extras');
-  assert.ok(extras, 'drawer extras rendered');
-  assert.equal(extras.querySelector('img'), null, 'hostile markup never becomes an element');
-  const options = Array.from(extras.querySelectorAll('option'));
-  assert.equal(options[1].textContent, hostile, 'the title survives as literal text');
-  assert.equal(document.querySelector('[onerror]'), null);
-});
-
 test('a __proto__ payload in stored state pollutes nothing and falls back safely', (t) => {
   const { window, fi } = deskHarness(t, { state: '{"__proto__":{"open":true,"width":999,"conversation":"c9"},"width":500}' });
   const state = copy(fi.panelState.read());
@@ -294,15 +246,14 @@ test('a __proto__ payload in stored state pollutes nothing and falls back safely
   assert.equal(window.eval('({}).open'), undefined, 'Object.prototype in the app realm is untouched');
 });
 
-test('the navbar entry and pill both hide on the Intelligence page route', (t) => {
+test('the pill hides on the Intelligence page route', (t) => {
   const html = '<nav class="navbar"><ul class="navbar-nav"><li class="dropdown-notifications"><a class="notifications-icon" href="#"></a></li></ul></nav>';
   const { document, fi } = deskHarness(t, { html, route: ['intelligence'] });
   fi.install();
   const pill = document.querySelector('.fi-global-toggle');
-  const item = document.querySelector('.fi-navbar-item');
-  assert.ok(pill && item, 'both entry points installed');
+  assert.ok(pill, 'the pill installs');
   assert.equal(pill.hidden, true, 'the pill hides while the full page is showing');
-  assert.equal(item.hidden, true, 'the navbar item hides while the full page is showing');
+  assert.equal(document.querySelector('.fi-navbar-toggle'), null, 'no navbar entry is injected');
 });
 
 test('hideDrawerChrome syncs toggle state and persists the closed flag', (t) => {

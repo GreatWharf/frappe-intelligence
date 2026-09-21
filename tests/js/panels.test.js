@@ -100,15 +100,15 @@ test('request prefixes app API methods but passes absolute Frappe client methods
   assert.deepEqual(seen, ['frappe_intelligence.api.skills', 'frappe.client.get_list']);
   t.after(() => dom.window.close());
 });
-test('settings live in the sidebar footer menu, not the conversation header', (t) => {
+test('settings live in the header menu of the single-column shell', (t) => {
   const { app } = harness(t);
-  assert.equal(app.$('.fi-header').querySelector('.fi-menu-wrap'), null, 'no menu in the conversation header');
-  const footer = app.$('.fi-sidebar-footer');
-  assert.ok(footer, 'sidebar footer present');
-  footer.querySelector('[data-action="menu"]').click();
+  assert.equal(app.$('.fi-sidebar-footer'), null, 'no custom sidebar footer remains');
+  const wrap = app.$('.fi-header .fi-menu-wrap');
+  assert.ok(wrap, 'the menu lives in the conversation header');
+  wrap.querySelector('[data-action="menu"]').click();
   const menu = app.slot('menu');
   assert.equal(menu.hidden, false);
-  for (const action of ['settings', 'memory', 'skills', 'scope', 'app-settings']) assert.ok(menu.querySelector('[data-action="' + action + '"]'), action);
+  for (const action of ['conversations-list', 'settings', 'memory', 'skills', 'scope', 'app-settings']) assert.ok(menu.querySelector('[data-action="' + action + '"]'), action);
   assert.equal(menu.querySelector('[data-action="approvals"]'), null, 'no approvals entry point remains');
 });
 const settingsDoc = { enabled: 1, approval_mode: 'Approve Writes Only', max_steps: 12, max_run_seconds: 600, approval_expiry_minutes: 1440, max_upload_mb: 10, max_file_chars: 120000, daily_run_limit: 40, allowed_reports: '', allowed_custom_hosts: '' };

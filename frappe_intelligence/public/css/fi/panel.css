@@ -28,19 +28,8 @@
 .fi-drawer-resize::after {content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; background: transparent; transition: background .15s ease;}
 .fi-drawer-resize:hover::after, .fi-drawer-shell.is-resizing .fi-drawer-resize::after, .fi-drawer-resize:focus-visible::after {background: var(--border-color, #e6e9ec);}
 .fi-drawer-resize:focus-visible {outline: 2px solid var(--gray-500, #737373); outline-offset: -2px;}
-.fi-navbar-item {display: flex; align-items: center;}
-.fi-navbar-toggle {display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted, #65717c); cursor: pointer;}
-.fi-navbar-toggle:hover {background: var(--control-bg, #f3f3f3); color: var(--text-color, #242a30);}
-.fi-navbar-toggle:focus-visible {outline: 2px solid var(--gray-500, #737373); outline-offset: 1px;}
-.fi-navbar-toggle .fi-toggle-logo {width: 16px; height: 16px;}
 .fi-drawer-app {height: 100%; min-height: 0; border: 0; border-radius: 12px; grid-template-columns: minmax(0,1fr);}
-.fi-drawer-app > .fi-sidebar {display: none;}
 .fi-drawer-app .fi-header {padding: 15px 18px; min-height: 70px; flex-wrap: wrap; row-gap: 10px;}
-.fi-drawer-app .fi-header [data-action="expand"] {display: none;}
-.fi-drawer-extras {display: flex; align-items: center; gap: 7px; flex: 1 1 100%; min-width: 0;}
-.fi-drawer-switcher {flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; font-size: 12px; color: var(--fi-text); background: var(--fi-control); border: 1px solid var(--fi-border); border-radius: 6px;}
-.fi-drawer-switcher:focus-visible {outline: 2px solid var(--fi-focus); outline-offset: 1px;}
-.fi-drawer-extras .fi-icon-btn {flex: 0 0 auto;}
 .fi-drawer-app .fi-thread-inner {padding: 25px 23px;}
 .fi-drawer-app .fi-bottom {padding: 0 23px 15px;}
 .fi-drawer-app .fi-welcome {padding-top: 35px;}
@@ -63,15 +52,8 @@ body.fi-desk-active .body-sidebar .body-sidebar-top {display: none !important;}
 		--fi-shadow: 0 18px 60px rgb(0 0 0 / 35%);}
 	:root:not([data-theme="light"]) .fi-drawer-shell {box-shadow: -12px 0 60px rgb(0 0 0 / 45%);}
 }
-@media (max-width: 1100px) {
-	.fi-app:not(.fi-drawer-app) {grid-template-columns: 250px minmax(0,1fr);}
-	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed {grid-template-columns: 0 minmax(0,1fr);}
-}
 @media (max-width: 760px) {
-	.fi-app:not(.fi-drawer-app) {grid-template-columns: minmax(0,1fr); min-height: min(420px, calc(100dvh - 100px));}
-	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed {grid-template-columns: minmax(0,1fr);}
-	.fi-app:not(.fi-drawer-app) > .fi-sidebar {position: absolute; left: 0; top: 0; bottom: 0; width: 280px; z-index: 5; box-shadow: 15px 0 50px rgb(0 0 0 / 12%);}
-	.fi-app:not(.fi-drawer-app).fi-sidebar-collapsed > .fi-sidebar {display: none;}
+	.fi-app:not(.fi-drawer-app) {min-height: min(420px, calc(100dvh - 100px));}
 	.fi-global-toggle {right: 14px; bottom: 12px;}
 }
 @media (max-width: 480px) {

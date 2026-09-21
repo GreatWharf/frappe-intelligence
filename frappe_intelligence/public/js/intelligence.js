@@ -153,35 +153,32 @@
 	class App {
 		constructor(options) {
 			this.api = options && options.api || request; this.doc = options && options.document || global.document;
-			this.boot = null; this.conversations = []; this.sharedConversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map(); this.expandedTools = new Set();
+			this.boot = null; this.conversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map(); this.expandedTools = new Set();
 			this.visible = false; this.archived = false; this.provider = ""; this.context = null; this.loading = false; this.online = true; this.error = ""; this.notice = ""; this.selectVersion = 0; this.listVersion = 0; this.lastList = 0; this.failures = 0; this.messageSignature = ""; this.renaming = false;
 			this.poller = new fi.Poller(() => this.poll()); this.root = this.doc.createElement("section"); this.root.className = "fi-app"; this.root.setAttribute("aria-label", "Intelligence workspace");
 			this.root.innerHTML = this.shell(); this.bind(); this.render();
 		}
 		shell() {
-			return '<aside class="fi-sidebar" aria-label="Conversations">'
-				+ '<div class="fi-sidebar-top">' + button("new", "New conversation", "plus", "fi-new") + '</div>'
-				+ '<div class="fi-sidebar-label"><span data-slot="list-label">Conversations</span>' + iconButton("archive-filter", "Show archived conversations", "archive", 'aria-pressed="false"') + "</div>"
-				+ '<nav class="fi-conversation-list" data-slot="conversations" aria-label="Conversation list"></nav>'
-				+ '<div class="fi-sidebar-label fi-shared-label" data-slot="shared-label" hidden><span>Shared with me</span></div>'
-				+ '<nav class="fi-conversation-list fi-shared-list" data-slot="shared" aria-label="Shared with me" hidden></nav>'
-				+ '<footer class="fi-sidebar-footer"><div class="fi-menu-wrap fi-settings-menu">'
-				+ '<button type="button" class="fi-settings-btn" data-action="menu" aria-haspopup="menu" aria-expanded="false">' + icon("settings") + "<span>Settings</span>" + icon("chevron") + "</button>"
-				+ '<div class="fi-menu fi-menu-up" data-slot="menu" role="menu" hidden>'
+			// One column: conversation navigation lives in the native Desk sidebar
+			// and the Intelligence Conversation list; this shell is the chat itself.
+			return '<div class="fi-main"><header class="fi-header"><div class="fi-header-left">'
+				+ '<div class="fi-heading"><button type="button" class="fi-title-btn" data-action="rename-title" title="Rename conversation"><h2 data-slot="title">New conversation</h2></button><span data-slot="subtitle" class="fi-subtitle"></span></div></div>'
+				+ '<div class="fi-header-actions">'
+				+ '<span data-slot="shared-chip"></span>'
+				+ iconButton("share", "Share conversation", "share")
+				+ iconButton("archive", "Archive conversation", "archive")
+				+ '<div class="fi-menu-wrap">'
+				+ iconButton("menu", "Conversation and Intelligence settings", "menu", 'aria-haspopup="menu" aria-expanded="false"')
+				+ '<div class="fi-menu" data-slot="menu" role="menu" hidden>'
+				+ '<button type="button" role="menuitem" data-action="conversations-list">' + icon("chat") + "<span>All conversations</span></button>"
+				+ '<div class="fi-menu-sep" role="separator"></div>'
 				+ '<button type="button" role="menuitem" data-action="settings">' + icon("settings") + "<span>Providers &amp; models</span></button>"
 				+ '<button type="button" role="menuitem" data-action="memory">' + icon("memory") + "<span>Memory</span></button>"
 				+ '<button type="button" role="menuitem" data-action="skills">' + icon("grid") + "<span>Skills</span></button>"
 				+ '<button type="button" role="menuitem" data-action="scope">' + icon("target") + "<span>Scope</span></button>"
 				+ '<button type="button" role="menuitem" data-action="app-settings">' + icon("settings") + "<span>Intelligence settings</span></button>"
 				+ "</div></div>"
-				+ '<div class="fi-private-note">' + icon("lock") + "<span>Only you can see your conversations</span></div></footer></aside>"
-				+ '<div class="fi-main"><header class="fi-header"><div class="fi-header-left">'
-				+ iconButton("sidebar", "Toggle conversations", "panel", 'aria-expanded="true"')
-				+ '<div class="fi-heading"><button type="button" class="fi-title-btn" data-action="rename-title" title="Rename conversation"><h2 data-slot="title">New conversation</h2></button><span data-slot="subtitle" class="fi-subtitle"></span></div></div>'
-				+ '<div class="fi-header-actions">'
-				+ '<span data-slot="shared-chip"></span>'
-				+ iconButton("share", "Share conversation", "share")
-				+ iconButton("archive", "Archive conversation", "archive")
+				+ button("new", "New", "plus", "fi-primary")
 				+ iconButton("expand", "Open full workspace", "expand") + iconButton("close", "Close Intelligence", "close")
 				+ '</div></header>'
 				+ '<div class="fi-banner" data-slot="banner" role="status" hidden></div>'
@@ -227,9 +224,6 @@
 		}
 		show(host, mode) {
 			this.visible = true; this.mode = mode || "page"; this.root.classList.toggle("fi-drawer-app", this.mode === "drawer"); host.appendChild(this.root);
-			// Below the sidebar breakpoint the drawer-style conversation column overlays
-			// the content; start collapsed so the header stays reachable.
-			if (this.mode === "page" && global.innerWidth && global.innerWidth <= 760) { this.root.classList.add("fi-sidebar-collapsed"); const trigger = this.$('[data-action="sidebar"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 			this.render();
 			if (!this.boot) this.init(); else this.poller.start(0);
 			this.fitViewport(); this.refitViewport();
@@ -257,16 +251,11 @@
 		closeMenu() { const menu = this.slot("menu"); if (menu) menu.hidden = true; const trigger = this.$('[data-action="menu"]'); if (trigger) trigger.setAttribute("aria-expanded", "false"); }
 		async refreshList() {
 			const version = ++this.listVersion;
-			const results = await Promise.all([
-				this.api("list_conversations", { archived: this.archived ? 1 : 0 }),
-				this.api("list_conversations", { shared: 1 })
-			]);
+			const rows = await this.api("list_conversations", { archived: this.archived ? 1 : 0 });
 			if (version !== this.listVersion) return;
-			this.conversations = Array.isArray(results[0]) ? results[0] : [];
-			this.sharedConversations = Array.isArray(results[1]) ? results[1] : [];
+			this.conversations = Array.isArray(rows) ? rows : [];
 			this.lastList = Date.now();
 			for (const row of this.conversations) if (row.active_run && !this.watched.has(row.name)) this.watched.set(row.name, { name: typeof row.active_run === "object" ? row.active_run.name : row.active_run, state: "running" });
-			this.renderSidebar();
 		}
 		async fetchConversation(name) {
 			if (this.inflight.has(name)) return this.inflight.get(name);
@@ -335,7 +324,7 @@
 			});
 		}
 		refresh() { this.error = ""; if (!this.boot) return this.init(); this.poller.start(0); this.renderBanner(); }
-		render() { this.renderSidebar(); this.renderHeader(); this.renderMessages(); this.renderRun(); this.renderContext(); this.renderAttachments(); this.renderProviders(); this.renderControls(); this.renderBanner(); }
+		render() { this.renderHeader(); this.renderMessages(); this.renderRun(); this.renderContext(); this.renderAttachments(); this.renderProviders(); this.renderControls(); this.renderBanner(); }
 		providerRow() {
 			const providers = this.boot && this.boot.providers || [];
 			return providers.find((provider) => provider.name === this.provider) || null;
@@ -362,22 +351,6 @@
 			const archive = this.$('[data-action="archive"]'); const archived = !!(this.snapshot && Number(this.snapshot.conversation.archived));
 			archive.setAttribute("aria-label", archived ? "Restore conversation" : "Archive conversation"); archive.title = archived ? "Restore conversation" : "Archive conversation";
 			const share = this.$('[data-action="share"]'); share.setAttribute("aria-label", shared ? "Stop sharing this conversation" : "Share conversation (read only link)"); share.title = share.getAttribute("aria-label");
-		}
-		conversationRowsHTML(rows) {
-			const list = Array.isArray(rows) ? rows : this.conversations;
-			return list.length ? list.map((row) => '<button type="button" class="fi-conversation ' + (this.selected === row.name ? "is-active" : "") + '" data-action="select" data-name="' + esc(row.name) + '" ' + (this.selected === row.name ? 'aria-current="true"' : "") + '><span class="fi-conversation-icon">' + icon("chat") + '</span><span class="fi-conversation-info"><span class="fi-conversation-title">' + esc(row.title || "Untitled conversation") + '</span><span class="fi-conversation-meta">' + esc(time(row.modified)) + (row.shared ? '<span class="fi-list-status">Shared</span>' : "") + (row.active_run ? '<span class="fi-list-status">In progress</span>' : "") + '</span></span>' + (row.active_run ? '<span class="fi-status-dot" aria-label="Active run"></span>' : "") + '</button>').join("") : "";
-		}
-		renderSidebar() {
-			const signature = JSON.stringify([this.conversations, this.sharedConversations, this.selected, this.archived, this.loading]);
-			if (signature === this.sidebarSignature) return; this.sidebarSignature = signature;
-			this.slot("list-label").textContent = this.archived ? "Archived conversations" : "Conversations";
-			const filter = this.$('[data-action="archive-filter"]'); filter.setAttribute("aria-pressed", String(this.archived)); filter.title = this.archived ? "Show active conversations" : "Show archived conversations";
-			const empty = '<div class="fi-list-empty">' + (this.loading ? "Loading conversations…" : this.archived ? "No archived conversations." : "Your conversations will appear here.") + "</div>";
-			this.slot("conversations").innerHTML = this.loading && !this.conversations.length ? '<div class="fi-skel-list">' + '<span class="fi-skel-line"></span>'.repeat(4) + "</div>" : this.conversationRowsHTML() || empty;
-			const sharedSlot = this.slot("shared"), sharedLabel = this.slot("shared-label");
-			const showShared = !this.archived && this.sharedConversations.length > 0;
-			sharedSlot.hidden = !showShared; sharedLabel.hidden = !showShared;
-			sharedSlot.innerHTML = showShared ? this.conversationRowsHTML(this.sharedConversations) : "";
 		}
 		renderBanner() {
 			const banner = this.slot("banner"); const message = this.error || (!this.online ? "Connection interrupted. Reconnecting automatically; your run continues on the server." : this.notice);
@@ -427,9 +400,8 @@
 		action(action, target) {
 			if (action === "select") return this.select(target.dataset.name);
 			if (action === "new") return this.newConversation();
-			if (action === "sidebar") { const collapsed = this.root.classList.toggle("fi-sidebar-collapsed"); target.setAttribute("aria-expanded", String(!collapsed)); return; }
 			if (action === "menu") { const menu = this.slot("menu"); menu.hidden = !menu.hidden; target.setAttribute("aria-expanded", String(!menu.hidden)); return; }
-			if (action === "archive-filter") { this.archived = !this.archived; this.refreshList().catch((error) => { this.error = userError(error); this.renderBanner(); }); return; }
+			if (action === "conversations-list") { this.closeMenu(); if (global.frappe && global.frappe.set_route) global.frappe.set_route("List", "Intelligence Conversation"); return; }
 			if (action === "starter") { this.draft().text = target.dataset.prompt; this.syncDraft(); this.$("textarea").focus(); return; }
 			if (action === "remove-context") { this.context = null; this.renderContext(); return; }
 			if (action === "remove-file") { this.draft().attachments = this.draft().attachments.filter((file) => file.name !== target.dataset.name); this.renderAttachments(); this.messageSignature = ""; this.renderMessages(); return; }

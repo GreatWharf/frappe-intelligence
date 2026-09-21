@@ -10,7 +10,12 @@
 	const { App, PAGE, contextFromRoute } = fi;
 	let singleton, installed = false, hostPage;
 	function getApp() {
-		if (!singleton) { singleton = new App(); singleton.onClose = fi.closeDrawer; singleton.onExpand = () => { fi.closeDrawer(); global.frappe.set_route(PAGE); }; }
+		if (!singleton) {
+			singleton = new App(); singleton.onClose = fi.closeDrawer;
+			// Hand off to the full page on the same conversation, parking it so the
+			// next drawer open lands back where the user left.
+			singleton.onExpand = () => { const name = singleton.selected || null; if (fi.panelState) fi.panelState.write({ conversation: name }); fi.closeDrawer(); if (name) global.frappe.set_route(PAGE, name); else global.frappe.set_route(PAGE); };
+		}
 		return singleton;
 	}
 	function deskReady() { return !!(global.document && global.frappe && global.frappe.boot && global.frappe.session && global.frappe.session.user && global.frappe.session.user !== "Guest" && global.frappe.get_route); }
