@@ -51,29 +51,29 @@ def test_internal_write_never_grants_business_document_permissions(permissions):
     assert module.private_permission(doc) is False
 
 
-def test_shared_conversation_grants_non_owners_read_only(permissions):
+def test_shared_conversation_grants_non_owners_read_only(permissions, monkeypatch):
     module, _ = permissions
     doc = Row(doctype="Intelligence Conversation", name="c", owner="someone@example.test", shared=1)
+    monkeypatch.setattr(module, "has_read_share", lambda name, user: False)
+    assert dispatch(module.private_permission, doc, "read") is False, "the badge alone grants nothing"
+    monkeypatch.setattr(module, "has_read_share", lambda name, user: True)
     assert dispatch(module.private_permission, doc, "read") is True
     assert dispatch(module.private_permission, doc, "write") is False
-    doc.shared = 0
-    assert dispatch(module.private_permission, doc, "read") is False
 
 
-def test_child_records_follow_a_shared_parent_read_only(permissions):
+def test_child_records_follow_a_shared_parent_read_only(permissions, monkeypatch):
     module, fake = permissions
-    conversations = {"c": {"owner": "someone@example.test", "shared": 1}}
+    conversations = {"c": {"owner": "someone@example.test"}}
     original = fake.db.get_value
 
     def get_value(doctype, name, field):
         if doctype == "Intelligence Conversation" and name in conversations:
-            row = conversations[name]
-            if isinstance(field, (list, tuple)):
-                return tuple(row.get(key) for key in field)
-            return row.get(field)
+            return conversations[name].get(field)
         return original(doctype, name, field)
 
     fake.db.get_value = get_value
+    shared = {"c"}
+    monkeypatch.setattr(module, "has_read_share", lambda name, user: name in shared)
     for doctype in (
         "Intelligence Message",
         "Intelligence Run",
@@ -83,17 +83,18 @@ def test_child_records_follow_a_shared_parent_read_only(permissions):
         doc = Row(doctype=doctype, name="child", conversation="c")
         assert dispatch(module.private_permission, doc, "read") is True, doctype
         assert dispatch(module.private_permission, doc, "write") is False, doctype
-    conversations["c"]["shared"] = 0
+    shared.clear()
     doc = Row(doctype="Intelligence Message", name="child", conversation="c")
     assert dispatch(module.private_permission, doc, "read") is False
 
 
-def test_private_and_conversation_queries_include_shared_conversations(permissions):
+def test_private_and_conversation_queries_include_shared_conversations(permissions, monkeypatch):
     module, _ = permissions
+    monkeypatch.setattr(module, "shared_conversation_names", lambda user: ["shared-c"])
     sql = module.private_query("owner@example.test", doctype="Intelligence Message")
     assert "owner@example.test" in sql
-    assert "shared = 1" in sql
+    assert "'shared-c'" in sql
     sql = module.conversation_query("owner@example.test")
     assert "owner@example.test" in sql
-    assert "shared` = 1" in sql
+    assert "'shared-c'" in sql
     assert module.private_query("owner@example.test", doctype="Intelligence Provider") == "1=0"

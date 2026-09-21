@@ -204,6 +204,11 @@ class FakeFrappe(types.ModuleType):
         return doc.get(field) if doc else None
 
     def exists(self, doctype, name):
+        if isinstance(name, dict):
+            for row in self.rows.values():
+                if row.doctype == doctype and all(row.get(key) == value for key, value in name.items()):
+                    return row.name
+            return None
         return name in self.meta if doctype == "DocType" else (doctype, name) in self.rows
 
     def get_meta(self, doctype):

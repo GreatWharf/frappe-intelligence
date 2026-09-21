@@ -292,9 +292,14 @@ def test_send_message_forwards_the_model_override(api, monkeypatch):
     seen = {}
     engine_stub = ModuleType("frappe_intelligence.engine")
 
-    def submit_message(conversation, content, context=None, attachments=None, model=None):
+    def submit_message(conversation, content, context=None, attachments=None, model=None, effort=None):
         seen.update(
-            conversation=conversation, content=content, context=context, attachments=attachments, model=model
+            conversation=conversation,
+            content=content,
+            context=context,
+            attachments=attachments,
+            model=model,
+            effort=effort,
         )
         return {"name": "r1"}
 
@@ -305,8 +310,13 @@ def test_send_message_forwards_the_model_override(api, monkeypatch):
     monkeypatch.setattr(frappe_intelligence, "engine", engine_stub, raising=False)
     module.send_message("c", "Hello", model="other")
     assert seen["model"] == "other"
+    assert seen["effort"] is None
+    module.send_message("c", "Hello", effort="high")
+    assert seen["model"] is None
+    assert seen["effort"] == "high"
     module.send_message("c", "Hello")
     assert seen["model"] is None
+    assert seen["effort"] is None
 
 
 def test_rename_conversation_marks_the_title_as_manual(api):

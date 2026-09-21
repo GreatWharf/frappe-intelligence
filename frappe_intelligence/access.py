@@ -57,10 +57,30 @@ def get_conversation(name, write=False):
     user = require_user()
     doc = frappe.get_doc("Intelligence Conversation", name, for_update=write)
     # Sharing is read-only: only the owner may write, post or attach.
-    if doc.owner != user and (write or not doc.get("shared")):
+    if doc.owner != user and (write or not has_read_share(doc.name, user)):
         _denied()
     doc.check_permission("write" if write else "read")
     return doc
+
+
+def shared_conversation_names(user):
+    """Conversation names shared with this user through native DocShare reads."""
+    rows = frappe.share.get_shared("Intelligence Conversation", user, rights=["read"]) or []
+    names = []
+    for row in rows:
+        name = row.get("share_name") if isinstance(row, dict) else getattr(row, "share_name", None)
+        if name:
+            names.append(str(name))
+    return names
+
+
+def has_read_share(name, user):
+    """True when a native DocShare row grants this user read on the conversation."""
+    base = {"share_doctype": "Intelligence Conversation", "share_name": name, "read": 1}
+    return bool(
+        frappe.db.exists("DocShare", dict(base, user=user))
+        or frappe.db.exists("DocShare", dict(base, everyone=1))
+    )
 
 
 def can_use_provider(doc, user=None):
@@ -108,11 +128,15 @@ def conversation_query(user=None):
     user = user or frappe.session.user
     if not _enabled_user(user) or not USER_ROLES.intersection(frappe.get_roles(user)):
         return "1=0"
-    return (
-        "(`tabIntelligence Conversation`.`owner` = "
-        + frappe.db.escape(user)
-        + " OR `tabIntelligence Conversation`.`shared` = 1)"
-    )
+    conditions = ["`tabIntelligence Conversation`.`owner` = " + frappe.db.escape(user)]
+    names = shared_conversation_names(user)
+    if names:
+        conditions.append(
+            "`tabIntelligence Conversation`.`name` IN ("
+            + ",".join(frappe.db.escape(name) for name in names)
+            + ")"
+        )
+    return "(" + " OR ".join(conditions) + ")"
 
 
 def conversation_permission(doc, user=None, permission_type=None):
@@ -125,7 +149,7 @@ def conversation_permission(doc, user=None, permission_type=None):
         return False
     if doc.owner == user:
         return True
-    return permission_type == "read" and bool(doc.get("shared"))
+    return permission_type == "read" and has_read_share(doc.name, user)
 
 
 def private_record_permission(doc, user=None, permission_type=None):
@@ -139,9 +163,13 @@ def private_record_permission(doc, user=None, permission_type=None):
         return False
     if frappe.flags.get("intelligence_internal") and user == frappe.session.user:
         return True
-    return bool(
+    if not (
         _enabled_user(user)
         and USER_ROLES.intersection(frappe.get_roles(user))
         and doc.get("conversation")
-        and frappe.db.get_value("Intelligence Conversation", doc.conversation, "owner") == user
-    )
+    ):
+        return False
+    conversation = frappe.db.get_value("Intelligence Conversation", doc.conversation, "owner")
+    if conversation == user:
+        return True
+    return permission_type == "read" and has_read_share(doc.conversation, user)

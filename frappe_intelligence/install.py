@@ -268,7 +268,16 @@ def _navigation():
     inserts a middleman page between the app icon and the chat. The Workspace
     Sidebar resolves the left sidebar for /desk/intelligence, and the standard
     Desktop Icon carries the logo that the sidebar header and apps screen
-    resolve. Workspace Sidebar and Desktop Icon do not exist on v15, which
+    resolve.
+
+    Deep links (/desk/intelligence/<conversation>) resolve no sidebar on their
+    own: the route entity is the conversation name and the module-named
+    sentinel below is intentionally empty, so the page controller pins the rail
+    with frappe.app.sidebar.show_sidebar_for_module("Intelligence") on every
+    show. Keep the sentinel empty; giving it items would make Desk resolve
+    deep links to a sidebar headed "Frappe Intelligence".
+
+    Workspace Sidebar and Desktop Icon do not exist on v15, which
     still navigates by workspaces; there the seeded workspace links straight to
     the page and is named "Intelligence Chat" because a workspace named
     "Intelligence" route-conflicts with the standard page.
@@ -349,7 +358,9 @@ def _global_search():
     whole settings table from every app's hooks and discards rows an
     administrator added by hand, so we append our one row ourselves. Runs on
     install and migrate so upgraded sites gain the entry, then a background
-    rebuild indexes conversations saved before registration.
+    rebuild indexes conversations saved before registration. New documents
+    index themselves on save; sites whose first rebuild was lost are healed
+    once by patches/rebuild_conversation_search.py.
     """
     if not frappe.db.exists("DocType", "Intelligence Conversation"):
         return

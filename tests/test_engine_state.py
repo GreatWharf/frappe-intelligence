@@ -135,6 +135,58 @@ class Database:
         return "'" + str(value).replace("'", "''") + "'"
 
 
+class ShareStore:
+    """In-memory frappe.share over the same row store: native DocShare semantics."""
+
+    def __init__(self, fake):
+        self.fake = fake
+        self.count = 0
+
+    def _rows(self):
+        return [row for (doctype, _), row in self.fake.rows.items() if doctype == "DocShare"]
+
+    def add(self, doctype, name, user=None, read=1, write=0, everyone=0, **kwargs):
+        for row in self._rows():
+            if row.share_doctype == doctype and row.share_name == name and row.get("user") == user:
+                row.update(read=1 if read else 0, write=1 if write else 0, everyone=1 if everyone else 0)
+                return row
+        self.count += 1
+        return self.fake.seed(
+            "DocShare",
+            "share-%d" % self.count,
+            user=user,
+            share_doctype=doctype,
+            share_name=name,
+            read=1 if read else 0,
+            write=1 if write else 0,
+            everyone=1 if everyone else 0,
+        )
+
+    def remove(self, doctype, name, user, flags=None):
+        for key, row in list(self.fake.rows.items()):
+            if (
+                key[0] == "DocShare"
+                and row.share_doctype == doctype
+                and row.share_name == name
+                and row.get("user") == user
+            ):
+                del self.fake.rows[key]
+
+    def get_users(self, doctype, name):
+        return [row for row in self._rows() if row.share_doctype == doctype and row.share_name == name]
+
+    def get_shared(self, doctype, user=None, rights=None, **kwargs):
+        user = user or self.fake.session.user
+        rights = rights or ["read"]
+        return [
+            {"share_name": row.share_name}
+            for row in self._rows()
+            if row.share_doctype == doctype
+            and (row.get("user") == user or row.get("everyone"))
+            and all(row.get(right) for right in rights)
+        ]
+
+
 class FakeFrappe(types.ModuleType):
     def __init__(self):
         super().__init__("frappe")
@@ -143,6 +195,7 @@ class FakeFrappe(types.ModuleType):
         self.local = Record(site="site.test")
         self.flags = Record()
         self.db = Database(self)
+        self.share = ShareStore(self)
         self.jobs = []
         self.events = []
         self.PermissionError = PermissionError

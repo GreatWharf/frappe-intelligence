@@ -29,6 +29,13 @@
       "description": "One-off model pick for this run; empty means the provider default."
     },
     {
+      "fieldname": "effort",
+      "label": "Reasoning Effort",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "description": "One-off reasoning effort pick for this run; empty means the provider's thinking effort."
+    },
+    {
       "fieldname": "user",
       "label": "User",
       "fieldtype": "Link",
@@ -124,6 +131,7 @@
     "conversation",
     "provider",
     "model",
+    "effort",
     "user",
     "site",
     "state",

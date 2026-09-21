@@ -301,14 +301,16 @@ def get_provider_config(provider_name, user=None):
 
 
 def _run_config(run):
-    """Provider config for a run, with the caller's one-off model pick applied.
+    """Provider config for a run, with the caller's one-off picks applied.
 
-    get_provider_config builds a fresh config every call, so the override can be
+    get_provider_config builds a fresh config every call, so the overrides can be
     stamped on it directly; nothing shares the instance.
     """
     config = get_provider_config(run.provider)
     if run.get("model"):
         config.model = run.model
+    if run.get("effort"):
+        config.effort = run.effort
     return config
 
 
@@ -403,7 +405,28 @@ def _validate_model(provider_name, model):
     return model
 
 
-def submit_message(conversation, content, context=None, attachments=None, model=None):
+EFFORT_LEVELS = frozenset({"Low", "Medium", "High", "Max"})
+
+
+def _validate_effort(effort):
+    """A per-conversation reasoning effort, normalized to the Select labels.
+
+    Auto (or blank) is not an override: the provider's thinking effort applies.
+    """
+    if effort is None:
+        return ""
+    if not isinstance(effort, str):
+        frappe.throw("Invalid request data.", frappe.ValidationError)
+    effort = effort.strip()
+    if not effort or effort.lower() == "auto":
+        return ""
+    normalized = effort[:1].upper() + effort[1:].lower()
+    if normalized not in EFFORT_LEVELS:
+        frappe.throw("Unknown reasoning effort.", frappe.ValidationError)
+    return normalized
+
+
+def submit_message(conversation, content, context=None, attachments=None, model=None, effort=None):
     user = require_user()
     settings = get_settings()
     if not settings.enabled:
@@ -436,7 +459,14 @@ def submit_message(conversation, content, context=None, attachments=None, model=
     if len(consumed) >= quota:
         frappe.throw("Your daily Intelligence run limit has been reached.", frappe.ValidationError)
     get_provider_config(doc.provider)
-    model = _validate_model(doc.provider, model)
+    # An explicit composer pick wins; otherwise the conversation's stored
+    # preference applies. Both are re-validated against the current provider.
+    model = _validate_model(doc.provider, model if model is not None else (doc.get("model") or None))
+    picked_effort = _validate_effort(effort)
+    if effort is not None:
+        # Persist the pick so the composer shows the same effort on reload.
+        _save(doc, effort=picked_effort or "Auto")
+    run_effort = picked_effort if effort is not None else _validate_effort(doc.get("effort"))
     context = _validate_context(context)
     attachments = _validate_attachments(conversation, attachments)
     run = _insert(
@@ -451,6 +481,7 @@ def submit_message(conversation, content, context=None, attachments=None, model=
         input_tokens=0,
         output_tokens=0,
         model=model,
+        effort=run_effort,
         context_json=_json(context),
         attachments_json=_json(attachments),
     )

@@ -32,11 +32,25 @@
    "reqd": 1
   },
   {
+   "fieldname": "model",
+   "label": "Model",
+   "fieldtype": "Data",
+   "description": "Preferred model for this conversation; blank uses the provider default."
+  },
+  {
+   "fieldname": "effort",
+   "label": "Reasoning Effort",
+   "fieldtype": "Select",
+   "options": "Auto\nLow\nMedium\nHigh\nMax",
+   "default": "Auto"
+  },
+  {
    "fieldname": "shared",
    "label": "Shared",
    "fieldtype": "Check",
    "default": "0",
-   "description": "Shared conversations can be opened read-only by other Intelligence users. Only the owner can post messages or change records."
+   "read_only": 1,
+   "description": "Set when the conversation is shared with at least one Frappe user (native DocShare). Sharing grants read-only access; only the owner can post messages or change records."
   },
   {
    "fieldname": "archived",
@@ -61,6 +75,8 @@
   "title",
   "title_manually_set",
   "provider",
+  "model",
+  "effort",
   "shared",
   "archived",
   "active_run",

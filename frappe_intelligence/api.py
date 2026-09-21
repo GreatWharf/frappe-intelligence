@@ -10,9 +10,11 @@ from . import files, memory, provider_service
 from .access import (
     MANAGER_ROLES,
     can_use_provider,
+    has_read_share,
     internal_write,
     require_manager,
     require_user,
+    shared_conversation_names,
 )
 from .access import (
     get_conversation as owned_conversation,
@@ -25,6 +27,8 @@ CONVERSATION_FIELDS = (
     "name",
     "title",
     "provider",
+    "model",
+    "effort",
     "owner",
     "shared",
     "archived",
@@ -80,7 +84,7 @@ def bootstrap():
     full_name = frappe.db.get_value("User", user, "full_name") or ""
     first_name = full_name.split(" ", 1)[0].strip() if full_name else ""
 
-    return {
+    payload = {
         "enabled": bool(settings.get("enabled")),
         "user": user,
         "user_name": first_name,
@@ -100,6 +104,13 @@ def bootstrap():
             "approval_mode": settings.get("approval_mode") or "Approve Every Step",
         },
     }
+    try:
+        from .rag import status as rag_status
+
+        payload["rag"] = rag_status()
+    except Exception:  # RAG is optional; a missing or failing probe never blocks boot.
+        pass
+    return payload
 
 
 @frappe.whitelist()
@@ -111,8 +122,9 @@ def list_conversations(search="", archived=0, shared=0):
     if archived not in (0, 1, "0", "1") or shared not in (0, 1, "0", "1"):
         frappe.throw("Invalid conversation filter.")
     if int(shared):
-        # Conversations other users chose to share; read-only for this user.
-        filters = {"shared": 1, "owner": ["!=", user], "archived": int(archived)}
+        # Conversations other users shared with this user (native DocShare); read-only here.
+        names = shared_conversation_names(user)
+        filters = {"name": ["in", names or ["-"]], "owner": ["!=", user], "archived": int(archived)}
     else:
         filters = {"owner": user, "archived": int(archived)}
     if search.strip():
@@ -223,7 +235,7 @@ def get_conversation(conversation, before_sequence=None):
 
 @frappe.whitelist(methods=["POST"])
 @_safe
-def send_message(conversation, content, context=None, attachments=None, model=None):
+def send_message(conversation, content, context=None, attachments=None, model=None, effort=None):
     from .engine import submit_message
 
     return submit_message(
@@ -232,6 +244,7 @@ def send_message(conversation, content, context=None, attachments=None, model=No
         context=_decode(context, dict) or None,
         attachments=_decode(attachments, list),
         model=model,
+        effort=effort,
     )
 
 
@@ -274,13 +287,129 @@ def rename_conversation(conversation, title):
     return _conversation(doc)
 
 
+def _share_manager_doc(conversation):
+    """Load a conversation for sharing changes: owner or Intelligence Manager only."""
+    user = require_user()
+    doc = frappe.get_doc("Intelligence Conversation", conversation, for_update=True)
+    if doc.owner != user and not MANAGER_ROLES.intersection(frappe.get_roles(user)):
+        frappe.throw("Only the owner can manage sharing for this conversation.", frappe.PermissionError)
+    return doc
+
+
+def _share_target(user, must_be_enabled=True):
+    if not isinstance(user, str) or not user.strip() or user.strip() == "Guest":
+        frappe.throw("Choose a user to share with.", frappe.ValidationError)
+    target = user.strip()
+    row = frappe.db.get_value("User", target, ["name", "enabled", "user_type"], as_dict=True) or {}
+    if not row.get("name"):
+        frappe.throw("Unknown user.", frappe.ValidationError)
+    if must_be_enabled and not row.get("enabled"):
+        frappe.throw("That user is disabled.", frappe.ValidationError)
+    if row.get("user_type") != "System User":
+        frappe.throw("Only system users can open a shared conversation.", frappe.ValidationError)
+    return target
+
+
+def _share_rows(name):
+    """Share list for the dialog: DocShare users with their display names."""
+    users = []
+    for row in frappe.share.get_users("Intelligence Conversation", name):
+        target = row.get("user") if isinstance(row, dict) else getattr(row, "user", None)
+        if not target:
+            continue
+        users.append(
+            {"user": target, "full_name": frappe.db.get_value("User", target, "full_name") or ""}
+        )
+    return users
+
+
+def _sync_shared_badge(doc):
+    """The `shared` check is a list badge; DocShare rows are the access truth."""
+    rows = frappe.share.get_users("Intelligence Conversation", doc.name)
+    badge = 1 if any((row.get("user") if isinstance(row, dict) else getattr(row, "user", None)) for row in rows) else 0
+    if int(doc.get("shared") or 0) != badge:
+        doc.shared = badge
+        with internal_write():
+            doc.save()
+
+
 @frappe.whitelist(methods=["POST"])
 @_safe
-def share_conversation(conversation, shared=1):
+def share_conversation(conversation, user):
+    """Share a conversation with one Frappe user, read-only, via native DocShare."""
+    doc = _share_manager_doc(conversation)
+    target = _share_target(user)
+    if target == doc.owner:
+        frappe.throw("That user already owns the conversation.", frappe.ValidationError)
+    frappe.share.add(
+        "Intelligence Conversation",
+        doc.name,
+        user=target,
+        read=1,
+        write=0,
+        everyone=0,
+        notify=0,
+        # Our own owner-or-manager check above is the gate; the row still saves
+        # with ignore_permissions inside frappe.share, so this only skips the
+        # generic "share" ptype the custom DocType never granted.
+        flags={"ignore_share_permission": True},
+    )
+    _sync_shared_badge(doc)
+    return {"conversation": _conversation(doc), "shares": _share_rows(doc.name)}
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def unshare_conversation(conversation, user):
+    doc = _share_manager_doc(conversation)
+    target = _share_target(user, must_be_enabled=False)
+    frappe.share.remove("Intelligence Conversation", doc.name, target)
+    _sync_shared_badge(doc)
+    return {"conversation": _conversation(doc), "shares": _share_rows(doc.name)}
+
+
+@frappe.whitelist()
+@_safe
+def conversation_share_users(conversation):
+    user = require_user()
+    doc = frappe.get_doc("Intelligence Conversation", conversation)
+    if (
+        doc.owner != user
+        and not MANAGER_ROLES.intersection(frappe.get_roles(user))
+        and not has_read_share(doc.name, user)
+    ):
+        frappe.throw("Not permitted to access this Intelligence resource.", frappe.PermissionError)
+    return _share_rows(doc.name)
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def set_conversation_model(conversation, provider, model=None):
+    """Persist the composer pick: the provider, and optionally a catalog model."""
+    from . import engine
+
+    user = require_user()
     doc = owned_conversation(conversation, write=True)
-    if shared not in (0, 1, "0", "1"):
-        frappe.throw("Invalid sharing setting.")
-    doc.shared = int(shared)
+    if not isinstance(provider, str) or not provider.strip():
+        frappe.throw("Choose a provider.", frappe.ValidationError)
+    definition = frappe.get_doc("Intelligence Provider", provider.strip())
+    if not can_use_provider(definition, user):
+        frappe.throw("This provider is not available to you.", frappe.PermissionError)
+    doc.provider = definition.name
+    doc.model = engine._validate_model(definition.name, model)
+    with internal_write():
+        doc.save()
+    return _conversation(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def set_conversation_effort(conversation, effort):
+    """Persist the per-conversation reasoning effort (Auto follows the provider)."""
+    from . import engine
+
+    doc = owned_conversation(conversation, write=True)
+    doc.effort = engine._validate_effort(effort) or "Auto"
     with internal_write():
         doc.save()
     return _conversation(doc)

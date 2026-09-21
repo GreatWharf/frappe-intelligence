@@ -53,6 +53,61 @@ def services(monkeypatch):
     fake.get_doc = get_doc
     fake.get_all = lambda kind, **kw: [row for row in store.values() if row.doctype == kind]
     fake.delete_doc = lambda kind, name, **kw: store.pop(name)
+
+    def share_add(doctype, name, user=None, read=1, write=0, everyone=0, **kw):
+        for row in store.values():
+            if (
+                row.doctype == "DocShare"
+                and row.share_doctype == doctype
+                and row.share_name == name
+                and row.get("user") == user
+            ):
+                return row
+        row = Row(
+            doctype="DocShare",
+            name="ds-%d" % (len([r for r in store.values() if r.doctype == "DocShare"]) + 1),
+            user=user,
+            share_doctype=doctype,
+            share_name=name,
+            read=1 if read else 0,
+            write=1 if write else 0,
+            everyone=1 if everyone else 0,
+        )
+        store[row.name] = row
+        return row
+
+    def share_remove(doctype, name, user, flags=None):
+        for key, row in list(store.items()):
+            if (
+                row.doctype == "DocShare"
+                and row.share_doctype == doctype
+                and row.share_name == name
+                and row.get("user") == user
+            ):
+                store.pop(key)
+
+    def share_get_users(doctype, name):
+        return [
+            row
+            for row in store.values()
+            if row.doctype == "DocShare" and row.share_doctype == doctype and row.share_name == name
+        ]
+
+    def share_get_shared(doctype, user=None, rights=None, **kw):
+        user = user or fake.session.user
+        rights = rights or ["read"]
+        return [
+            {"share_name": row.share_name}
+            for row in store.values()
+            if row.doctype == "DocShare"
+            and row.share_doctype == doctype
+            and (row.get("user") == user or row.get("everyone"))
+            and all(row.get(right) for right in rights)
+        ]
+
+    fake.share = SimpleNamespace(
+        add=share_add, remove=share_remove, get_users=share_get_users, get_shared=share_get_shared
+    )
     access = ModuleType("frappe_intelligence.access")
     access.MANAGER_ROLES = frozenset({"Intelligence Manager", "System Manager"})
     access.USER_ROLES = frozenset({"Intelligence User", "Intelligence Manager", "System Manager"})
@@ -76,6 +131,28 @@ def services(monkeypatch):
         return doc
 
     access.get_conversation = conversation
+    access.has_read_share = lambda name, user: bool(
+        next(
+            (
+                row
+                for row in store.values()
+                if row.doctype == "DocShare"
+                and row.share_doctype == "Intelligence Conversation"
+                and row.share_name == name
+                and row.get("read")
+                and (row.get("user") == user or row.get("everyone"))
+            ),
+            None,
+        )
+    )
+    access.shared_conversation_names = lambda user: [
+        row.share_name
+        for row in store.values()
+        if row.doctype == "DocShare"
+        and row.share_doctype == "Intelligence Conversation"
+        and row.get("read")
+        and (row.get("user") == user or row.get("everyone"))
+    ]
 
     @contextmanager
     def internal():
@@ -93,6 +170,7 @@ def services(monkeypatch):
         "frappe_intelligence.memory",
         "frappe_intelligence.files",
         "frappe_intelligence.documents",
+        "frappe_intelligence.rag",
     ]
     for name in modules:
         monkeypatch.delitem(sys.modules, name, raising=False)

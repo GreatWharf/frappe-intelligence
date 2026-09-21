@@ -2,7 +2,13 @@
 
 import frappe
 
-from .access import MANAGER_ROLES, USER_ROLES, can_use_provider
+from .access import (
+    MANAGER_ROLES,
+    USER_ROLES,
+    can_use_provider,
+    has_read_share,
+    shared_conversation_names,
+)
 
 CHILD_TYPES = frozenset(
     {"Intelligence Message", "Intelligence Run", "Intelligence Approval", "Intelligence Tool Execution"}
@@ -28,21 +34,28 @@ def conversation_query(user=None, doctype=None):
     user = user or frappe.session.user
     if not _eligible(user):
         return "1=0"
-    return (
-        "(`tabIntelligence Conversation`.`owner` = "
-        + frappe.db.escape(user)
-        + " OR `tabIntelligence Conversation`.`shared` = 1)"
-    )
+    conditions = ["`tabIntelligence Conversation`.`owner` = " + frappe.db.escape(user)]
+    names = shared_conversation_names(user)
+    if names:
+        conditions.append(
+            "`tabIntelligence Conversation`.`name` IN ("
+            + ",".join(frappe.db.escape(name) for name in names)
+            + ")"
+        )
+    return "(" + " OR ".join(conditions) + ")"
 
 
 def private_query(user=None, doctype=None):
     user = user or frappe.session.user
     if doctype not in CHILD_TYPES or not _eligible(user):
         return "1=0"
-    return (
-        f"`tab{doctype}`.`conversation` IN (SELECT name FROM `tabIntelligence Conversation` "
-        "WHERE owner = " + frappe.db.escape(user) + " OR shared = 1)"
+    clause = (
+        "SELECT name FROM `tabIntelligence Conversation` WHERE owner = " + frappe.db.escape(user)
     )
+    names = shared_conversation_names(user)
+    if names:
+        clause += " OR name IN (" + ",".join(frappe.db.escape(name) for name in names) + ")"
+    return f"`tab{doctype}`.`conversation` IN (" + clause + ")"
 
 
 def private_permission(doc, user=None, ptype=None):
@@ -54,16 +67,15 @@ def private_permission(doc, user=None, ptype=None):
     if doc.doctype == "Intelligence Conversation":
         if doc.owner == user:
             return True
-        return ptype == "read" and bool(doc.get("shared"))
+        return ptype == "read" and has_read_share(doc.name, user)
     if not (doc.doctype in CHILD_TYPES and doc.get("conversation")):
         return False
-    row = frappe.db.get_value("Intelligence Conversation", doc.conversation, ["owner", "shared"])
-    if not row:
+    owner = frappe.db.get_value("Intelligence Conversation", doc.conversation, "owner")
+    if not owner:
         return False
-    owner, shared = row
     if owner == user:
         return True
-    return ptype == "read" and bool(shared)
+    return ptype == "read" and has_read_share(doc.conversation, user)
 
 
 def provider_permission(doc, user=None, ptype=None):
