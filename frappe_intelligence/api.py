@@ -317,16 +317,18 @@ def _share_rows(name):
         target = row.get("user") if isinstance(row, dict) else getattr(row, "user", None)
         if not target:
             continue
-        users.append(
-            {"user": target, "full_name": frappe.db.get_value("User", target, "full_name") or ""}
-        )
+        users.append({"user": target, "full_name": frappe.db.get_value("User", target, "full_name") or ""})
     return users
 
 
 def _sync_shared_badge(doc):
     """The `shared` check is a list badge; DocShare rows are the access truth."""
     rows = frappe.share.get_users("Intelligence Conversation", doc.name)
-    badge = 1 if any((row.get("user") if isinstance(row, dict) else getattr(row, "user", None)) for row in rows) else 0
+    badge = (
+        1
+        if any((row.get("user") if isinstance(row, dict) else getattr(row, "user", None)) for row in rows)
+        else 0
+    )
     if int(doc.get("shared") or 0) != badge:
         doc.shared = badge
         with internal_write():

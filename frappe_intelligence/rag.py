@@ -303,9 +303,7 @@ def _sources(chat):
     ):
         if row.get("attached_to_name") != chat.name:
             continue
-        sources.append(
-            {"type": "Attachment", "name": row.name, "label": row.get("file_name") or row.name}
-        )
+        sources.append({"type": "Attachment", "name": row.name, "label": row.get("file_name") or row.name})
     for row in frappe.get_all(
         "Intelligence Message",
         filters={"conversation": chat.name},

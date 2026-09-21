@@ -633,9 +633,7 @@ def embed_documents(config, inputs):
     if not isinstance(config, ProviderConfig):
         raise _config_error()
     if config.kind not in EMBEDDING_KINDS:
-        raise ProviderError(
-            "unsupported", "This provider kind does not offer an embeddings endpoint."
-        )
+        raise ProviderError("unsupported", "This provider kind does not offer an embeddings endpoint.")
     if not isinstance(config.model, str) or not _MODEL.fullmatch(config.model):
         raise _config_error()
     if config.kind == "custom" and not config.base_url:

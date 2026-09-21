@@ -179,15 +179,10 @@ def test_index_and_search_ranks_and_is_idempotent(services, monkeypatch):
             sequence=index,
         )
     module = importlib.import_module("frappe_intelligence.rag")
-    monkeypatch.setattr(
-        module, "capability", lambda name: {"available": True, "model": "embed-1", "dims": 2}
-    )
+    monkeypatch.setattr(module, "capability", lambda name: {"available": True, "model": "embed-1", "dims": 2})
 
     def fake_embed(access, inputs):
-        return [
-            [text.lower().count("apple") + 0.25, text.lower().count("zebra") + 0.25]
-            for text in inputs
-        ]
+        return [[text.lower().count("apple") + 0.25, text.lower().count("zebra") + 0.25] for text in inputs]
 
     monkeypatch.setattr(module, "_embed", fake_embed)
     hits = module.search("chat", "tell me about apples", top_k=2)
@@ -205,8 +200,7 @@ def test_index_and_search_ranks_and_is_idempotent(services, monkeypatch):
         module,
         "_embed",
         lambda access, inputs: [
-            [text.lower().count("orange") + 0.25, text.lower().count("zebra") + 0.25]
-            for text in inputs
+            [text.lower().count("orange") + 0.25, text.lower().count("zebra") + 0.25] for text in inputs
         ],
     )
     hits = module.search("chat", "oranges")

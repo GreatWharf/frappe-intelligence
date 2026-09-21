@@ -49,9 +49,7 @@ def private_query(user=None, doctype=None):
     user = user or frappe.session.user
     if doctype not in CHILD_TYPES or not _eligible(user):
         return "1=0"
-    clause = (
-        "SELECT name FROM `tabIntelligence Conversation` WHERE owner = " + frappe.db.escape(user)
-    )
+    clause = "SELECT name FROM `tabIntelligence Conversation` WHERE owner = " + frappe.db.escape(user)
     names = shared_conversation_names(user)
     if names:
         clause += " OR name IN (" + ",".join(frappe.db.escape(name) for name in names) + ")"

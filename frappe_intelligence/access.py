@@ -172,9 +172,7 @@ def private_record_permission(doc, user=None, permission_type=None):
     if frappe.flags.get("intelligence_internal") and user == frappe.session.user:
         return True
     if not (
-        _enabled_user(user)
-        and USER_ROLES.intersection(frappe.get_roles(user))
-        and doc.get("conversation")
+        _enabled_user(user) and USER_ROLES.intersection(frappe.get_roles(user)) and doc.get("conversation")
     ):
         return False
     conversation = frappe.db.get_value("Intelligence Conversation", doc.conversation, "owner")
