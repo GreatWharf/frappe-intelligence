@@ -534,7 +534,7 @@
 			const copy = "People you share with get a read only view of this conversation, including files and tool actions. Only you can post or approve.";
 			let shares = [];
 			const listHTML = () => shares.length
-				? '<ul class="fi-share-list">' + shares.map((row) => '<li class="fi-share-row"><span class="fi-share-user"><strong>' + esc(row.full_name || row.user) + "</strong><span>" + esc(row.user) + "</span></span>" + button("unshare-user", "Stop sharing with " + (row.full_name || row.user), "close", "fi-text-btn", 'data-user="' + esc(row.user) + '"') + "</li>").join("") + "</ul>"
+				? '<ul class="fi-share-list">' + shares.map((row) => '<li class="fi-share-row"><span class="fi-share-user"><strong>' + esc(row.full_name || row.user) + "</strong><span>" + esc(row.user) + "</span></span>" + iconButton("unshare-user", "Stop sharing with " + (row.full_name || row.user), "close", 'data-user="' + esc(row.user) + '"') + "</li>").join("") + "</ul>"
 				: '<div class="fi-share-empty">Not shared with anyone yet.</div>';
 			const applyUpdate = (result) => {
 				if (result && result.conversation && this.snapshot && this.selected === name) { Object.assign(this.snapshot.conversation, result.conversation); this.renderHeader(); }
