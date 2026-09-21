@@ -24,7 +24,7 @@
 .fi-icon {display: inline-block; flex: 0 0 auto; vertical-align: middle;}
 /* Full-height layout: the page fills the Desk content area; only the thread scrolls. */
 .fi-page-host {display: flex; flex-direction: column; height: 100%; min-height: 0;}
-.fi-app {display: grid; grid-template-columns: 300px minmax(0,1fr); flex: 1 1 auto; min-height: 480px; height: 100%; position: relative; overflow: hidden; background: var(--fi-bg); border: 0; border-radius: 0; isolation: isolate;}
+.fi-app {display: grid; grid-template-columns: 300px minmax(0,1fr); flex: 1 1 auto; min-height: min(480px, calc(100dvh - 120px)); height: 100%; max-height: 100%; position: relative; overflow: hidden; background: var(--fi-bg); border: 0; border-radius: 0; isolation: isolate;}
 .fi-native-main {padding: 0 !important; overflow: hidden; display: flex; flex-direction: column;}
 .fi-app.fi-sidebar-collapsed {grid-template-columns: 0 minmax(0,1fr);}
 .fi-app.fi-sidebar-collapsed > .fi-sidebar {visibility: hidden; border-right: 0;}
@@ -92,7 +92,8 @@
 .fi-shared-chip {display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--fi-border); border-radius: 6px; background: var(--fi-soft); color: var(--fi-muted); padding: 3px 8px; font-size: 10px; font-weight: 600;}
 .fi-shared-chip .fi-icon {width: 12px; height: 12px;}
 .fi-menu-wrap {position: relative;}
-.fi-menu {position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 210px; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--fi-bg); border: 1px solid var(--fi-border); border-radius: 8px; box-shadow: 0 10px 36px rgb(24 35 43 / 14%);}
+/* Instant like native Desk menus (no transition); shadow matches the Desk dropdown token. */
+.fi-menu {position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 210px; max-height: min(340px, calc(100dvh - 120px)); overflow-y: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--fi-bg); border: 1px solid var(--fi-border); border-radius: 8px; box-shadow: var(--shadow-xl, 0 0 1px rgb(0 0 0 / 19%), 0 1px 2px rgb(0 0 0 / 7%), 0 6px 15px -5px rgb(0 0 0 / 11%));}
 /* Upward variant: must follow .fi-menu or its top resets while bottom also
    applies, collapsing the menu to zero height and clipping it to one row. */
 .fi-menu-up {top: auto; bottom: calc(100% + 6px); right: auto; left: 0;}
