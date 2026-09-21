@@ -29,14 +29,17 @@ let browser;
   const screenshot = (name) => page.screenshot({ path: path.join(output, name + '.png'), fullPage: true });
   const drawer = page.locator('.fi-drawer-shell');
   // The drawer clears [hidden] first, then animateOpen() applies is-open on the
-  // next frame and the shell slides in over .22s. A :not([hidden]) wait resolves
-  // while the shell is still translated off-screen, so measuring or pressing the
-  // resize strip then can land outside the viewport on a slow runner.
+  // next frame and the shell animates in over .2s. A :not([hidden]) wait resolves
+  // while the shell is still translated away, so measuring or pressing the resize
+  // strip then is unreliable. The shell is a floating popover offset from the
+  // viewport edges, so settle means: class applied, transform resolved, in view.
   const waitForDrawerSettled = () => page.waitForFunction(() => {
     const shell = document.querySelector('.fi-drawer-shell');
     if (!shell || shell.hidden || !shell.classList.contains('is-open')) return false;
+    const style = getComputedStyle(shell);
+    if (style.visibility !== 'visible' || style.transform !== 'none') return false;
     const rect = shell.getBoundingClientRect();
-    return Math.abs(rect.right - window.innerWidth) < 1;
+    return rect.right <= window.innerWidth && rect.left >= 0 && rect.bottom <= window.innerHeight;
   });
   await page.goto(base + '/?scene=context');
   await page.waitForSelector('.fi-drawer-shell:not([hidden]) .fi-context-chip');
@@ -88,7 +91,7 @@ let browser;
   await waitForDrawerSettled();
   const restored = (await drawer.boundingBox()).width;
   assert.ok(Math.abs(restored - dragged) <= 6, 'the dragged width survives reload: ' + dragged + ' -> ' + restored);
-  await page.locator('[data-action="open-full-page"]').click();
+  await page.locator('[data-action="expand"]').click();
   await page.waitForSelector('.fi-drawer-shell', { state: 'hidden' });
   await page.waitForSelector('#page:not([hidden]) .fi-app');
   assert.equal(await page.evaluate(() => frappe.get_route()[0]), 'intelligence', 'open full page routes to the Intelligence page');

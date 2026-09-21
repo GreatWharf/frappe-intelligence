@@ -16,6 +16,7 @@ const files = {
   '/assets/frappe_intelligence/css/fi/thread.css': ['frappe_intelligence/public/css/fi/thread.css', 'text/css; charset=utf-8'],
   '/assets/frappe_intelligence/css/fi/composer.css': ['frappe_intelligence/public/css/fi/composer.css', 'text/css; charset=utf-8'],
   '/assets/frappe_intelligence/css/fi/panel.css': ['frappe_intelligence/public/css/fi/panel.css', 'text/css; charset=utf-8'],
+  '/assets/frappe_intelligence/images/intelligence.svg': ['frappe_intelligence/public/images/intelligence.svg', 'image/svg+xml'],
   '/page.js': ['frappe_intelligence/frappe_intelligence/page/intelligence/intelligence.js', 'application/javascript; charset=utf-8']
 };
 /* Pinned contract fixtures for direct HTTP checks. The in-browser mock in dev/preview.js owns live preview state. */

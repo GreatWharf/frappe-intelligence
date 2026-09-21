@@ -38,8 +38,10 @@
       document.querySelector('.mock-page-title h1').textContent = 'Customer';
       document.querySelector('#open-context').onclick = () => frappe.intelligence.toggle();
       setTimeout(() => { frappe.set_route('Form', 'Customer', 'Northstar Components'); frappe.intelligence.toggle(); }, 350);
-    } else if (preview.scene === 'approval' || preview.scene === 'tools' || preview.scene === 'busy') {
-      const open = () => { const row = document.querySelector('[data-action="select"][data-name="chat-1"]'); if (row) row.click(); else setTimeout(open, 50); }; open();
+    } else if (['approval', 'tools', 'busy', 'auto', 'bulk'].includes(preview.scene)) {
+      // Scenes open their conversation through the native deep link, the same
+      // route a Desk list row or a global-search hit lands on.
+      setTimeout(() => frappe.set_route('intelligence', 'chat-1'), 50);
     }
     document.querySelector('#theme-toggle').onclick = function () { const dark = document.documentElement.dataset.theme !== 'dark'; document.documentElement.dataset.theme = dark ? 'dark' : 'light'; this.textContent = dark ? 'Light mode' : 'Dark mode'; };
   </script>
