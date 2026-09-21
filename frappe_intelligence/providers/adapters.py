@@ -1,5 +1,6 @@
 """Non-streaming REST protocol adapters; no SDK state, Frappe, or model catalog."""
 
+import math
 import re
 import uuid
 from dataclasses import asdict
@@ -16,6 +17,12 @@ _ENDPOINTS = {
 }
 # The wire contract is lowercase; the DocType Select labels normalize to these at the engine boundary.
 KINDS = frozenset({*_ENDPOINTS, "custom"})
+_EMBEDDING_ENDPOINTS = {
+    "openai": ("https://api.openai.com/v1/embeddings", "api.openai.com"),
+    "openrouter": ("https://openrouter.ai/api/v1/embeddings", "openrouter.ai"),
+}
+# Kinds with an OpenAI-compatible embeddings wire; the rest report "unsupported".
+EMBEDDING_KINDS = frozenset({*_EMBEDDING_ENDPOINTS, "custom"})
 # Thinking-effort mapping for the OpenAI-compatible wires; Max degrades to high.
 _EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high"}
 # Reasoning token budgets for the Anthropic and Gemini wires.
@@ -595,3 +602,68 @@ def list_models(config):
         if len(models) >= 500:
             break
     return sorted(models)
+
+
+def _embeddings_url(config):
+    if config.kind == "custom":
+        validate_endpoint(config.base_url, config.allowed_hosts)
+        return config.base_url.rstrip("/") + "/embeddings", tuple(config.allowed_hosts)
+    url, host = _EMBEDDING_ENDPOINTS[config.kind]
+    return url, (host,)
+
+
+def _embedding(value):
+    if not isinstance(value, list) or not value or len(value) > 8192:
+        raise _response_error()
+    vector = []
+    for number in value:
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
+            raise _response_error()
+        vector.append(float(number))
+    return vector
+
+
+def embed_documents(config, inputs):
+    """Embed a batch of texts through the provider's embeddings endpoint.
+
+    Returns one validated float vector per input, in input order. Only the
+    OpenAI-compatible embeddings wire is supported; other kinds raise the
+    "unsupported" ProviderError so callers can surface an honest status.
+    """
+    if not isinstance(config, ProviderConfig):
+        raise _config_error()
+    if config.kind not in EMBEDDING_KINDS:
+        raise ProviderError(
+            "unsupported", "This provider kind does not offer an embeddings endpoint."
+        )
+    if not isinstance(config.model, str) or not _MODEL.fullmatch(config.model):
+        raise _config_error()
+    if config.kind == "custom" and not config.base_url:
+        raise _config_error()
+    if (
+        not isinstance(inputs, (list, tuple))
+        or not inputs
+        or len(inputs) > 64
+        or any(not isinstance(item, str) or not item.strip() or len(item) > 32000 for item in inputs)
+    ):
+        raise _request_error()
+    url, allowed_hosts = _embeddings_url(config)
+    validate_endpoint(url, allowed_hosts)
+    response = post_json(
+        url=url,
+        headers={"Authorization": f"Bearer {config.api_key}"},
+        payload={"model": config.model, "input": list(inputs)},
+        timeout=config.timeout,
+        allowed_hosts=allowed_hosts,
+    )
+    data = response.get("data")
+    if not isinstance(data, list) or len(data) != len(inputs):
+        raise _response_error()
+    if all(isinstance(item, dict) and type(item.get("index")) is int for item in data):
+        data = sorted(data, key=lambda item: item["index"])
+        if [item["index"] for item in data] != list(range(len(inputs))):
+            raise _response_error()
+    vectors = [_embedding(item.get("embedding") if isinstance(item, dict) else None) for item in data]
+    if len({len(vector) for vector in vectors}) != 1:
+        raise _response_error()
+    return vectors

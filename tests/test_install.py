@@ -78,6 +78,7 @@ def migrator(monkeypatch):
         "Intelligence Tool Grant",
         "Intelligence Memory",
         "Intelligence Provider",
+        "Intelligence Embedding",
     }
 
     class Doc:

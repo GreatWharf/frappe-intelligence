@@ -12,6 +12,7 @@ MANAGED = [
     "intelligence_tool_execution",
     "intelligence_provider",
     "intelligence_memory",
+    "intelligence_embedding",
 ]
 
 
