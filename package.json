@@ -1,6 +1,6 @@
 {
   "name": "frappe-intelligence-frontend",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "private": true,
   "description": "Development-only DOM tests and explicitly mocked preview for the dependency-free Frappe Desk client",
   "scripts": {
