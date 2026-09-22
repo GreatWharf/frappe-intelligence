@@ -39,10 +39,9 @@
 .fi-drawer-app .fi-approval-footer {flex-wrap: wrap;}
 .fi-drawer-app .fi-file-cards {margin-left: 0;}
 /* Desk chrome while Intelligence is open: the app mark replaces the workspace
-   letter avatar and the redundant workspace shortcut list is tucked away. */
+   letter avatar. The workspace nav itself stays exactly as Desk renders it. */
 body.fi-desk-active .body-sidebar .sidebar-header .icon-container {background-color: transparent !important; background-image: url("/assets/frappe_intelligence/images/intelligence.svg") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: cover !important;}
 body.fi-desk-active .body-sidebar .sidebar-header .icon-container svg {display: none !important;}
-body.fi-desk-active .body-sidebar .body-sidebar-top {display: none !important;}
 .fi-toggle-logo {width: 17px; height: 17px; border-radius: 5px; display: block;}
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) .fi-global-toggle, :root:not([data-theme="light"]) .fi-drawer-shell {--fi-bg: var(--fg-color, #1c2228); --fi-soft: var(--subtle-fg, #222930); --fi-ground: var(--bg-color, #161b21);
