@@ -111,6 +111,14 @@ A real Chromium session then drove the live UI: the floating button docked the p
 
 One verification lesson is recorded for future deploys: the version endpoint reports the new release as soon as the web container serves it, while `bench migrate` (which creates the new tables and seeds the example policies) can still be running. A readiness check must wait for a migrate-completed signal, such as the seeded policies being countable, not just for the version string; the first check run raced the migrate and the second passed 26/26 unchanged.
 
+## Live verification of 0.7.4, 23 September 2026
+
+Image `ghcr.io/greatwharf/frappe-intelligence:0.7.4` (tag `v0.7.4`, commit `4fc0523`) was deployed to the same disposable ERPNext v16 site. Local gates before the push: **713 Python tests**, **165 dependency-free UI tests in both DOM modes**, ruff lint and formatting, all green; GitHub Actions ran green on the same tree (unit, browser, image build).
+
+0.7.4 folds recent conversations into the native Desk sidebar as a collapsible "Recent chats" section built from the exact markup frappe renders for workspace rows, placed after the Conversations link and capped at eight rows. It also fixes two regressions the live checks caught: a custom-panel-era CSS rule that hid the whole workspace nav while the app was open (`body-sidebar-top`, now guarded by tests/test_desk_chrome.py), and the section not returning after frappe rebuilt the sidebar without a router event (now re-injected by a MutationObserver).
+
+After the deploy, **24/24 browser checks passed** in a real Chromium session: login and asset resolution; the section appearing on `/desk/intelligence` with native section-item markup, the native header label, placement after Conversations, between one and eight indented rows linking at chat routes and mirroring the API order and titles; clicking a row opening the conversation with the row marked active and the title matching; collapse toggling, persisting to the native `section-breaks-state` bucket and surviving a reload; a REST rename flowing through `App.refreshList` into the sidebar live; and the section staying out of other workspaces while remaining on the Conversations list sidebar. Captures: [screenshots/welcome.png](screenshots/welcome.png), [screenshots/desk-sidebar.png](screenshots/desk-sidebar.png).
+
 ## Remaining validation boundaries
 
 - Actual Frappe/ERPNext install, migration, native permission dispatch and RQ/realtime behavior on the target site.
