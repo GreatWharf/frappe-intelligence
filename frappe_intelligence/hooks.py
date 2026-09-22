@@ -17,6 +17,7 @@ app_include_js = [
     "/assets/frappe_intelligence/js/fi/composer.js",
     "/assets/frappe_intelligence/js/fi/panel.js",
     "/assets/frappe_intelligence/js/fi/desk_compat.js",
+    "/assets/frappe_intelligence/js/fi/desk_sidebar.js",
     "/assets/frappe_intelligence/js/fi/app.js",
 ]
 app_include_css = [

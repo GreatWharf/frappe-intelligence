@@ -376,7 +376,7 @@ fi
 link_app_assets || true
 assets_verified=1
 for asset in \
-    js/intelligence.js js/fi/store.js js/fi/thread.js js/fi/composer.js js/fi/panel.js js/fi/desk_compat.js js/fi/app.js \
+    js/intelligence.js js/fi/store.js js/fi/thread.js js/fi/composer.js js/fi/panel.js js/fi/desk_compat.js js/fi/desk_sidebar.js js/fi/app.js \
     css/intelligence.css css/fi/thread.css css/fi/composer.css css/fi/panel.css \
     images/intelligence.svg; do
     if [ ! -r "$ASSET_TARGET/$asset" ]; then

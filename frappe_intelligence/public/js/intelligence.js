@@ -254,6 +254,9 @@
 			const rows = await this.api("list_conversations", { archived: this.archived ? 1 : 0 });
 			if (version !== this.listVersion) return;
 			this.conversations = Array.isArray(rows) ? rows : [];
+			// Keep the native Desk sidebar's Recent chats section in step with
+			// every list refresh (renames, archives, new chats) without an extra fetch.
+			if (fi.deskSidebar && typeof fi.deskSidebar.sync === "function") fi.deskSidebar.sync(this.conversations);
 			this.lastList = Date.now();
 			for (const row of this.conversations) if (row.active_run && !this.watched.has(row.name)) this.watched.set(row.name, { name: typeof row.active_run === "object" ? row.active_run.name : row.active_run, state: "running" });
 		}

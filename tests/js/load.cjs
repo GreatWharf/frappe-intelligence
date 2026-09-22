@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const dir = path.resolve(__dirname, '../../frappe_intelligence/public/js');
-const FILES = ['intelligence.js', 'fi/store.js', 'fi/thread.js', 'fi/composer.js', 'fi/panel.js', 'fi/desk_compat.js', 'fi/app.js'];
+const FILES = ['intelligence.js', 'fi/store.js', 'fi/thread.js', 'fi/composer.js', 'fi/panel.js', 'fi/desk_compat.js', 'fi/desk_sidebar.js', 'fi/app.js'];
 function source() {
   return FILES.map((file) => fs.readFileSync(path.join(dir, file), 'utf8')).join('\n');
 }
