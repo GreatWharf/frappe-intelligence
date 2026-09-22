@@ -5,13 +5,16 @@
    native rebuild of the Intelligence sidebar it injects one extra Section
    Break ("Recent chats") with up to eight native link items pointing at
    /desk/intelligence/<conversation>, using the exact markup sidebar_item.html
-   renders for workspace rows. Data comes from frappe_intelligence.api
-   .list_conversations (the same call the app page makes); App.refreshList
-   pushes live updates through fi.deskSidebar.sync so renames, archives and
-   new chats appear without waiting for a navigation. The section is skipped
-   outside the Intelligence sidebar, in the sidebar editor and when the user
-   has no conversations. Collapse state mirrors the native Section Break
-   affordance, persisted in the same localStorage bucket frappe uses. */
+   renders for workspace rows. Rebuilds fire no router event, so a
+   MutationObserver on .sidebar-items re-injects the section whenever a wipe
+   removed it while the Intelligence sidebar is showing. Data comes from
+   frappe_intelligence.api.list_conversations (the same call the app page
+   makes); App.refreshList pushes live updates through fi.deskSidebar.sync so
+   renames, archives and new chats appear without waiting for a navigation.
+   The section is skipped outside the Intelligence sidebar, in the sidebar
+   editor and when the user has no conversations. Collapse state mirrors the
+   native Section Break affordance, persisted in the same localStorage bucket
+   frappe uses. */
 (function (global, factory) {
 	"use strict";
 	factory(global);
@@ -25,6 +28,8 @@
 	let ticket = 0;
 	let scheduled = false;
 	let booted = false;
+	let fetching = false;
+	let observer = null;
 	let lastSignature = null;
 
 	function sidebar() {
@@ -214,13 +219,34 @@
 		} catch (_) { finish(null); }
 	}
 
+	// frappe rebuilds .sidebar-items on every workspace switch without any
+	// router event, so route changes alone cannot keep the section alive: watch
+	// the container and re-inject whenever a rebuild wiped it while the
+	// Intelligence sidebar is showing.
+	function observe(items) {
+		if (observer) observer.disconnect();
+		observer = null;
+		if (typeof global.MutationObserver !== "function") return;
+		observer = new global.MutationObserver(() => {
+			if (!sidebar()) return;
+			if (sectionNode()) return;
+			schedule();
+		});
+		observer.observe(items, { childList: true });
+	}
+
 	function ensure() {
 		scheduled = false;
+		const items = container();
+		if (items) observe(items);
 		if (!sidebar()) return;
-		if (!container()) return;
+		if (!items) return;
 		if (sectionNode()) return;
+		if (fetching) return;
 		const mine = ++ticket;
+		fetching = true;
 		fetchRows((rows) => {
+			fetching = false;
 			if (mine !== ticket) return;
 			if (!Array.isArray(rows) || !rows.length) return;
 			render(rows);
