@@ -195,31 +195,6 @@ test('attachments reject unsupported and oversized files before any API operatio
   await app.upload({ name: 'bad.html', size: 20 }); await app.upload({ name: 'server.log', size: 20 }); await app.upload({ name: 'too-big.pdf', size: 11 * 1024 * 1024 });
   assert.equal(calls.length, 0); assert.ok(app.slot('banner').textContent.includes('10 MB'));
 });
-test('memory modal saves real scoped content and deletes only on confirmation', async (t) => {
-  const rows = []; const { app, window, document, calls } = harness(t, { list_memories: () => copy(rows), save_memory: (args) => { rows.push({ name: 'mem1', content: args.content, scope: args.scope }); return rows[0]; }, delete_memory: () => { rows.length = 0; return {}; } });
-  app.selected = 'c1'; app.memoryDialog(); await tick();
-  const modal = document.querySelector('.fi-modal-overlay'), scope = modal.querySelector('[data-memory-scope]'); scope.value = 'conversation'; scope.dispatchEvent(new window.Event('change')); await tick();
-  const form = modal.querySelector('form'); form.elements.content.value = '<script>not executable</script>Useful note'; form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
-  const saved = calls.find((call) => call.method === 'save_memory'); assert.equal(saved.args.scope, 'conversation'); assert.equal(saved.args.conversation, 'c1');
-  assert.equal(modal.querySelector('script'), null);
-  const remove = modal.querySelector('[data-action="memory-delete"]'); remove.click(); assert.equal(rows.length, 1); remove.click(); await tick(); assert.equal(rows.length, 0);
-});
-test('provider editor includes disabled managed configurations, preserves blank keys and submits actual values', async (t) => {
-  const disabled = { name: 'disabled', title: 'Disabled provider', kind: 'Custom', model: 'configured-model', base_url: 'https://api.example.test/v1', enabled: 0, is_shared: 0, has_api_key: true, can_edit: true };
-  const { app, window, document, calls } = harness(t, { provider_details: () => copy(disabled), save_provider: () => ({}), bootstrap: () => copy(boot) });
-  app.boot.managed_providers = [disabled]; app.providerDialog();
-  const modal = document.querySelector('.fi-modal-overlay'); modal.querySelector('[data-provider="disabled"]').click(); await tick();
-  const form = modal.querySelector('form'); assert.equal(form.elements.api_key.value, ''); assert.equal(form.elements.enabled.checked, false);
-  form.elements.enabled.checked = true; form.elements.title.value = 'Re-enabled'; form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
-  const save = calls.find((call) => call.method === 'save_provider'); assert.equal(save.args.api_key, null); assert.equal(save.args.enabled, 1); assert.equal(save.args.name, 'disabled');
-  assert.equal(document.querySelector('.fi-modal-overlay'), null);
-});
-test('provider save failure does not close modal or show success', async (t) => {
-  const { app, window, document } = harness(t, { save_provider: () => { throw { userMessage: 'This endpoint is not allowlisted.' }; } }); app.providerDialog(); await tick();
-  const form = document.querySelector('.fi-modal form'); form.elements.title.value = 'Custom'; form.elements.model.value = 'model';
-  form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
-  assert.ok(document.querySelector('.fi-modal')); assert.ok(document.querySelector('.fi-modal-error').textContent.includes('not allowlisted'));
-});
 test('cancel is idempotently guarded and retains server-confirmed state', async (t) => {
   let release;
   const { app, snapshot, calls } = harness(t, { cancel: () => new Promise((resolve) => { release = () => { snapshot.run.state = 'cancelled'; resolve({}); }; }) });
@@ -238,15 +213,6 @@ test('private upload uses CSRF-protected multipart, preserves File IDs and rejec
   assert.equal(calls.filter((call) => call.method === 'create_conversation').length, 1);
   window.fetch = async () => ({ ok: true, status: 200, json: async () => ({ message: { name: 'file2', file_name: 'public.pdf', is_private: '0' } }) });
   await app.upload({ name: 'public.pdf', size: 100 }); assert.equal(app.draft().attachments.length, 1); assert.ok(app.slot('banner').textContent.includes('did not confirm a private attachment'));
-});
-test('editing a shared provider preserves allowed roles, token limit and timeout', async (t) => {
-  const provider = { name: 'shared', title: 'Restricted shared provider', kind: 'OpenAI', model: 'configured-model', enabled: 1, is_shared: 1, allowed_roles: 'Accounts Manager\nSales Manager', max_tokens: 8192, timeout: 90, can_edit: true };
-  const { app, window, document, calls } = harness(t, { provider_details: () => copy(provider), save_provider: () => ({}), bootstrap: () => copy(boot) });
-  app.boot.managed_providers = [provider]; app.providerDialog();
-  const modal = document.querySelector('.fi-modal-overlay'); modal.querySelector('[data-provider="shared"]').click(); await tick();
-  const form = modal.querySelector('form'); assert.equal(form.elements.allowed_roles.value, provider.allowed_roles); assert.equal(form.querySelector('[data-allowed-roles]').hidden, false);
-  form.elements.title.value = 'Renamed safely'; form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick();
-  const call = calls.find((entry) => entry.method === 'save_provider'); assert.equal(call.args.allowed_roles, provider.allowed_roles); assert.equal(call.args.max_tokens, 8192); assert.equal(call.args.timeout, 90); assert.equal(call.args.is_shared, 1);
 });
 test('saved files render as file cards by file name and are reused only after explicit selection', async (t) => {
   const { app, window, document, calls, snapshot } = harness(t);
@@ -447,7 +413,7 @@ test('the welcome screen greets by name with a daypart, escapes it, and falls ba
   assert.ok(!named.includes('<script>'), 'the name is escaped');
 });
 
-test('fitViewport pins the app to the remaining viewport only when it outgrows it', (t) => {
+test('fitViewport pins the app to the remaining viewport in page mode and leaves the drawer alone', (t) => {
   const { app, window } = harness(t);
   app.mode = 'page';
   try { Object.defineProperty(window, 'innerHeight', { value: 1040, configurable: true }); }
@@ -458,7 +424,13 @@ test('fitViewport pins the app to the remaining viewport only when it outgrows i
   assert.equal(app.root.style.height, '983px', 'an overflowing app is pinned into view');
   rect.height = 400;
   app.fitViewport();
-  assert.equal(app.root.style.height, '', 'an app that already fits is left alone');
+  assert.equal(app.root.style.height, '983px', 'a shorter app still fills the viewport so the page itself never scrolls');
+  rect.top = 780;
+  app.fitViewport();
+  assert.equal(app.root.style.height, '', 'below the usable floor the CSS minimum takes over');
+  rect.top = 49; app.mode = 'drawer';
+  app.fitViewport();
+  assert.equal(app.root.style.height, '', 'the drawer keeps its CSS-owned height');
 });
 
 test('the global pill stays available across Desk but never on the intelligence page', (t) => {

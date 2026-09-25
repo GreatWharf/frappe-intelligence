@@ -36,7 +36,6 @@
 .fi-btn.fi-text-btn:hover:not(:disabled) {background: var(--fi-soft); border-color: transparent;}
 .fi-icon-btn {display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; width: 32px; height: 32px; padding: 6px; color: var(--fi-muted); flex-shrink: 0; transition: background .1s ease, color .1s ease;}
 .fi-icon-btn:hover:not(:disabled) {background: var(--fi-soft); color: var(--fi-text);}
-.fi-list-empty {padding: 20px 10px; color: var(--fi-muted); font-size: 12px;}
 /* Skeleton placeholders for the loading states. */
 .fi-skel-thread {display: flex; flex-direction: column; gap: 14px; padding: 24px 0;}
 .fi-skel-line {display: block; height: 14px; border-radius: 6px; background: var(--fi-soft); animation: fi-skel-pulse 1.4s ease-in-out infinite;}
@@ -45,9 +44,11 @@
 .fi-skel-line:not(.fi-skel-wide):not(.fi-skel-short) {width: 70%;}
 @keyframes fi-skel-pulse {0%, 100% { opacity: .55; } 50% { opacity: 1; }}
 .fi-main {min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--fi-bg);}
-.fi-header {display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 12px 20px; border-bottom: 1px solid var(--fi-border); flex-shrink: 0;}
-.fi-header-left, .fi-header-actions {display: flex; align-items: center; gap: 7px; min-width: 0;}
-.fi-heading {min-width: 0;}
+.fi-header {display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 12px 20px; border-bottom: 1px solid var(--fi-border); flex-shrink: 0; flex-wrap: nowrap;}
+/* One row always: the title side gives way and truncates, the actions never wrap. */
+.fi-header-left {display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 auto;}
+.fi-header-actions {display: flex; align-items: center; gap: 7px; flex: none; flex-wrap: nowrap;}
+.fi-heading {min-width: 0; flex: 1 1 auto;}
 .fi-title-btn {display: block; border: 0; background: transparent; padding: 0; margin: 0; color: inherit; text-align: left; max-width: 100%;}
 .fi-heading h2, .fi-heading .fi-title-input {font: 600 14px/1.4 var(--fi-font); letter-spacing: -.2px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .fi-heading .fi-title-input {background: var(--fi-control); border: 1px solid var(--fi-border); border-radius: var(--border-radius-sm, 6px); padding: 3px 8px; width: 260px; max-width: 100%;}
@@ -57,22 +58,12 @@
 .fi-header-actions .fi-icon {width: 15px; height: 15px;}
 .fi-shared-chip {display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--fi-border); border-radius: 6px; background: var(--fi-soft); color: var(--fi-muted); padding: 3px 8px; font-size: 10px; font-weight: 600;}
 .fi-shared-chip .fi-icon {width: 12px; height: 12px;}
-.fi-menu-wrap {position: relative;}
-/* Instant like native Desk menus (no transition); shadow matches the Desk dropdown token. */
-.fi-menu {position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 210px; max-height: min(340px, calc(100dvh - 120px)); overflow-y: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 1px; padding: 6px; background: var(--fi-bg); border: 1px solid var(--fi-border); border-radius: 8px; box-shadow: var(--shadow-xl, 0 0 1px rgb(0 0 0 / 19%), 0 1px 2px rgb(0 0 0 / 7%), 0 6px 15px -5px rgb(0 0 0 / 11%));}
-/* Upward variant: must follow .fi-menu or its top resets while bottom also
-   applies, collapsing the menu to zero height and clipping it to one row. */
-.fi-menu-up {top: auto; bottom: calc(100% + 6px); right: auto; left: 0;}
-.fi-menu button {display: flex; align-items: center; gap: 9px; width: 100%; border: 0; border-radius: 6px; background: transparent; color: var(--fi-text); padding: 8px 10px; font-size: 12px; text-align: left;}
-.fi-menu button:hover {background: var(--fi-soft);}
-.fi-menu .fi-icon {width: 14px; height: 14px; color: var(--fi-muted);}
 .fi-banner {display: flex; align-items: flex-start; gap: 10px; padding: 11px 22px; border-bottom: 1px solid var(--fi-border); background: var(--fi-accent-soft); font-size: 12px; color: var(--fi-accent-text); flex-shrink: 0;}
 .fi-banner > .fi-icon {margin-top: 5px; width: 15px;}
 .fi-banner > span {flex: 1; padding-top: 4px; overflow-wrap: anywhere;}
 .fi-banner .fi-btn {padding: 5px 8px; font-size: 11px; min-height: 26px; color: inherit;}
 .fi-banner .fi-icon-btn {width: 25px; height: 25px; color: inherit;}
 .fi-banner.is-error {background: var(--fi-danger-soft); color: var(--fi-danger);}
-.fi-loading {display: flex; align-items: center; justify-content: center; gap: 9px; padding: 70px 10px; color: var(--fi-muted);}
 .fi-muted {color: var(--fi-muted);}
 .fi-file-size {display: block; font-size: 9px; color: var(--fi-muted); margin-top: 2px;}
 .fi-spinner {border: 1.5px solid var(--fi-border); border-top-color: var(--fi-accent); display: inline-block; width: 15px; height: 15px; border-radius: 50%; animation: fi-spin 1s linear infinite; flex-shrink: 0;}
@@ -93,92 +84,13 @@
 .fi-share-user strong {font-size: 12px; font-weight: 600; color: var(--fi-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .fi-share-user span {font-size: 10px; color: var(--fi-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .fi-share-empty {border: 1px dashed var(--fi-border); border-radius: 6px; color: var(--fi-muted); font-size: 11px; text-align: center; padding: 14px 10px; margin: 0 0 16px;}
-.fi-rag-status {display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--fi-border); border-radius: 6px; background: var(--fi-soft); padding: 10px 12px; margin: 0 0 16px;}
-.fi-rag-status .fi-icon {width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--fi-muted);}
-.fi-rag-status.is-available .fi-icon {color: var(--fi-success);}
-.fi-rag-copy {display: flex; flex-direction: column; gap: 2px; min-width: 0;}
-.fi-rag-copy strong {font-size: 12px; font-weight: 600; color: var(--fi-text);}
-.fi-rag-copy span {font-size: 11px; color: var(--fi-muted); line-height: 1.55; overflow-wrap: anywhere;}
 .fi-field {display: flex; flex-direction: column; gap: 7px; font-size: var(--text-sm, 12px); font-weight: 400; margin-bottom: var(--margin-md, 16px); min-width: 0;}
 .fi-field input, .fi-field select, .fi-field textarea {display: block; width: 100%; color: var(--fi-text); background: var(--fi-control); border: 1px solid transparent; border-radius: var(--border-radius-sm, 6px); padding: 6px 8px; font-size: var(--text-base, 14px); font-weight: 400; min-width: 0;}
 .fi-field input:not([type="checkbox"]), .fi-field select {height: var(--input-height, 32px); min-height: var(--input-height, 32px); line-height: 18px;}
 .fi-field :is(input,select,textarea):focus {outline: none; border-color: var(--fi-focus); box-shadow: none;}
 .fi-field textarea {min-height: 80px; resize: vertical;}
 .fi-field input::placeholder, .fi-field textarea::placeholder {color: var(--fi-muted); opacity: .85; font-size: 11px;}
-.fi-field > span:last-child:not(:first-child), .fi-field-help {font-size: 10px; font-weight: 400; color: var(--fi-muted); line-height: 1.6; margin: 0;}
-.fi-field-row {display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--margin-md, 16px);}
-.fi-field-row-3 {grid-template-columns: repeat(3, minmax(0,1fr));}
-.fi-fetch-models {font-size: 10px; min-height: 24px; padding: 3px 7px; align-self: flex-start;}
-.fi-checkbox-row {display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; font-size: 11px;}
-.fi-checkbox-row label {display: flex; align-items: center; gap: 6px; font-weight: 400;}
-.fi-checkbox-row input {accent-color: var(--fi-accent);}
-.fi-provider-settings {display: grid; grid-template-columns: 145px minmax(0,1fr); gap: 22px;}
-.fi-provider-list {display: flex; flex-direction: column; gap: 7px; border-right: 1px solid var(--fi-border); padding-right: 14px;}
-.fi-provider-list > button {display: flex; flex-direction: column; text-align: left; padding: 10px; gap: 4px; background: var(--fi-soft); border: 1px solid var(--fi-border); border-radius: 6px; color: var(--fi-text);}
-.fi-provider-list strong {font-size: 11px; font-weight: 600; overflow-wrap: anywhere;}
-.fi-provider-list span {color: var(--fi-muted); font-size: 9px; overflow-wrap: anywhere;}
-.fi-provider-list > button:last-child {flex-direction: row; align-items: center; font-size: 10px; background: var(--fi-bg); color: var(--fi-accent-text);}
-.fi-provider-list .fi-icon {height: 12px; width: 12px;}
-.fi-provider-form h3 {font: 600 13px/1.5 var(--fi-font); margin: 0 0 18px;}
-.fi-provider-form footer {justify-content: space-between;}
-/* Inside native frappe.ui.Dialog hosts. */
-.fi-provider-list-native {border-right: 0; padding-right: 0; flex-direction: row; flex-wrap: wrap; margin-bottom: 16px;}
-.fi-provider-list-native > button {flex: 1 1 140px;}
-.fi-skill-meta {margin: 0 0 4px; color: var(--fi-muted); font-size: 11px;}
-.fi-skill-meta code {font: 600 11px/1.6 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--fi-text); overflow-wrap: anywhere;}
-.fi-skill-meta .fi-skill-desc {margin: 4px 0 0;}
-.fi-skill-meta .fi-btn {margin-top: 7px; font-size: 10px; min-height: 26px; padding: 3px 8px;}
-.fi-check-field {display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-size: 12px; margin-bottom: var(--margin-md, 16px);}
-.fi-check-field input {accent-color: var(--fi-accent);}
-.fi-check-field > span {flex-basis: 100%; font-size: 10px; color: var(--fi-muted); line-height: 1.6;}
-.fi-settings-form footer {display: flex; justify-content: flex-end; margin-top: 20px;}
-.fi-memory-list {border-bottom: 1px solid var(--fi-border); margin-bottom: 23px; max-height: 280px; overflow-y: auto;}
-.fi-memory-item {padding: 13px 0; border-top: 1px solid var(--fi-border);}
-.fi-memory-item > p {white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin: 0 0 8px;}
-.fi-memory-item .fi-btn {padding: 3px 6px; min-height: 25px; font-size: 10px;}
-.fi-memory-empty {display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 20px 10px 26px; color: var(--fi-muted); text-align: center; font-size: 11px;}
-.fi-memory-empty > .fi-icon {margin-bottom: 7px; width: 22px; height: 22px;}
-.fi-memory-empty strong {color: var(--fi-text); font-size: 12px; font-weight: 550;}
-.fi-section-title {font: 600 11px/1.5 var(--fi-font); letter-spacing: .2px; margin: 22px 0 10px; color: var(--fi-text);}
-.fi-skills > .fi-section-title:first-child, .fi-scope > .fi-section-title:first-of-type {margin-top: 0;}
-.fi-section-empty {margin: 0 0 6px; font-size: 11px;}
-.fi-badge {display: inline-block; border: 1px solid var(--fi-border); border-radius: 4px; background: var(--fi-soft); color: var(--fi-muted); font-size: 8px; font-weight: 600; letter-spacing: .5px; padding: 1px 6px; text-transform: uppercase;}
-.fi-badge-writes {color: var(--fi-amber); border-color: color-mix(in srgb, var(--fi-amber) 30%, var(--fi-bg)); background: var(--fi-amber-soft);}
-.fi-skill-list {display: flex; flex-direction: column; gap: 8px;}
-.fi-skill-row {border: 1px solid var(--fi-border); border-radius: 8px; padding: 11px 13px; background: var(--fi-bg);}
-.fi-skill-head {display: flex; align-items: center; flex-wrap: wrap; gap: 8px;}
-.fi-skill-head code {font: 600 11px/1.6 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--fi-text); overflow-wrap: anywhere;}
-.fi-skill-version {color: var(--fi-muted); font-size: 9px;}
-.fi-skill-desc {margin: 6px 0 0; color: var(--fi-muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere;}
-.fi-skill-title {font-size: 12px; font-weight: 600; overflow-wrap: anywhere;}
-.fi-badge-origin {color: var(--fi-accent-text); background: var(--fi-accent-soft); border-color: transparent;}
-.fi-skill-actions {display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--fi-border);}
-.fi-skill-toggle {display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--fi-muted); cursor: pointer;}
-.fi-skill-toggle input {accent-color: var(--fi-accent);}
-.fi-skill-edit > .fi-section-title:first-child {margin-top: 0;}
-.fi-skill-seeded-hint {display: flex; align-items: flex-start; gap: 8px; margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--fi-border); border-radius: 8px; background: var(--fi-soft); color: var(--fi-muted); font-size: 10px; line-height: 1.6;}
-.fi-skill-seeded-hint .fi-icon {width: 13px; height: 13px; flex-shrink: 0; margin-top: 1px;}
-.fi-chip-list {display: flex; flex-wrap: wrap; gap: 6px;}
-.fi-chip {border: 1px solid var(--fi-border); background: var(--fi-soft); border-radius: 6px; padding: 4px 9px; font-size: 11px; color: var(--fi-text); overflow-wrap: anywhere;}
-.fi-never-note {display: flex; align-items: flex-start; gap: 8px; margin: 24px 0 0; padding: 11px 13px; border: 1px solid var(--fi-border); border-radius: 8px; background: var(--fi-soft); color: var(--fi-muted); font-size: 10px; line-height: 1.7;}
-.fi-never-note .fi-icon {width: 13px; height: 13px; flex-shrink: 0; margin-top: 2px;}
-.fi-inline-error {border: 1px solid color-mix(in srgb, var(--fi-danger) 30%, var(--fi-bg)); border-radius: 8px; background: var(--fi-danger-soft); color: var(--fi-danger); padding: 16px; font-size: 12px;}
-.fi-inline-error p {margin: 0 0 12px; line-height: 1.65; overflow-wrap: anywhere;}
-.fi-scope-tools {display: flex; flex-direction: column; gap: 6px;}
-.fi-scope-tool {display: flex; align-items: flex-start; gap: 9px; border: 1px solid var(--fi-border); border-radius: 8px; padding: 9px 11px; font-size: 11px; cursor: pointer;}
-.fi-scope-tool input {margin-top: 3px; accent-color: var(--fi-accent);}
-.fi-scope-tool > span {min-width: 0;}
-.fi-scope-tool code {font: 600 11px/1.6 "SFMono-Regular", Consolas, "Liberation Mono", monospace; overflow-wrap: anywhere;}
-.fi-scope-tool small {display: block; color: var(--fi-muted); font-size: 10px; line-height: 1.6; margin-top: 2px; overflow-wrap: anywhere;}
-.fi-scope-rows {display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px;}
-.fi-scope-row {display: flex; align-items: center; gap: 8px;}
-.fi-scope-row code {flex: 1; min-width: 0; border: 1px solid var(--fi-border); border-radius: 6px; background: var(--fi-soft); padding: 6px 9px; font: 500 11px/1.6 "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: var(--fi-text); overflow-wrap: anywhere;}
-.fi-scope-row .fi-icon-btn {width: 26px; height: 26px; padding: 4px;}
-.fi-scope-row .fi-icon {width: 12px; height: 12px;}
-.fi-scope-add {display: flex; gap: 7px; margin-bottom: 6px;}
-.fi-scope-add input {flex: 1; min-width: 0; height: var(--input-height, 32px); border: 1px solid transparent; border-radius: var(--border-radius-sm, 6px); background: var(--fi-control); color: var(--fi-text); padding: 6px 8px; font-size: 12px;}
-.fi-scope-add input:focus {outline: none; border-color: var(--fi-focus);}
-.fi-scope-add input::placeholder {color: var(--fi-muted); opacity: .85; font-size: 11px;}
+.fi-field > span:last-child:not(:first-child) {font-size: 10px; font-weight: 400; color: var(--fi-muted); line-height: 1.6; margin: 0;}
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) .fi-app {--fi-bg: var(--fg-color, #1c2228); --fi-soft: var(--subtle-fg, #222930); --fi-ground: var(--bg-color, #161b21);
 		--fi-text: var(--text-color, #e8edef); --fi-muted: var(--text-muted, #a0acb5); --fi-border: var(--border-color, #343e47);
@@ -208,11 +120,6 @@
 	.fi-modal > header {padding: 18px;}
 	.fi-modal-body {padding: 18px;}
 	.fi-modal h2 {font-size: 18px;}
-	.fi-provider-settings {grid-template-columns: minmax(0,1fr); gap: 20px;}
-	.fi-provider-list {border-right: 0; padding-right: 0; display: flex; flex-direction: row; flex-wrap: wrap;}
-	.fi-provider-list > button {flex: 1; min-width: 90px;}
-	.fi-field-row {grid-template-columns: minmax(0,1fr); gap: 0;}
-	.fi-scope-add {flex-wrap: wrap;}
 }
 @media (prefers-reduced-motion: reduce) {
 	.fi-app * {animation: none !important; transition: none !important; scroll-behavior: auto !important;}

@@ -29,7 +29,10 @@
 .fi-drawer-resize:hover::after, .fi-drawer-shell.is-resizing .fi-drawer-resize::after, .fi-drawer-resize:focus-visible::after {background: var(--border-color, #e6e9ec);}
 .fi-drawer-resize:focus-visible {outline: 2px solid var(--gray-500, #737373); outline-offset: -2px;}
 .fi-drawer-app {height: 100%; min-height: 0; border: 0; border-radius: 12px; grid-template-columns: minmax(0,1fr);}
-.fi-drawer-app .fi-header {padding: 15px 18px; min-height: 70px; flex-wrap: wrap; row-gap: 10px;}
+/* The drawer header stays on one row at every width: the title truncates with
+   an ellipsis and the action cluster never wraps onto a second line. */
+.fi-drawer-app .fi-header {padding: 15px 18px; min-height: 70px; flex-wrap: nowrap; gap: 8px;}
+.fi-drawer-app .fi-header-actions {gap: 4px;}
 .fi-drawer-app .fi-thread-inner {padding: 25px 23px;}
 .fi-drawer-app .fi-bottom {padding: 0 23px 15px;}
 .fi-drawer-app .fi-welcome {padding-top: 35px;}

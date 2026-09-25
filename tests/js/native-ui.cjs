@@ -28,6 +28,16 @@ let browser;
   expect(!(await page.locator('.mock-breadcrumb').textContent()).includes('Intelligence'), 'Preview breadcrumb must not repeat the page title');
   expect(await page.locator('.mock-logo').textContent() !== 'Desk', 'Preview must not invent a second application called Desk');
   expect(await page.locator('.fi-app').evaluate((el) => getComputedStyle(el).borderTopWidth) === '0px', 'Full-page chat must not have a second enclosing card border');
+  // The header menu is gone: management lives in native Desk pages.
+  expect(await page.locator('[data-action="menu"]').count() === 0, 'The three-dot header menu must not render');
+  expect(await page.locator('.fi-menu-wrap').count() === 0, 'No menu wrapper may remain in the header');
+  // The subtitle carries access state only: no provider title, model or effort.
+  const subtitle = await page.locator('[data-slot="subtitle"]').textContent();
+  expect(subtitle.trim() === 'Private · only you', 'Subtitle shows access state only: ' + JSON.stringify(subtitle));
+  // Page mode pins the app into the remaining viewport so only the thread scrolls.
+  const pin = await page.locator('.fi-app').evaluate((el) => ({ height: el.style.height, overflow: getComputedStyle(el).overflow }));
+  expect(/^\d+px$/.test(pin.height), 'The page app is pinned to the remaining viewport: ' + JSON.stringify(pin));
+  expect(pin.overflow === 'hidden', 'The pinned app clips to its own box: ' + pin.overflow);
   await page.locator('.fi-composer textarea').click();
   const focus = await page.locator('.fi-composer').evaluate((el) => {
     const style = getComputedStyle(el); return { border: style.borderColor, shadow: style.boxShadow };
@@ -46,41 +56,54 @@ let browser;
   expect(focus.shadow === 'none', 'Mouse focus must not create a colored composer halo: ' + focus.shadow);
   const composerLight = await readable('.fi-composer textarea');
   expect(ratio(composerLight.text, composerLight.bg) >= 4.5, 'Composer text must meet 4.5:1 contrast in light mode: ' + JSON.stringify(composerLight));
-  await page.locator('[data-action="menu"]').click();
-  await page.locator('.fi-menu [data-action="settings"]').click();
-  const dimensions = await page.locator('.fi-provider-form').evaluate((form) => {
-    const box = (name) => { const rect = form.elements[name].getBoundingClientRect(); return { width: rect.width, height: rect.height }; };
-    return { provider: box('kind'), model: box('model'), title: box('title'), key: box('api_key') };
+  // A selected conversation: the header stays one row and the subtitle still
+  // shows no provider title, model or effort.
+  await page.goto(base + '/?scene=approval');
+  await page.waitForSelector('[data-action="approve"]');
+  const chatSubtitle = await page.locator('[data-slot="subtitle"]').textContent();
+  expect(!/effort|gpt-4\.1|Work account/.test(chatSubtitle), 'Selected conversation subtitle hides provider, model and effort: ' + JSON.stringify(chatSubtitle));
+  // Buttons differ in height (icon buttons vs the labeled New button) and the
+  // header center-aligns them, so "one row" means one shared vertical center,
+  // not one shared top. A wrapped second line would split the centers wide.
+  const pageRow = await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll('.fi-app:not(.fi-drawer-app) .fi-header-actions [data-action]')).filter((node) => node.offsetParent !== null);
+    const centers = buttons.map((node) => { const rect = node.getBoundingClientRect(); return (rect.top + rect.bottom) / 2; });
+    return { spread: centers.length ? Math.max(...centers) - Math.min(...centers) : 0, count: buttons.length };
   });
-  expect(Math.abs(dimensions.provider.width - dimensions.model.width) <= 2, 'Provider and Model ID must use equal-width columns: ' + JSON.stringify(dimensions));
-  expect(Math.abs(dimensions.provider.height - dimensions.model.height) <= 1, 'Provider select and Model ID input must have matching heights');
-  expect(Math.abs(dimensions.title.height - dimensions.key.height) <= 1, 'Provider input heights must be consistent');
-  const primary = await page.locator('.fi-provider-form button[type="submit"]').evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(neutral(primary), 'Default primary controls must use the native neutral theme, not green: ' + primary);
-  const inputLight = await readable('.fi-provider-form input[name="title"]');
-  expect(ratio(inputLight.text, inputLight.bg) >= 4.5, 'Dialog inputs must meet 4.5:1 contrast in light mode: ' + JSON.stringify(inputLight));
-  await page.locator('.fi-modal-overlay [data-action="modal-close"]').click();
-  await page.waitForSelector('.fi-modal-overlay', { state: 'detached' });
+  expect(pageRow.count >= 3 && pageRow.spread <= 2, 'Page header actions share one row with a conversation open: ' + JSON.stringify(pageRow));
   await page.locator('#theme-toggle').click();
-  await page.locator('[data-action="menu"]').click();
-  await page.locator('.fi-menu [data-action="settings"]').click();
-  const dark = await page.locator('.fi-provider-form button[type="submit"]').evaluate((el) => { const s = getComputedStyle(el); return { background: s.backgroundColor, text: s.color }; });
-  expect(neutral(dark.background) && neutral(dark.text) && dark.background !== dark.text, 'Dark-mode primary controls must retain neutral contrast');
-  const inputDark = await readable('.fi-provider-form input[name="title"]');
-  expect(ratio(inputDark.text, inputDark.bg) >= 4.5, 'Dialog inputs must meet 4.5:1 contrast in dark mode: ' + JSON.stringify(inputDark));
-  await page.locator('.fi-modal-overlay [data-action="modal-close"]').click();
-  await page.waitForSelector('.fi-modal-overlay', { state: 'detached' });
   const composerDark = await readable('.fi-composer textarea');
   expect(ratio(composerDark.text, composerDark.bg) >= 4.5, 'Composer text must meet 4.5:1 contrast in dark mode: ' + JSON.stringify(composerDark));
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('[data-action="menu"]').click();
-  await page.locator('.fi-menu [data-action="settings"]').click();
-  const mobile = await page.locator('.fi-provider-form').evaluate((form) => {
-    const provider = form.elements.kind.getBoundingClientRect(), model = form.elements.model.getBoundingClientRect();
-    return { providerBottom: provider.bottom, modelTop: model.top, width: document.documentElement.scrollWidth, viewport: innerWidth };
+  // Drawer mode: at the default 420px and the 360px minimum the header actions
+  // stay on one row and the conversation title truncates instead of wrapping.
+  await page.goto(base + '/?scene=empty');
+  await page.waitForSelector('.fi-welcome');
+  await page.evaluate(() => localStorage.setItem('fi-panel-state', JSON.stringify({ open: false, width: 420, conversation: 'chat-1' })));
+  await page.evaluate(() => frappe.set_route('Form', 'Customer', 'Northstar Components'));
+  await page.locator('.fi-global-toggle').click();
+  await page.waitForFunction(() => {
+    const title = document.querySelector('.fi-drawer-shell:not([hidden]) [data-slot="title"]');
+    return title && title.textContent.trim() === 'Review outstanding sales orders';
   });
-  expect(mobile.modelTop >= mobile.providerBottom, 'Provider and model fields must stack on phones');
-  expect(mobile.width <= mobile.viewport, 'Provider editor must not overflow the phone viewport');
+  const drawerRow = await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll('.fi-drawer-app .fi-header-actions [data-action]')).filter((node) => node.offsetParent !== null);
+    const centers = buttons.map((node) => { const rect = node.getBoundingClientRect(); return (rect.top + rect.bottom) / 2; });
+    return { spread: centers.length ? Math.max(...centers) - Math.min(...centers) : 0, count: buttons.length, width: Math.round(document.querySelector('.fi-drawer-shell').getBoundingClientRect().width) };
+  });
+  expect(drawerRow.width === 420 && drawerRow.count >= 5 && drawerRow.spread <= 2, 'Drawer header actions share one row at 420px: ' + JSON.stringify(drawerRow));
+  const compact = await page.evaluate(() => {
+    document.querySelector('.fi-drawer-shell').style.width = '360px';
+    const buttons = Array.from(document.querySelectorAll('.fi-drawer-app .fi-header-actions [data-action]')).filter((node) => node.offsetParent !== null);
+    const centers = buttons.map((node) => { const rect = node.getBoundingClientRect(); return (rect.top + rect.bottom) / 2; });
+    const title = document.querySelector('.fi-drawer-app .fi-heading h2');
+    return { spread: centers.length ? Math.max(...centers) - Math.min(...centers) : 0, truncated: title.scrollWidth > title.clientWidth + 4 };
+  });
+  expect(compact.spread <= 2, 'Drawer header actions still share one row at the 360px minimum: ' + JSON.stringify(compact));
+  expect(compact.truncated, 'The conversation title truncates with an ellipsis instead of pushing the actions onto a second line');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/?scene=empty');
+  await page.waitForSelector('.fi-welcome');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'The app must not overflow the phone viewport');
   assert.deepEqual(failures, [], failures.join('\n'));
-  console.log('Native Desk layout contracts passed: single page hierarchy, neutral theme/focus, text contrast in both themes, balanced controls and mobile stacking.');
+  console.log('Native Desk layout contracts passed: single page hierarchy, no header menu, state-only subtitle, page-mode pin, single-row page and drawer headers, title truncation, neutral theme/focus and text contrast in both themes.');
 })().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => { if (browser) await browser.close(); server.kill('SIGTERM'); });
