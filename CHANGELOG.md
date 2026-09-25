@@ -2,6 +2,25 @@
 
 All notable changes to Intelligence are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the app versions with [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-09-25
+
+### Added
+
+- Getting Started onboarding: a native Module Onboarding panel pinned at the bottom of the Intelligence sidebar walks new users through adding a provider, the first chat, the first memory, and the seeded skills.
+- Six new seeded skills: create-skill (the assistant drafts and proposes new skills for repeated workflows), month-end-close, overdue-receivables-followup, purchase-invoice-audit, supplier-statement-reconciliation, and cash-position-watch, alongside the original six playbooks. Every seeded write stays a draft behind explicit approval.
+- Semantic memory recall: memories are embedded through a capable configured provider on save and recall_memory accepts an optional query, ranking only the memories visible to the recaller by similarity. Sites without an embeddings-capable provider keep the exact recency behavior, and recall still passes the explicit approval flow.
+- Native provider management on the Desk form: owners (and managers for shared providers) can edit operational fields (title, output token limit, timeout, thinking effort, enabled, model catalog) directly, rotate the API key through a dedicated endpoint that never reads it back, and fetch the provider's model catalog from the form.
+- Per-model reasoning efforts: fetching models from providers that advertise reasoning support (OpenRouter-style supported parameters) records each model's effort set, and the thinking effort picker narrows to what the selected model actually supports.
+- Chip editors with autocomplete on the native Settings and Skill forms for the scoped doctype, tool, report, and host lists, replacing the raw text blobs; the Settings form also groups fields into Assistant, Limits, and Scope and Tools sections and shows a live context-retrieval (RAG) status banner.
+
+### Changed
+
+- Output token limits: the per-reply default rises from 4096 to 16384 and the ceiling from 32768 to 262144 across provider, settings, and runtime validation, so long-form models are no longer capped at a 4k reply.
+- Conversation titles are generated with a strict internal prompt and validated before landing: greetings, questions, and assistant-style replies (for example "Hi there, how can I help you today?") are rejected and the first-message placeholder stays instead. Titles cap at 100 characters.
+- The chat header is one quiet row: the three-dot menu and its in-app provider/memory/skills/scope/settings dialogs are gone (management lives on the native Desk pages linked from the sidebar), the provider/model/effort subtitle is removed, and the remaining actions stay on a single line with the title truncating instead of wrapping, in the page and in the drawer down to its 360px minimum.
+- The Intelligence sidebar rows carry distinct icons (chat, conversations, grants, providers, skills, memory, settings) grouped under an Administration section instead of one repeated glyph.
+- The chat page pins itself to the remaining viewport height so only the message thread scrolls; the Desk document no longer grows a second scrollbar that carried the header away.
+
 ## [0.6.0] - 2026-09-19
 
 ### Added
