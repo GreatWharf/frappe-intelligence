@@ -40,7 +40,7 @@ def main():
             field("is_shared", "Check", default="0"),
             field("enabled", "Check", default="1"),
             field("allowed_roles", "Small Text"),
-            field("max_tokens", "Int", default="4096"),
+            field("max_tokens", "Int", default="16384"),
             field("timeout", "Int", default="60"),
         ],
         "Intelligence Conversation": [
@@ -135,7 +135,7 @@ def main():
             field("enabled_tools", "Small Text"),
             field("allowed_custom_hosts", "Small Text"),
             field("max_steps", "Int", default="12"),
-            field("max_tokens", "Int", default="4096"),
+            field("max_tokens", "Int", default="16384"),
             field("max_run_seconds", "Int", default="600"),
             field("approval_expiry_minutes", "Int", default="1440"),
             field("max_upload_mb", "Int", default="10"),

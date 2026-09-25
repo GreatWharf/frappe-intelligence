@@ -1,5 +1,6 @@
 """Provider administration; secrets never leave the server-side connection boundary."""
 
+import json
 import re
 from urllib.parse import urlsplit
 
@@ -23,6 +24,7 @@ PUBLIC_FIELDS = (
     "model",
     "thinking_effort",
     "models",
+    "model_efforts",
     "base_url",
     "is_shared",
     "enabled",
@@ -104,6 +106,34 @@ def _models_list(value):
     return "\n".join(lines), lines
 
 
+def _model_efforts(value):
+    """Normalize per-model effort metadata into its canonical JSON string.
+
+    The stored shape maps a model ID to the efforts that model's catalog row
+    advertised. Only canonical efforts survive, deduplicated in canonical
+    order; malformed claims are rejected rather than trusted. Auto is implied
+    everywhere, so it is never stored.
+    """
+    if value in (None, ""):
+        return ""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            frappe.throw("Invalid model effort data.")
+    if not isinstance(value, dict) or len(value) > 500:
+        frappe.throw("Invalid model effort data.")
+    result = {}
+    for model, efforts in value.items():
+        if not isinstance(model, str) or not MODEL_ID.fullmatch(model) or not isinstance(efforts, list):
+            frappe.throw("Invalid model effort data.")
+        chosen = [effort for effort in EFFORTS[1:] if effort in efforts]
+        if not chosen:
+            frappe.throw("Invalid model effort data.")
+        result[model] = chosen
+    return json.dumps(result, sort_keys=True)
+
+
 def save_provider(
     name=None,
     title="",
@@ -118,6 +148,7 @@ def save_provider(
     timeout=None,
     thinking_effort=None,
     models=None,
+    model_efforts=None,
 ):
     user = require_user()
     doc = (
@@ -131,6 +162,8 @@ def save_provider(
         require_manager()
     if models is None:
         models = (doc.get("models") or "") if name else ""
+    if model_efforts is None:
+        model_efforts = (doc.get("model_efforts") or "") if name else ""
     if is_shared is None:
         is_shared = doc.get("is_shared") if name else 0
     if enabled is None:
@@ -138,7 +171,7 @@ def save_provider(
     if allowed_roles is None:
         allowed_roles = (doc.get("allowed_roles") or "") if name else ""
     if max_tokens is None:
-        max_tokens = (doc.get("max_tokens") or 4096) if name else 4096
+        max_tokens = (doc.get("max_tokens") or 16384) if name else 16384
     if timeout is None:
         timeout = (doc.get("timeout") or 60) if name else 60
     if thinking_effort is None:
@@ -183,8 +216,8 @@ def save_provider(
         max_tokens, timeout = int(max_tokens), int(timeout)
     except (TypeError, ValueError):
         frappe.throw("Invalid provider limits.")
-    if not 128 <= max_tokens <= 32768 or not 5 <= timeout <= 120:
-        frappe.throw("Provider limits must be 128–32768 tokens and 5–120 seconds.")
+    if not 128 <= max_tokens <= 262144 or not 5 <= timeout <= 120:
+        frappe.throw("Provider limits must be 128–262144 tokens and 5–120 seconds.")
     if api_key is not None and (
         not isinstance(api_key, str) or len(api_key) > 8192 or "\n" in api_key or "\r" in api_key
     ):
@@ -205,6 +238,7 @@ def save_provider(
         "model": model,
         "thinking_effort": thinking_effort,
         "models": models,
+        "model_efforts": _model_efforts(model_efforts),
         "base_url": base_url,
         "is_shared": shared,
         "enabled": enabled,
@@ -232,13 +266,44 @@ def delete_provider(name):
     return {"deleted": True}
 
 
+def set_provider_api_key(name, api_key):
+    """Set or rotate a provider credential from the native Desk form.
+
+    The same actor rules as save_provider apply (personal is owner-only, shared
+    needs a manager). Only the Password field is written, under the internal
+    flag, and the key is never returned or logged.
+    """
+    user = require_user()
+    if not isinstance(name, str) or not name:
+        frappe.throw("Invalid request data.")
+    doc = frappe.get_doc("Intelligence Provider", name, for_update=True)
+    if not can_manage(doc, user):
+        frappe.throw("You cannot manage this provider.", frappe.PermissionError)
+    if doc.get("is_shared"):
+        require_manager()
+    if (
+        not isinstance(api_key, str)
+        or not api_key.strip()
+        or len(api_key) > 8192
+        or "\n" in api_key
+        or "\r" in api_key
+    ):
+        frappe.throw("Enter a valid API key.")
+    doc.api_key = api_key
+    with internal_write():
+        doc.save()
+    return public_provider(doc, user)
+
+
 def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
     """Fetch the model catalog from the provider API for the dialog's dropdown.
 
     For a saved provider the stored key is used when no key is typed; for a new
     provider the key comes from the dialog input and is never stored here. When
     the provider is saved, the catalog is persisted so the dropdown works
-    offline afterwards.
+    offline afterwards. Providers whose catalog advertises per-model reasoning
+    support also return that metadata ({"model-id": [efforts]}); it is stored
+    on the saved provider so the form can narrow the effort choices.
     """
     user = require_user()
     settings = get_settings()
@@ -279,7 +344,7 @@ def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
     if not isinstance(api_key, str) or not api_key.strip() or len(api_key) > 8192:
         frappe.throw("Enter the provider API key to fetch its models.")
     from .providers import ProviderConfig, ProviderError
-    from .providers.adapters import list_models
+    from .providers.adapters import list_catalog
 
     config = ProviderConfig(
         kind=kind.lower(),
@@ -294,13 +359,14 @@ def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
         effort="",
     )
     try:
-        models = list_models(config)
+        models, efforts = list_catalog(config)
     except ProviderError as exc:
         frappe.throw(exc.message)
     if not models:
         frappe.throw("The provider returned no models for these credentials.")
     if doc is not None:
         doc.models = "\n".join(models)
+        doc.model_efforts = json.dumps(efforts, sort_keys=True) if efforts else ""
         with internal_write():
             doc.save()
-    return {"models": models}
+    return {"models": models, "efforts": efforts}

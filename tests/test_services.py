@@ -175,8 +175,19 @@ def services(monkeypatch):
     for name in modules:
         monkeypatch.delitem(sys.modules, name, raising=False)
     yield fake, store
-    for name in modules:
+    # Modules freshly imported while this fixture held sys.modules are popped,
+    # and the frappe_intelligence package's own attributes must go with them:
+    # `from . import provider_service` resolves through getattr on the package
+    # BEFORE the sys.modules fallback, so a stale attribute split-brains the
+    # module (sys.modules has one object, the package re-exports a dead one).
+    # The access stub leaves the same residue. monkeypatch restores the true
+    # sys.modules entries after this; the next import then rebuilds one
+    # consistent module object.
+    package = sys.modules.get("frappe_intelligence")
+    for name in ["frappe_intelligence.access", *modules]:
         sys.modules.pop(name, None)
+        if package is not None:
+            vars(package).pop(name.rpartition(".")[2], None)
 
 
 def test_personal_provider_cannot_be_read_or_edited_by_another_user(services):
@@ -254,6 +265,20 @@ def test_provider_update_preserves_omitted_role_restrictions_and_limits(services
     assert doc.enabled == 0
     module.save_provider(name=created["name"], title="Renamed", kind="OpenAI", model="m", allowed_roles="")
     assert doc.allowed_roles == ""
+
+
+def test_provider_token_limit_supports_large_output_budgets(services):
+    _, store = services
+    module = importlib.import_module("frappe_intelligence.provider_service")
+    saved = module.save_provider(title="Big", kind="OpenAI", model="m", api_key="secret", max_tokens=262144)
+    assert store[saved["name"]].max_tokens == 262144
+    for value in (127, 262145, "many"):
+        with pytest.raises(ValueError):
+            module.save_provider(
+                title="Invalid", kind="OpenAI", model="m", api_key="secret", max_tokens=value
+            )
+    defaulted = module.save_provider(title="Default", kind="OpenAI", model="m", api_key="secret")
+    assert store[defaulted["name"]].max_tokens == 16384
 
 
 def test_memory_cannot_cross_owners_or_conversations(services):

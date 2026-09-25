@@ -40,6 +40,13 @@
    "description": "Model IDs offered by this provider, one per line. Fetched from the provider API or entered by hand; the active Model must be one of these."
   },
   {
+   "fieldname": "model_efforts",
+   "label": "Model Efforts",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "description": "JSON map of model ID to the thinking efforts that model advertises, captured from the provider API when the catalog is fetched."
+  },
+  {
    "fieldname": "api_key",
    "label": "Api Key",
    "fieldtype": "Password",
@@ -69,9 +76,10 @@
   },
   {
    "fieldname": "max_tokens",
-   "label": "Max Tokens",
+   "label": "Max Output Tokens",
    "fieldtype": "Int",
-   "default": "4096"
+   "default": "16384",
+   "description": "Upper bound on the tokens the model may generate in a single reply (128 to 262144)."
   },
   {
    "fieldname": "timeout",
@@ -86,6 +94,7 @@
   "model",
   "thinking_effort",
   "models",
+  "model_efforts",
   "api_key",
   "base_url",
   "is_shared",

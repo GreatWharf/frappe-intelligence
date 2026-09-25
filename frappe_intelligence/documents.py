@@ -3,14 +3,62 @@
 import frappe
 from frappe.model.document import Document
 
+# Operational fields a native Desk form save may change on Intelligence Provider.
+# Everything else (credentials, routing, sharing, identity) stays writable only
+# through the app API, which validates it. When the doctype JSON gains a field,
+# decide deliberately which list it joins; locked is the default for safety.
+PROVIDER_FORM_FIELDS = frozenset({"title", "max_tokens", "timeout", "thinking_effort", "enabled", "models"})
+PROVIDER_LOCKED_FIELDS = (
+    "kind",
+    "model",
+    "model_efforts",
+    "api_key",
+    "base_url",
+    "is_shared",
+    "allowed_roles",
+    "owner",
+)
+
 
 class ManagedDocument(Document):
     def _guard(self):
         if not frappe.flags.get("intelligence_internal"):
             frappe.throw("Use the Intelligence workspace to change this record.", frappe.PermissionError)
 
+    def _guard_save(self):
+        """Internal writes pass; native saves are limited to safe provider edits."""
+        if frappe.flags.get("intelligence_internal"):
+            return
+        if self.doctype != "Intelligence Provider" or not self._provider_form_save():
+            self._guard()
+
+    def _provider_form_save(self):
+        """True for a Desk-form edit that save_provider's rules would also allow.
+
+        The actor rules mirror provider_service.save_provider exactly: personal
+        providers are owner-only (even against managers), shared providers
+        additionally require a manager. Only whitelisted operational fields may
+        differ from the saved record. Creates stay API-only: without a saved
+        record there is nothing to diff against.
+        """
+        old = self.get_doc_before_save()
+        if old is None:
+            return False
+        from .access import MANAGER_ROLES, require_user
+        from .provider_service import can_manage
+
+        try:
+            user = require_user()
+        except frappe.PermissionError:
+            return False
+        if not can_manage(self, user):
+            return False
+        if self.get("is_shared") and not MANAGER_ROLES.intersection(frappe.get_roles(user)):
+            return False
+        return all(old.get(field) == self.get(field) for field in PROVIDER_LOCKED_FIELDS)
+
     def validate(self):
-        self._guard()
+        self._guard_save()
         old = self.get_doc_before_save()
         if old and old.owner != self.owner:
             frappe.throw("Intelligence record ownership cannot be transferred.", frappe.PermissionError)
@@ -42,7 +90,7 @@ class SettingsDocument(Document):
             )
         limits = {
             "max_steps": (1, 30),
-            "max_tokens": (128, 32768),
+            "max_tokens": (128, 262144),
             "max_run_seconds": (30, 1800),
             "approval_expiry_minutes": (5, 10080),
             "max_upload_mb": (1, 20),

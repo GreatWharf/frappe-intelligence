@@ -474,6 +474,7 @@ def save_provider(
     timeout=None,
     thinking_effort=None,
     models=None,
+    model_efforts=None,
 ):
     return provider_service.save_provider(
         name,
@@ -489,6 +490,7 @@ def save_provider(
         timeout,
         thinking_effort,
         models,
+        model_efforts,
     )
 
 
@@ -496,6 +498,13 @@ def save_provider(
 @_safe
 def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
     return provider_service.fetch_provider_models(name, kind, base_url, api_key)
+
+
+@frappe.whitelist(methods=["POST"])
+@_safe
+def set_provider_api_key(name, api_key):
+    """Set or rotate a provider's key from the native form; never echoes it back."""
+    return provider_service.set_provider_api_key(name, api_key)
 
 
 @frappe.whitelist(methods=["POST"])

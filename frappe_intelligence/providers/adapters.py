@@ -73,7 +73,7 @@ def _configuration(config):
         or len(config.api_key) > 4096
         or any(ord(char) < 33 or ord(char) > 126 for char in config.api_key)
         or type(config.max_tokens) is not int
-        or not 1 <= config.max_tokens <= 131072
+        or not 1 <= config.max_tokens <= 262144
         or type(config.timeout) is not int
         or not 1 <= config.timeout <= MAX_TIMEOUT
         or not isinstance(config.base_url, str)
@@ -571,6 +571,34 @@ def list_models(config):
     Returns up to 500 validated model IDs, sorted. Never exposes raw catalog
     payloads: only the IDs the UI offers in the provider dialog.
     """
+    return list_catalog(config)[0]
+
+
+# Canonical efforts a model may advertise, minus the always-implied Auto.
+_CATALOG_EFFORTS = ("Low", "Medium", "High", "Max")
+# Kinds whose /models wire can carry OpenRouter-shaped capability metadata.
+_EFFORT_CATALOG_KINDS = frozenset({"openrouter", "custom"})
+
+
+def _advertised_efforts(row):
+    """Efforts one catalog row advertises; nothing when the wire is silent.
+
+    OpenRouter rows list "reasoning" in supported_parameters. Every canonical
+    level is then offered: Max degrades to high on the wire by design.
+    """
+    parameters = row.get("supported_parameters")
+    if isinstance(parameters, list) and "reasoning" in parameters:
+        return list(_CATALOG_EFFORTS)
+    return []
+
+
+def list_catalog(config):
+    """Fetch model IDs plus the reasoning efforts each model advertises.
+
+    Returns (models, efforts) where efforts maps a model ID to canonical effort
+    labels. Providers whose catalog exposes no capability metadata yield an
+    empty map; capabilities are never invented.
+    """
     if not isinstance(config, ProviderConfig):
         raise _config_error()
     if config.kind == "custom" and not config.base_url:
@@ -593,15 +621,20 @@ def list_models(config):
     if not isinstance(rows, list):
         raise _response_error()
     models = []
+    efforts = {}
     for row in rows:
         if not isinstance(row, dict):
             continue
         model = extract(row)
         if model and _MODEL.fullmatch(model) and model not in models:
             models.append(model)
+            if config.kind in _EFFORT_CATALOG_KINDS:
+                advertised = _advertised_efforts(row)
+                if advertised:
+                    efforts[model] = advertised
         if len(models) >= 500:
             break
-    return sorted(models)
+    return sorted(models), efforts
 
 
 def _embeddings_url(config):
