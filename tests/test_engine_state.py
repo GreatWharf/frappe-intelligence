@@ -981,7 +981,7 @@ def test_first_message_titles_a_new_chat_conversation(env):
     assert doc.active_run == result["name"]
 
 
-def test_first_message_title_is_capped_at_eighty_characters(env):
+def test_first_message_title_is_capped_at_one_hundred_characters(env):
     env.frappe.seed(
         "Intelligence Conversation",
         "titled",
@@ -992,8 +992,8 @@ def test_first_message_title_is_capped_at_eighty_characters(env):
     )
     env.engine.submit_message("titled", "word " * 30)
     doc = env.frappe.get_doc("Intelligence Conversation", "titled")
-    assert doc.title == ("word " * 30).strip()[:80]
-    assert len(doc.title) == 80
+    assert doc.title == ("word " * 30).strip()[:100]
+    assert len(doc.title) == 100
 
 
 def test_a_custom_titled_conversation_is_never_renamed(env):

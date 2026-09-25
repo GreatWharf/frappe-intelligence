@@ -28,7 +28,7 @@ def drive_to_completion(env, name):
     return env.engine.get_run(name)["state"]
 
 
-def submit_titled(env):
+def submit_titled(env, message="Show my unpaid invoices"):
     env.frappe.seed(
         "Intelligence Conversation",
         "titled",
@@ -37,7 +37,7 @@ def submit_titled(env):
         message_count=0,
         title="New chat",
     )
-    result = env.engine.submit_message("titled", "Show my unpaid invoices")
+    result = env.engine.submit_message("titled", message)
     env.frappe.db.commit()
     return result["name"]
 
@@ -261,9 +261,10 @@ def test_the_first_completed_run_replaces_the_placeholder_title(env, monkeypatch
     assert seen[-1].max_tokens == 400 and seen[-1].effort == "low", (
         "reasoning models need room for thinking plus the few visible words"
     )
-    assert env.calls[-1][0]["role"] == "system" and "3 to 6 words" in env.calls[-1][0]["content"]
-    assert "Show my unpaid invoices" in env.calls[-1][-1]["content"]
-    assert "Here are your unpaid invoices." in env.calls[-1][-1]["content"]
+    assert env.calls[-1][0]["role"] == "system" and "at most 100 characters" in env.calls[-1][0]["content"]
+    payload = env.calls[-1][-1]["content"]
+    assert "User message:\nShow my unpaid invoices" in payload
+    assert "Assistant reply (context only):\nHere are your unpaid invoices." in payload
     assert env.frappe.events[-1][1]["state"] == "completed", "the rename pushes the usual snapshot"
 
 

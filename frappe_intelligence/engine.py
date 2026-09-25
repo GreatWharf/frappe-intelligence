@@ -308,7 +308,9 @@ def get_provider_config(provider_name, user=None):
         model=doc.model,
         api_key=key,
         base_url=doc.base_url or "",
-        max_tokens=min(_number(doc.max_tokens, 4096, 1, 32768), _number(settings.max_tokens, 4096, 1, 32768)),
+        max_tokens=min(
+            _number(doc.max_tokens, 16384, 1, 262144), _number(settings.max_tokens, 16384, 1, 262144)
+        ),
         timeout=_number(doc.timeout, 60, 5, 120),
         allowed_hosts=allowed,
         effort="" if effort == "Auto" else effort,
@@ -514,7 +516,7 @@ def submit_message(conversation, content, context=None, attachments=None, model=
     fresh = frappe.get_doc(CONVERSATION, conversation, for_update=True)
     updates = {"active_run": run.name}
     if fresh.title == "New chat":
-        title = re.sub(r"\s+", " ", content).strip()[:80]
+        title = re.sub(r"\s+", " ", content).strip()[:_TITLE_MAX]
         if title:
             updates["title"] = title
     _save(fresh, **updates)
@@ -1423,24 +1425,75 @@ def _provider_turn(run_name, token):
         _maybe_generate_title(run)
 
 
+_TITLE_MAX = 100
+
 _TITLE_PROMPT = (
-    "Write a short conversation title, 3 to 6 words, plain text, no quotes, no punctuation at the end."
+    "You write conversation titles for a business assistant. Output ONLY the title text, "
+    "at most 100 characters, plain text, no quotes, no punctuation at the end. The title "
+    "describes the user's request or task and is based on the user's first message; the "
+    "assistant reply is context only. Never answer the user, never greet, never ask a "
+    "question back, never describe what the assistant can or cannot do."
+)
+
+# Assistant openers and deflection phrases mean the model echoed its own reply
+# instead of titling the user's message. False negatives are harmless: the
+# user-message placeholder simply stays.
+_TITLE_OPENERS = (
+    "hi",
+    "hello",
+    "hey",
+    "sure",
+    "certainly",
+    "of course",
+    "i",
+    "i'm",
+    "i am",
+    "as an ai",
+    "happy to",
+    "great",
+    "thanks",
+    "thank you",
+)
+_TITLE_DEFLECTIONS = (
+    "how can i help",
+    "how may i",
+    "happy to help",
+    "don't have access",
+    "do not have access",
+    "let me know",
+    "i cannot",
+    "i can't",
 )
 
 
 def _clean_title(text):
+    """Clean and validate a generated title; an empty string keeps the placeholder."""
     line = re.sub(r"\s+", " ", str(text or "")).strip()
-    line = line.strip("\"'`").rstrip(".!?,;:").strip()
-    return line[:80].rstrip(" .")
+    line = line.strip("\"'`").strip()
+    if line.endswith("?"):
+        return ""
+    line = line.rstrip(".!?,;:").strip()[:_TITLE_MAX].rstrip(" .")
+    lowered = line.lower()
+    if len(line) < 3:
+        return ""
+    if any(
+        lowered == opener or lowered.startswith((opener + " ", opener + ",", opener + "!"))
+        for opener in _TITLE_OPENERS
+    ):
+        return ""
+    if any(phrase in lowered for phrase in _TITLE_DEFLECTIONS):
+        return ""
+    return line
 
 
 def _maybe_generate_title(run):
     """Best-effort AI title once a run produced the conversation's first reply.
 
     The truncated first message already serves as the placeholder; this only
-    replaces it when the user never renamed the conversation themselves. It
-    must NEVER fail or delay the run: the run already committed completed, and
-    any problem here falls back to the placeholder silently.
+    replaces it when the user never renamed the conversation themselves and the
+    candidate passes _clean_title validation. It must NEVER fail or delay the
+    run: the run already committed completed, and any problem here falls back
+    to the placeholder silently.
     """
     try:
         conversation = frappe.get_doc(CONVERSATION, run.conversation, for_update=True)
@@ -1476,9 +1529,14 @@ def _maybe_generate_title(run):
         user_text = (first_user[0].get("content") or "").strip()[:2000]
         if not user_text:
             return
+        # Label both texts so the model titles the user's message and treats the
+        # assistant reply as context only, never as the text to repeat.
+        titled = f"User message:\n{user_text}"
+        if reply_text:
+            titled += f"\n\nAssistant reply (context only):\n{reply_text}"
         messages = [
             {"role": "system", "content": _TITLE_PROMPT},
-            {"role": "user", "content": f"{user_text}\n\n{reply_text}" if reply_text else user_text},
+            {"role": "user", "content": titled},
         ]
         frappe.db.commit()  # the provider call never holds a transaction
         from frappe_intelligence.providers import complete
