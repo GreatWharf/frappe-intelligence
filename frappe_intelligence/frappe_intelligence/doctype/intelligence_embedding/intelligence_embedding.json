@@ -10,14 +10,13 @@
       "fieldname": "conversation",
       "label": "Conversation",
       "fieldtype": "Link",
-      "options": "Intelligence Conversation",
-      "reqd": 1
+      "options": "Intelligence Conversation"
     },
     {
       "fieldname": "source_type",
       "label": "Source Type",
       "fieldtype": "Select",
-      "options": "Attachment\nMessage",
+      "options": "Attachment\nMessage\nMemory",
       "reqd": 1
     },
     {

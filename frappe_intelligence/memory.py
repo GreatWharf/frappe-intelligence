@@ -70,6 +70,13 @@ def save_memory(content, scope="personal", conversation=None, name=None):
     doc.scope, doc.conversation, doc.content, doc.enabled = scope, conversation, content.strip(), 1
     with internal_write():
         doc.save() if name else doc.insert()
+    try:
+        from . import rag
+
+        rag.index_memory(doc)
+    except Exception:
+        # Indexing is best-effort: saving a memory never fails on embeddings.
+        pass
     return _public(doc)
 
 
@@ -82,6 +89,35 @@ def delete_memory(name):
         frappe.throw("You cannot delete this memory.", frappe.PermissionError)
     if doc.scope == "conversation":
         get_conversation(doc.conversation, write=True)
+    from . import rag
+
     with internal_write():
+        rag.drop_memory(name)
         frappe.delete_doc("Intelligence Memory", name, ignore_permissions=True)
     return {"deleted": True}
+
+
+def search_memories(scope="personal", conversation=None, query=None):
+    """Visible memories ranked by similarity to query, or None to keep recency order.
+
+    The candidate set is exactly what list_memories returns for this user and
+    scope; ranking only reorders it, so semantic recall can never widen
+    visibility. Any retrieval gap (no query, no usable provider, no scored
+    vectors) returns None so callers fall back to the honest recency list.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return None
+    rows = list_memories(scope, conversation)
+    if not rows:
+        return None
+    try:
+        from . import rag
+
+        scores = rag.score_memories(rows, query)
+    except Exception:
+        return None
+    if not scores:
+        return None
+    ranked = [dict(row, score=scores[row["name"]]) for row in rows if row.get("name") in scores]
+    ranked.sort(key=lambda row: row["score"], reverse=True)
+    return ranked

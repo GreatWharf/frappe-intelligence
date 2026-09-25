@@ -11,7 +11,12 @@ from .validation import object_schema, string_schema
 
 _SCOPE = {"type": "string", "enum": ["personal", "conversation", "site"]}
 _READ = object_schema(
-    {"scope": _SCOPE, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}, ("scope",)
+    {
+        "scope": _SCOPE,
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        "query": string_schema(2000),
+    },
+    ("scope",),
 )
 _SAVE = object_schema({"scope": _SCOPE, "content": string_schema(5000)}, ("scope", "content"))
 
@@ -31,23 +36,36 @@ def _scope(context, args, write=False):
 
 def preview_recall(context, args):
     scope = _scope(context, args)
+    details = {"limit": args.get("limit", 20)}
+    if isinstance(args.get("query"), str) and args["query"].strip():
+        details["query"] = args["query"].strip()
     return {
         "summary": f"Recall {args['scope']} memory into this conversation.",
         "operation": "recall_memory",
         "target": scope,
-        "details": {"limit": args.get("limit", 20)},
+        "details": details,
     }
 
 
 def recall_memory(context, args):
     from frappe_intelligence.memory import list_memories
 
-    rows = list_memories(**_scope(context, args))
+    scope = _scope(context, args)
     limit = args.get("limit", 20)
-    result = [
-        {key: row.get(key) for key in ("name", "scope", "conversation", "content", "modified")}
-        for row in rows[:limit]
-    ]
+    query = args.get("query")
+    rows = None
+    if isinstance(query, str) and query.strip():
+        from frappe_intelligence.memory import search_memories
+
+        rows = search_memories(**scope, query=query)
+    if rows is None:
+        rows = list_memories(**scope)
+    result = []
+    for row in rows[:limit]:
+        item = {key: row.get(key) for key in ("name", "scope", "conversation", "content", "modified")}
+        if "score" in row:
+            item["score"] = row["score"]
+        result.append(item)
     return {"memories": result, "truncated": len(rows) > limit, "untrusted_content": True}
 
 
@@ -77,7 +95,7 @@ def specs(context):
     return [
         ToolSpec(
             "recall_memory",
-            "Explicitly recall personal, current-conversation, or site memory. Never recall another user's memory.",
+            "Explicitly recall personal, current-conversation, or site memory. Pass a focused query describing what you are looking for to rank the most relevant memories first; omit it to list the most recent. Never recall another user's memory.",
             _READ,
             recall_memory,
             preview_recall,

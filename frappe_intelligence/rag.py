@@ -6,6 +6,11 @@ entry point checks conversation access first; index rows are internal server
 records and are never exposed as documents. When the configured provider has
 no embeddings endpoint the pipeline degrades to an honest, cached unavailable
 status and chat continues without retrieval.
+
+Saved memories are indexed best-effort through the same provider path. Their
+chunks never join conversation retrieval; they are read only by the explicitly
+approved memory recall flow, which falls back to the recency list whenever
+embeddings are unavailable.
 """
 
 import hashlib
@@ -27,6 +32,13 @@ MAX_SOURCE_CHARS = 400000
 MAX_QUERY_CHARS = 8000
 EMBEDDING_BATCH = 16
 CACHE_TTL_SECONDS = 6 * 60 * 60
+# Saved memories embed through the same pipeline: one memory is a couple of
+# chunks, and semantic recall scores only a bounded, already-visible set.
+MEMORY_SOURCE = "Memory"
+MEMORY_CHUNK_SIZE = 4000
+MEMORY_CHUNK_OVERLAP = 800
+MAX_MEMORY_CHUNKS = 4
+MAX_MEMORY_CANDIDATES = 200
 # OpenAI-compatible embedding models per wire; "custom" follows the OpenAI
 # convention because custom endpoints are OpenAI-compatible by definition.
 _EMBEDDING_MODEL = {
@@ -251,6 +263,38 @@ def _retrieval_access(chat):
     return {"user": user, "provider": doc, "state": state}
 
 
+def _memory_access():
+    """Resolve the current user's first embeddings-capable provider, or None.
+
+    Memories are cross-conversation, so unlike _retrieval_access there is no
+    conversation provider to prefer: the saver's (or recaller's) first usable
+    provider that supports embeddings wins. Never raises.
+    """
+    try:
+        user = require_user()
+        from .provider_service import list_providers
+
+        providers = list_providers()
+    except Exception:
+        return None
+    for row in providers:
+        name = row.get("name")
+        if not name:
+            continue
+        try:
+            doc = frappe.get_doc("Intelligence Provider", name)
+            if not can_use_provider(doc, user):
+                continue
+            if (doc.get("kind") or "").lower() not in adapters.EMBEDDING_KINDS:
+                continue
+            state = capability(name)
+        except Exception:
+            continue
+        if state.get("available"):
+            return {"user": user, "provider": doc, "state": state}
+    return None
+
+
 def _embed(access, inputs):
     from .access import provider_secret_access
 
@@ -320,6 +364,9 @@ def _sources(chat):
 
 
 def _rows(conversation):
+    # Memory chunks share the conversation column but belong to the approved
+    # memory recall flow only: never to conversation retrieval, and never to
+    # the stale-source sweep of _ensure_indexed.
     return [
         row
         for row in frappe.get_all(
@@ -337,7 +384,7 @@ def _rows(conversation):
             ],
             limit_page_length=MAX_CHUNKS + 50,
         )
-        if row.get("conversation") == conversation
+        if row.get("conversation") == conversation and row.get("source_type") != MEMORY_SOURCE
     ]
 
 
@@ -362,7 +409,29 @@ def _delete_rows(conversation, source_name=None):
     return deleted
 
 
-def _index_chunks(chat, access, source, digest, chunks):
+def _source_rows(source_type, source_name, fields):
+    return [
+        row
+        for row in frappe.get_all(
+            "Intelligence Embedding",
+            filters={"source_type": source_type, "source_name": source_name},
+            fields=fields,
+            limit_page_length=MAX_MEMORY_CHUNKS + 50,
+        )
+        if row.get("source_type") == source_type and row.get("source_name") == source_name
+    ]
+
+
+def _delete_source_rows(source_type, source_name):
+    deleted = 0
+    for row in _source_rows(source_type, source_name, ["name", "source_type", "source_name"]):
+        with internal_write():
+            frappe.delete_doc("Intelligence Embedding", row.get("name"), ignore_permissions=True)
+        deleted += 1
+    return deleted
+
+
+def _index_chunks(conversation, access, source, digest, chunks):
     for start in range(0, len(chunks), EMBEDDING_BATCH):
         batch = chunks[start : start + EMBEDDING_BATCH]
         try:
@@ -379,7 +448,7 @@ def _index_chunks(chat, access, source, digest, chunks):
                 frappe.get_doc(
                     {
                         "doctype": "Intelligence Embedding",
-                        "conversation": chat.name,
+                        "conversation": conversation,
                         "source_type": source["type"],
                         "source_name": source["name"],
                         "source_label": str(source["label"])[:140],
@@ -426,7 +495,7 @@ def _ensure_indexed(chat, access):
     for stale in set(grouped) - keep:
         _delete_rows(chat.name, stale)
     for source, digest, chunks in pending:
-        _index_chunks(chat, access, source, digest, chunks)
+        _index_chunks(chat.name, access, source, digest, chunks)
     return total
 
 
@@ -495,3 +564,96 @@ def context_block(conversation, query, top_k=5, max_chars=4000):
 def drop_conversation(conversation):
     """Delete a conversation's index rows; for the conversation deletion path."""
     return _delete_rows(conversation)
+
+
+def index_memory(memory):
+    """Best-effort vector index for one saved memory; never raises, never blocks the save.
+
+    Unchanged content keeps its rows (content_hash match); changed content has
+    its rows replaced. When no provider offers embeddings the memory is stored
+    without vectors and the recency fallback in the recall flow keeps working.
+    """
+    try:
+        name = memory.get("name")
+        content = (memory.get("content") or "").strip()
+        if not name or not content:
+            return
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        existing = _source_rows(MEMORY_SOURCE, name, ["name", "source_type", "source_name", "content_hash"])
+        if existing and {row.get("content_hash") for row in existing} == {digest}:
+            return
+        if existing:
+            _delete_source_rows(MEMORY_SOURCE, name)
+        access = _memory_access()
+        if access is None:
+            return
+        chunks = chunk_text(content, size=MEMORY_CHUNK_SIZE, overlap=MEMORY_CHUNK_OVERLAP)[:MAX_MEMORY_CHUNKS]
+        if not chunks:
+            return
+        scope = str(memory.get("scope") or "personal").title()
+        source = {"type": MEMORY_SOURCE, "name": name, "label": f"{scope} memory"}
+        _index_chunks(memory.get("conversation"), access, source, digest, chunks)
+    except Exception:
+        return
+
+
+def drop_memory(name):
+    """Delete one memory's index rows; part of the memory deletion write."""
+    if not name:
+        return 0
+    return _delete_source_rows(MEMORY_SOURCE, name)
+
+
+def score_memories(candidates, query):
+    """Cosine scores {memory name: score} over visible candidates, or None when unavailable.
+
+    Candidates must already be visibility-filtered by the caller; scoring only
+    reorders that set. Only chunks embedded with the recaller's current
+    embedding model can score; anything else leaves the memory unranked so the
+    caller keeps its recency order. Read-only, bounded to MAX_MEMORY_CANDIDATES.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return None
+    access = _memory_access()
+    if access is None:
+        return None
+    names = []
+    for row in candidates:
+        if len(names) >= MAX_MEMORY_CANDIDATES:
+            break
+        name = row.get("name")
+        if name and name not in names:
+            names.append(name)
+    if not names:
+        return None
+    try:
+        query_vector = _embed(access, [query.strip()[:MAX_QUERY_CHARS]])[0]
+    except ProviderError:
+        _forget(access["provider"].name)
+        return None
+    except Exception:
+        return None
+    wanted = set(names)
+    model = access["state"].get("model") or ""
+    scores = {}
+    for row in frappe.get_all(
+        "Intelligence Embedding",
+        filters={"source_type": MEMORY_SOURCE, "source_name": ("in", names)},
+        fields=["name", "source_type", "source_name", "vector", "model"],
+        limit_page_length=MAX_MEMORY_CANDIDATES * MAX_MEMORY_CHUNKS + 50,
+    ):
+        if row.get("source_type") != MEMORY_SOURCE:
+            continue
+        source_name = row.get("source_name")
+        if source_name not in wanted:
+            continue
+        if model and (row.get("model") or "") != model:
+            continue
+        try:
+            vector = json.loads(row.get("vector") or "[]")
+        except ValueError:
+            continue
+        score = cosine(query_vector, vector)
+        if score > scores.get(source_name, 0.0):
+            scores[source_name] = score
+    return {name: round(score, 4) for name, score in scores.items() if score > 0}
