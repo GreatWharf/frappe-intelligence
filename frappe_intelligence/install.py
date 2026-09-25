@@ -7,7 +7,7 @@ MODULE = "Frappe Intelligence"
 DEFAULTS = {
     "enabled": 1,
     "max_steps": 30,
-    "max_tokens": 4096,
+    "max_tokens": 16384,
     "max_run_seconds": 600,
     "approval_expiry_minutes": 1440,
     "max_upload_mb": 10,
@@ -130,6 +130,54 @@ SEED_SKILLS = (
         "scope_write": "Communication",
         "instructions": """Answer inbound price and lead-time questions from customers. Read the inbound Communication with read_document and identify the Items and quantities the sender asked about. Look up each Item with search_records and read_document: current price, availability signals and anything the record says about lead time, using only fields you are allowed to see. If an Item or price is missing, say so plainly instead of inventing numbers. Draft a clear, professional reply in chat that quotes the prices and lead times you found, notes any validity or caveats the records mention and asks for details that are still needed. Let the user review and edit the draft. Only when the user explicitly approves, create a draft Communication with create_document so a human reviews and sends it. Never send the reply yourself, never create or submit a Quotation unless the user separately asks for a draft through the normal approval, and never promise stock or dates the records do not support.""",
     },
+    {
+        "name": "create-skill",
+        "title": "Capture a repeated workflow as a skill",
+        "description": "Draft a new skill from a repeated workflow with propose_skill; the user reviews and enables it.",
+        "scope_read": "",
+        "scope_write": "",
+        "instructions": """When you notice the user repeating a workflow, or the user asks you to remember how something is done, offer to capture it as a new skill. Restate the workflow in chat first: the phrase or situation that should trigger the skill, the steps you took and the tool each step used. Check the skills listed in your context and name any that already cover the workflow instead of duplicating it. Draft the new skill with propose_skill: a short lowercase hyphenated name, a clear title, a one-line description that states the trigger, tight step-by-step instructions that name the tools to call, and the smallest scope_read and scope_write the workflow can run with, leaving scope_write empty when the workflow only reads. Write the same safety rules the reviewed skills carry: every write is a draft behind explicit user approval, and the skill never submits, posts, sends email or auto-reconciles. Present the draft and rework it with propose_skill until the user is satisfied. The skill stays inactive until the user reviews and enables it themselves; never enable a skill yourself and never loosen a safety rule while drafting.""",
+    },
+    {
+        "name": "month-end-close",
+        "title": "Month-end close",
+        "description": "Walk the month-end close as a checklist from the reviewed reports and open documents.",
+        "scope_read": "Sales Invoice\nPurchase Invoice\nAccount\nCompany",
+        "scope_write": "",
+        "instructions": """Guide the user through the month-end close as a checklist, never as silent background work. Run the reviewed financial reports with run_report for the period being closed: Trial Balance first so imbalances surface, then Balance Sheet, Profit and Loss Statement and Cash Flow, staying inside the report filters the site allows. List what is still open with search_records: draft Sales Invoices and Purchase Invoices waiting to be submitted or paid, and overdue documents from the previous period. Compare Accounts Receivable and Accounts Payable balances with the open invoices you found and call out anything that does not line up. Present the close as an ordered checklist in chat: what is done, what is open and who it waits on, citing the report or record behind every line so the user can verify. Propose the next actions in priority order and offer to draft the documents behind them. Records and reports are read-only here: create or change a document only when the user asks, and then only as a draft behind the user's explicit approval. Never submit, post, reconcile or close anything yourself.""",
+    },
+    {
+        "name": "overdue-receivables-followup",
+        "title": "Chase overdue receivables",
+        "description": "Draft dunning replies for overdue Sales Invoices; nothing is ever sent automatically.",
+        "scope_read": "Customer\nContact\nSales Invoice\nCommunication",
+        "scope_write": "Communication",
+        "instructions": """Help the user follow up on overdue receivables without ever sending anything yourself. Run Accounts Receivable with run_report and list the overdue Sales Invoices with search_records, ordered by days outstanding. For each customer, read the Customer and its Contacts with read_document so the reminder reaches the right person, and check recent Communications with search_records so a customer reminded yesterday is not chased again today. Summarize the overdue position in chat: who owes what, how late and when they were last contacted. For every customer the user picks, draft a polite dunning message in chat that states the invoice numbers, amounts and due dates exactly as the records show, in a tone the user can adjust. Only when the user explicitly approves a draft, create a draft Communication with create_document so a human reviews and sends it. Never send any reminder yourself, never mark invoices as paid and never promise payment plans or discounts the records do not support.""",
+    },
+    {
+        "name": "purchase-invoice-audit",
+        "title": "Audit supplier bills",
+        "description": "Flag duplicate and outlier Purchase Invoices for a period; strictly read-only.",
+        "scope_read": "Supplier\nPurchase Invoice\nItem",
+        "scope_write": "",
+        "instructions": """Audit supplier bills for the period the user names and flag what deserves a second look; the audit is strictly read-only. Gather the Purchase Invoices in scope with search_records. Look for duplicates: the same supplier with the same bill number, or the same supplier, amount and date appearing twice. Look for outliers: amounts far above that supplier's usual range, round-number bills that repeat, and rates that moved against the Item history you can see. Read the Supplier records with read_document for bills from suppliers with no history before this period. Report every finding in chat as a short list ranked by risk: what looks wrong, the evidence and the records to open, and be explicit when a period is clean instead of inventing findings. Propose next steps such as holding a bill or asking the supplier to confirm. Change nothing: corrections are drafted only when the user asks, and then only as drafts behind the user's explicit approval. Never submit, post, cancel or create payment entries yourself.""",
+    },
+    {
+        "name": "supplier-statement-reconciliation",
+        "title": "Reconcile a supplier statement",
+        "description": "Match a supplier statement to Purchase Invoices and propose drafts only.",
+        "scope_read": "Supplier\nPurchase Invoice\nBank Transaction",
+        "scope_write": "",
+        "instructions": """Reconcile a supplier statement the user pastes or attaches against the Purchase Invoices on record, proposing matches but never changing anything yourself. Read the statement with read_attachment when it is a file and extract every line: bill number, date, amount and running balance. Identify the Supplier with search_records by name and tax identifiers. Match each statement line to the Purchase Invoices you find with search_records by bill number first, then by amount and date proximity, and explain the evidence for every match. Present three lists in chat: lines that match cleanly, statement lines with no bill on record and bills on record the statement does not show, with amount mismatches called out exactly. Propose what to do about each gap, such as capturing a missing bill or querying a credit note. Record anything only when the user approves a proposal, and then only as a draft through create_document or update_document behind the user's explicit approval. Never submit or post documents, never create payment entries and never mark a supplier as settled.""",
+    },
+    {
+        "name": "cash-position-watch",
+        "title": "Cash position watch",
+        "description": "Report current bank balances, recent movements and what needs attention.",
+        "scope_read": "Bank Account\nBank Transaction",
+        "scope_write": "",
+        "instructions": """Answer how the company's cash looks right now and what moved since the last check. Read the Bank Accounts with search_records and read_document so every balance comes from a real record, naming the account and currency behind each number. List recent and unreconciled Bank Transactions with search_records and group them into money in and money out so large or unexpected movements stand out; call out the biggest few individually with their references. Run the Cash Flow report with run_report for the period the user asks about, staying inside the report filters the site allows, and reconcile the story it tells with the transactions you listed, saying plainly when the two disagree. Close with a short watch list in chat: balances that dropped, outflows that need explanation and unreconciled items piling up, citing the record behind each. Everything here is read-only: never create or change records, never reconcile transactions and never move money; when the user wants action, offer to draft it through the normal approval.""",
+    },
 )
 
 
@@ -150,26 +198,45 @@ def _roles():
 
 # v16 Workspace Sidebar rows: chat first, then Desk list views for every record
 # type an Intelligence user manages. The seeded sidebar is app-managed, so
-# after_migrate converges it to exactly this set on every release.
+# after_migrate converges it to exactly this set on every release. Every row
+# carries an icon from frappe's lucide sprite (frappe/public/icons/lucide.svg,
+# resolved as #icon-<name>): without one Desk falls back to the same "list"
+# glyph on every row (frappe/public/js/frappe/ui/sidebar/sidebar_item.js).
 SIDEBAR_ITEMS = (
-    ("Chat", "Page", "intelligence"),
-    ("Conversations", "DocType", "Intelligence Conversation"),
-    ("Always-allowed tools", "DocType", "Intelligence Tool Grant"),
-    ("Providers", "DocType", "Intelligence Provider"),
-    ("Skills", "DocType", "Intelligence Skill"),
-    ("Memory", "DocType", "Intelligence Memory"),
-    ("Settings", "DocType", "Intelligence Settings"),
+    ("Chat", "Page", "intelligence", "message-square"),
+    ("Conversations", "DocType", "Intelligence Conversation", "messages-square"),
+    ("Always-allowed tools", "DocType", "Intelligence Tool Grant", "shield-check"),
+    ("Providers", "DocType", "Intelligence Provider", "key"),
+    ("Skills", "DocType", "Intelligence Skill", "zap"),
+    ("Memory", "DocType", "Intelligence Memory", "database"),
+    ("Settings", "DocType", "Intelligence Settings", "settings"),
 )
 
+# Rows from SIDEBAR_TOP on sit under one collapsible section, the same shape
+# frappe's own sidebars use (frappe/workspace_sidebar/*.json): the Section
+# Break carries an icon and indent=1, and its rows set child=1.
+SIDEBAR_TOP = 2
+SIDEBAR_SECTION = ("Administration", "sliders-horizontal")
+
 # v15 navigates by workspaces; the same entries become one card per group.
+# Workspace links have no icon field on v15, so icons stay a v16-only concern.
 V15_CARDS = (
-    ("Chat", SIDEBAR_ITEMS[:1]),
-    ("Manage", SIDEBAR_ITEMS[1:]),
+    ("Chat", SIDEBAR_ITEMS[:SIDEBAR_TOP]),
+    ("Administration", SIDEBAR_ITEMS[SIDEBAR_TOP:]),
 )
 
 
 def _shape(row):
-    return (row.get("type"), row.get("label"), row.get("link_type"), row.get("link_to"))
+    return (
+        row.get("type"),
+        row.get("label"),
+        row.get("link_type"),
+        row.get("link_to"),
+        row.get("icon"),
+        row.get("child"),
+        row.get("indent"),
+        row.get("collapsible"),
+    )
 
 
 def _replace_rows(doc, field, wanted):
@@ -184,10 +251,45 @@ def _replace_rows(doc, field, wanted):
 
 
 def _sidebar_rows():
-    return [
-        {"type": "Link", "label": label, "link_type": link_type, "link_to": link_to}
-        for label, link_type, link_to in SIDEBAR_ITEMS
+    rows = [
+        {
+            "type": "Link",
+            "label": label,
+            "link_type": link_type,
+            "link_to": link_to,
+            "icon": icon,
+            "child": 0,
+            "indent": 0,
+            "collapsible": 1,
+        }
+        for label, link_type, link_to, icon in SIDEBAR_ITEMS[:SIDEBAR_TOP]
     ]
+    label, icon = SIDEBAR_SECTION
+    rows.append(
+        {
+            "type": "Section Break",
+            "label": label,
+            "link_type": "DocType",
+            "icon": icon,
+            "child": 0,
+            "indent": 1,
+            "collapsible": 1,
+        }
+    )
+    rows.extend(
+        {
+            "type": "Link",
+            "label": label,
+            "link_type": link_type,
+            "link_to": link_to,
+            "icon": icon,
+            "child": 1,
+            "indent": 0,
+            "collapsible": 1,
+        }
+        for label, link_type, link_to, icon in SIDEBAR_ITEMS[SIDEBAR_TOP:]
+    )
+    return rows
 
 
 def _v16_sidebar():
@@ -203,6 +305,12 @@ def _v16_sidebar():
                 # module keeps the DocType grouping intact (no Module Def rename).
                 sidebar.set("module", MODULE)
                 changed = True
+            if sidebar.get("module_onboarding") != MODULE:
+                # Pins the Getting Started onboarding at the bottom of this
+                # sidebar (native setup_onboarding); rendering itself is gated
+                # by System Settings enable_onboarding.
+                sidebar.set("module_onboarding", MODULE)
+                changed = True
             if changed:
                 sidebar.save(ignore_permissions=True)
     else:
@@ -211,6 +319,7 @@ def _v16_sidebar():
                 "doctype": "Workspace Sidebar",
                 "title": "Intelligence",
                 "module": MODULE,
+                "module_onboarding": MODULE,
                 "standard": 1,
                 "app": "frappe_intelligence",
                 "items": wanted,
@@ -237,7 +346,7 @@ def _v15_workspace():
     links = []
     for card, entries in V15_CARDS:
         links.append({"label": card, "type": "Card Break"})
-        for label, link_type, link_to in entries:
+        for label, link_type, link_to, _icon in entries:
             links.append({"label": label, "type": "Link", "link_type": link_type, "link_to": link_to})
     if frappe.db.exists("Workspace", "Intelligence Chat"):
         workspace = frappe.get_doc("Workspace", "Intelligence Chat")
@@ -455,6 +564,72 @@ def _seed_policies():
         _insert_seeded({"doctype": "Intelligence Policy", **policy})
 
 
+# Getting Started onboarding: the v16 Workspace Sidebar links the Module
+# Onboarding, and Desk renders it pinned at the bottom of the sidebar (native
+# setup_onboarding), gated by System Settings enable_onboarding. Actions use
+# the exact literals of the Onboarding Step doctype: "Create Entry" opens the
+# quick entry for reference_document, "Go to Page" routes to path.
+ONBOARDING_STEPS = (
+    {
+        "name": "Intelligence: Add a model provider",
+        "title": "Add a model provider",
+        "description": "Intelligence answers through a model provider. Add your first provider with its API key and default model so the assistant can start replying.",
+        "action": "Create Entry",
+        "reference_document": "Intelligence Provider",
+        "action_label": "Add a provider",
+    },
+    {
+        "name": "Intelligence: Start your first chat",
+        "title": "Start your first chat",
+        "description": "Open the Intelligence chat and ask your first question. Answers cite the records they used, and every write waits for your approval.",
+        "action": "Go to Page",
+        "path": "intelligence",
+        "action_label": "Open chat",
+    },
+    {
+        "name": "Intelligence: Save your first memory",
+        "title": "Save your first memory",
+        "description": "Memories let the assistant remember facts across chats, such as your reporting currency or house rules. Save one and watch it being recalled later.",
+        "action": "Create Entry",
+        "reference_document": "Intelligence Memory",
+        "action_label": "Save a memory",
+    },
+    {
+        "name": "Intelligence: Review the assistant skills",
+        "title": "Review the assistant skills",
+        "description": "Skills are the reviewed playbooks the assistant follows, from drafting replies to reconciling the bank. See which ones are enabled and tune them to your rules.",
+        "action": "Go to Page",
+        "path": "List/Intelligence Skill",
+        "action_label": "Review skills",
+    },
+)
+
+
+def _seed_onboarding():
+    """Insert the Getting Started onboarding once; never rewrite site state.
+
+    Steps carry per-site completion flags (is_complete/is_skipped) and the
+    Module Onboarding itself is editable by System Managers, so both records
+    are insert-only. The v16 sidebar link is app-owned and converges in
+    _v16_sidebar instead.
+    """
+    for step in ONBOARDING_STEPS:
+        if frappe.db.exists("Onboarding Step", step["name"]):
+            continue
+        frappe.get_doc({"doctype": "Onboarding Step", **step}).insert(ignore_permissions=True)
+    if not frappe.db.exists("Module Onboarding", MODULE):
+        frappe.get_doc(
+            {
+                "doctype": "Module Onboarding",
+                "name": MODULE,
+                "title": "Get started with Intelligence",
+                "module": MODULE,
+                "steps": [{"step": step["name"]} for step in ONBOARDING_STEPS],
+                "allow_roles": [{"role": role} for role in USER_ROLES],
+            }
+        ).insert(ignore_permissions=True)
+
+
 def before_install():
     check_versions()
     _roles()
@@ -494,6 +669,7 @@ def after_migrate():
         ("Intelligence Policy", ["enabled", "priority"], "intelligence_policy_priority"),
     ):
         frappe.db.add_index(doctype, fields, name)
+    _seed_onboarding()
     _navigation()
     _seed_skills()
     _seed_policies()

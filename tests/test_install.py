@@ -52,6 +52,12 @@ EXPECTED_SKILLS = {
     "company-summary": "Company summary",
     "bank-reconciliation": "Bank reconciliation",
     "quote-request": "Answer a quote request",
+    "create-skill": "Capture a repeated workflow as a skill",
+    "month-end-close": "Month-end close",
+    "overdue-receivables-followup": "Chase overdue receivables",
+    "purchase-invoice-audit": "Audit supplier bills",
+    "supplier-statement-reconciliation": "Reconcile a supplier statement",
+    "cash-position-watch": "Cash position watch",
 }
 
 
@@ -149,7 +155,7 @@ def seeded(store):
     return {name: doc for (doctype, name), doc in store.items() if doctype == "Intelligence Skill"}
 
 
-def test_after_migrate_seeds_exactly_six_skills_idempotently(migrator):
+def test_after_migrate_seeds_exactly_twelve_skills_idempotently(migrator):
     module, _, store = migrator
     module.after_migrate()
     module.after_migrate()
@@ -169,7 +175,7 @@ def test_after_migrate_preserves_user_edits_to_seeded_skills(migrator):
     module.after_migrate()
     store[("Intelligence Skill", "daily-briefing")].instructions = "User-customized playbook."
     module.after_migrate()
-    assert len(seeded(store)) == 6
+    assert len(seeded(store)) == 12
     doc = store[("Intelligence Skill", "daily-briefing")]
     assert doc.instructions == "User-customized playbook."
 
@@ -202,7 +208,7 @@ def test_seed_inserts_keep_deterministic_names_and_restore_the_import_flag(migra
     assert ("Intelligence Skill", "ingest-invoice") in store
     module.after_migrate()
     assert len([key for key in store if key[0] == "Intelligence Policy"]) == 2
-    assert len([key for key in store if key[0] == "Intelligence Skill"]) == 6
+    assert len([key for key in store if key[0] == "Intelligence Skill"]) == 12
 
 
 def test_seed_scopes_keep_write_inside_read_and_playbooks_bounded(migrator):
@@ -214,6 +220,25 @@ def test_seed_scopes_keep_write_inside_read_and_playbooks_bounded(migrator):
         write = {line.strip() for line in doc.scope_write.splitlines() if line.strip()}
         assert write <= read
         assert 120 <= len(doc.instructions.split()) <= 300
+
+
+def test_seed_skill_scopes_stay_inside_the_default_read_doctypes(migrator):
+    """Seeds work out of the box: every read scope is site-allowed by default.
+
+    The meta create-skill playbook works from conversation context and the
+    propose_skill meta-tool alone, so it carries empty scopes by design.
+    """
+    module, _, _ = migrator
+    allowed = set(module.DEFAULTS["allowed_read_doctypes"].splitlines())
+    for skill in module.SEED_SKILLS:
+        read = set(skill["scope_read"].splitlines())
+        write = set(skill["scope_write"].splitlines())
+        if skill["name"] == "create-skill":
+            assert not read and not write, "the meta skill needs no record scopes"
+        else:
+            assert read, f"{skill['name']} must read something"
+            assert read <= allowed, f"{skill['name']} reads outside the default allowlist"
+        assert write <= read
 
 
 def test_defaults_enable_the_skill_management_tools(migrator):
@@ -229,36 +254,48 @@ def navigation_docs(store, doctype):
     return [doc for (dt, _), doc in store.items() if dt == doctype]
 
 
+def _link(label, link_type, link_to, icon, child):
+    return {
+        "type": "Link",
+        "label": label,
+        "link_type": link_type,
+        "link_to": link_to,
+        "icon": icon,
+        "child": child,
+        "indent": 0,
+        "collapsible": 1,
+    }
+
+
 EXPECTED_SIDEBAR = [
-    {"type": "Link", "label": "Chat", "link_type": "Page", "link_to": "intelligence"},
+    _link("Chat", "Page", "intelligence", "message-square", 0),
+    _link("Conversations", "DocType", "Intelligence Conversation", "messages-square", 0),
     {
-        "type": "Link",
-        "label": "Conversations",
+        "type": "Section Break",
+        "label": "Administration",
         "link_type": "DocType",
-        "link_to": "Intelligence Conversation",
+        "icon": "sliders-horizontal",
+        "child": 0,
+        "indent": 1,
+        "collapsible": 1,
     },
-    {
-        "type": "Link",
-        "label": "Always-allowed tools",
-        "link_type": "DocType",
-        "link_to": "Intelligence Tool Grant",
-    },
-    {"type": "Link", "label": "Providers", "link_type": "DocType", "link_to": "Intelligence Provider"},
-    {"type": "Link", "label": "Skills", "link_type": "DocType", "link_to": "Intelligence Skill"},
-    {"type": "Link", "label": "Memory", "link_type": "DocType", "link_to": "Intelligence Memory"},
-    {"type": "Link", "label": "Settings", "link_type": "DocType", "link_to": "Intelligence Settings"},
+    _link("Always-allowed tools", "DocType", "Intelligence Tool Grant", "shield-check", 1),
+    _link("Providers", "DocType", "Intelligence Provider", "key", 1),
+    _link("Skills", "DocType", "Intelligence Skill", "zap", 1),
+    _link("Memory", "DocType", "Intelligence Memory", "database", 1),
+    _link("Settings", "DocType", "Intelligence Settings", "settings", 1),
 ]
 
 EXPECTED_V15_LINKS = [
     {"label": "Chat", "type": "Card Break"},
     {"label": "Chat", "type": "Link", "link_type": "Page", "link_to": "intelligence"},
-    {"label": "Manage", "type": "Card Break"},
     {
         "label": "Conversations",
         "type": "Link",
         "link_type": "DocType",
         "link_to": "Intelligence Conversation",
     },
+    {"label": "Administration", "type": "Card Break"},
     {
         "label": "Always-allowed tools",
         "type": "Link",
@@ -289,8 +326,12 @@ def test_navigation_creates_sidebar_and_desktop_icon_and_drops_the_legacy_worksp
         "sidebar title labels Desk; module stays the DocType group"
     )
     assert sidebar.items == EXPECTED_SIDEBAR
+    assert sidebar.module_onboarding == "Frappe Intelligence", (
+        "the Getting Started onboarding pins at the bottom of this sidebar"
+    )
     sentinel = sidebars["Frappe Intelligence"]
     assert sentinel.items == [] and sentinel.app == "frappe_intelligence" and sentinel.standard == 1
+    assert sentinel.get("module_onboarding") is None, "the empty sentinel carries no onboarding"
     icons = navigation_docs(store, "Desktop Icon")
     assert len(icons) == 1
     assert icons[0].label == "Intelligence"
@@ -326,6 +367,9 @@ def test_navigation_converges_the_seeded_sidebar_in_place(migrator):
     assert sidebar is old, "the seeded sidebar is updated in place, not replaced"
     assert sidebar.items == EXPECTED_SIDEBAR
     assert sidebar.module == "Frappe Intelligence"
+    assert sidebar.module_onboarding == "Frappe Intelligence", (
+        "a pre-onboarding seed gains the Getting Started link in place"
+    )
 
 
 def test_navigation_preserves_existing_and_user_owned_entries(migrator):
@@ -337,6 +381,7 @@ def test_navigation_preserves_existing_and_user_owned_entries(migrator):
     module.after_migrate()
     sidebars = navigation_docs(store, "Workspace Sidebar")
     assert sidebar in sidebars and sidebar.get("items") is None, "a site's own sidebar is untouched"
+    assert sidebar.get("module_onboarding") is None, "a site's own sidebar keeps its onboarding choice"
     assert any(doc.title == "Frappe Intelligence" and not doc.items for doc in sidebars), (
         "the module-name sentinel still suppresses the auto-generated sidebar"
     )
@@ -392,7 +437,7 @@ def test_navigation_never_touches_another_apps_icon(migrator):
     )
 
 
-def test_v15_workspace_links_chat_and_manage_groups(migrator):
+def test_v15_workspace_links_chat_and_administration_groups(migrator):
     module, fake, store = migrator
     fake.__version__ = "15.0.0"
     module.after_migrate()
@@ -400,6 +445,9 @@ def test_v15_workspace_links_chat_and_manage_groups(migrator):
     assert workspace.module == "Frappe Intelligence"
     assert workspace.links == EXPECTED_V15_LINKS
     assert not navigation_docs(store, "Workspace Sidebar"), "v15 has no Workspace Sidebar doctype"
+    assert ("Module Onboarding", "Frappe Intelligence") in store, (
+        "the Getting Started records exist on v15 too; only the sidebar link is v16-only"
+    )
 
 
 def test_v15_workspace_links_converge_on_migrate(migrator):
@@ -447,3 +495,77 @@ def test_global_search_registers_conversations_once(migrator):
     rows = [row["document_type"] for row in settings.get("allowed_in_global_search")]
     assert rows == ["Intelligence Conversation"], "no duplicate row on the next migrate"
     assert len([job for job in fake.jobs if job[0] == "frappe.utils.global_search.rebuild_for_doctype"]) == 1
+
+
+def test_every_sidebar_row_carries_a_distinct_icon(migrator):
+    """Without an icon Desk falls back to the same "list" glyph on every row."""
+    module, _, _ = migrator
+    icons = [icon for _, _, _, icon in module.SIDEBAR_ITEMS] + [module.SIDEBAR_SECTION[1]]
+    for icon in icons:
+        assert icon and icon == icon.lower() and " " not in icon, "lucide slug shape (#icon-<name>)"
+    assert len(set(icons)) == len(icons), "no two sidebar rows share an icon"
+
+
+def test_sidebar_groups_administration_under_a_native_section_break(migrator):
+    """Chat and Conversations stay top-level; the manager records nest under
+    one collapsible Section Break, the shape frappe/workspace_sidebar/*.json use."""
+    module, _, store = migrator
+    module.after_migrate()
+    items = store[("Workspace Sidebar", "Intelligence")].items
+    assert [row["label"] for row in items[:3]] == ["Chat", "Conversations", "Administration"]
+    section = items[2]
+    assert section["type"] == "Section Break" and section["indent"] == 1
+    assert section["collapsible"] == 1 and section["child"] == 0
+    for row in items[3:]:
+        assert row["child"] == 1 and row["indent"] == 0, "section rows nest as children"
+
+
+EXPECTED_ONBOARDING_STEPS = (
+    ("Intelligence: Add a model provider", "Create Entry", "reference_document", "Intelligence Provider"),
+    ("Intelligence: Start your first chat", "Go to Page", "path", "intelligence"),
+    ("Intelligence: Save your first memory", "Create Entry", "reference_document", "Intelligence Memory"),
+    ("Intelligence: Review the assistant skills", "Go to Page", "path", "List/Intelligence Skill"),
+)
+
+
+def onboarding_step_docs(store):
+    return {name: doc for (doctype, name), doc in store.items() if doctype == "Onboarding Step"}
+
+
+def test_onboarding_seeds_steps_and_module_onboarding_idempotently(migrator):
+    module, _, store = migrator
+    module.after_migrate()
+    module.after_migrate()
+    steps = onboarding_step_docs(store)
+    assert set(steps) == {name for name, *_ in EXPECTED_ONBOARDING_STEPS}
+    onboarding = store[("Module Onboarding", "Frappe Intelligence")]
+    assert onboarding.title == "Get started with Intelligence"
+    assert onboarding.module == "Frappe Intelligence"
+    assert onboarding.steps == [{"step": name} for name, *_ in EXPECTED_ONBOARDING_STEPS]
+    assert onboarding.allow_roles == [{"role": role} for role in module.USER_ROLES]
+
+
+def test_onboarding_steps_use_native_actions_and_targets(migrator):
+    module, _, store = migrator
+    module.after_migrate()
+    steps = onboarding_step_docs(store)
+    for name, action, target_field, target in EXPECTED_ONBOARDING_STEPS:
+        doc = steps[name]
+        assert doc.title and doc.description and doc.action_label
+        assert doc.action == action, "exact action literal of the Onboarding Step doctype"
+        assert doc.get(target_field) == target
+
+
+def test_onboarding_never_overwrites_step_progress_or_site_edits(migrator):
+    module, _, store = migrator
+    module.after_migrate()
+    chat = store[("Onboarding Step", "Intelligence: Start your first chat")]
+    chat.is_complete = 1
+    onboarding = store[("Module Onboarding", "Frappe Intelligence")]
+    onboarding.title = "Custom welcome"
+    onboarding.set("steps", [{"step": "Intelligence: Start your first chat"}])
+    module.after_migrate()
+    assert chat.is_complete == 1, "per-site completion state is never rewritten"
+    assert onboarding.title == "Custom welcome", "a site's Module Onboarding edits survive"
+    assert onboarding.steps == [{"step": "Intelligence: Start your first chat"}]
+    assert len(onboarding_step_docs(store)) == len(EXPECTED_ONBOARDING_STEPS)
