@@ -134,6 +134,90 @@ def _model_efforts(value):
     return json.dumps(result, sort_keys=True)
 
 
+def _check_endpoint(kind, base_url):
+    """Custom kinds need an allowlisted HTTPS host; built-ins take no endpoint."""
+    if kind == "Custom":
+        parsed = urlsplit(base_url)
+        allowed = {
+            host.strip().lower()
+            for host in (get_settings().get("allowed_custom_hosts") or "").splitlines()
+            if host.strip()
+        }
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.hostname.lower() not in allowed
+        ):
+            frappe.throw("A manager must allowlist this HTTPS custom provider host in Intelligence Settings.")
+    elif base_url:
+        frappe.throw("Built-in providers use fixed API endpoints. Choose Custom for an approved endpoint.")
+
+
+def _check_limits(max_tokens, timeout):
+    try:
+        max_tokens, timeout = int(max_tokens), int(timeout)
+    except (TypeError, ValueError):
+        frappe.throw("Invalid provider limits.")
+    if not 128 <= max_tokens <= 262144 or not 5 <= timeout <= 120:
+        frappe.throw("Provider limits must be 128–262144 tokens and 5–120 seconds.")
+    return max_tokens, timeout
+
+
+def validate_operational_fields(doc):
+    """Bounds for the whitelisted native-form fields on provider edits.
+
+    Locked-field diffing proves WHAT changed; this proves the new values are
+    ones save_provider would have accepted, so a crafted native save cannot
+    park out-of-range limits or efforts the adapters do not understand.
+    """
+    _text(doc.get("title") or "", "provider title", 140)
+    thinking_effort = doc.get("thinking_effort") or "Auto"
+    if thinking_effort not in EFFORTS:
+        frappe.throw("Select a supported thinking effort.")
+    _check_limits(doc.get("max_tokens") or 16384, doc.get("timeout") or 60)
+    _models_list(doc.get("models") or "")
+
+
+def validate_new_provider(doc, user):
+    """save_provider's create-time rules for a native Desk insert of `doc`.
+
+    The native form is a first-class way to add a provider (the Getting Started
+    step and the Providers list both land there), so an insert runs the same
+    checks the API path applies, against the document's own values. Sharing
+    stays manager-only and the API key stays required; the Password field is
+    shown only on unsaved forms, where nothing can be read back.
+    """
+    if doc.get("is_shared") and not _manager(user):
+        frappe.throw("Only Intelligence Managers may share a provider.", frappe.PermissionError)
+    title = _text(doc.get("title") or "", "provider title", 140)
+    model = _text(doc.get("model") or "", "model ID", 140)
+    kind = doc.get("kind") or ""
+    if kind not in KINDS:
+        frappe.throw("Select a supported provider.")
+    _, catalog = _models_list(doc.get("models") or "")
+    if catalog and model not in catalog:
+        frappe.throw("Choose a model from this provider's model list.")
+    _check_endpoint(kind, _text(doc.get("base_url") or "", "API base URL", 1000, required=False))
+    thinking_effort = doc.get("thinking_effort") or "Auto"
+    if thinking_effort not in EFFORTS:
+        frappe.throw("Select a supported thinking effort.")
+    allowed_roles = doc.get("allowed_roles") or ""
+    if not isinstance(allowed_roles, str) or len(allowed_roles) > 4000:
+        frappe.throw("Invalid provider role list.")
+    _check_limits(doc.get("max_tokens") or 16384, doc.get("timeout") or 60)
+    _model_efforts(doc.get("model_efforts") or "")
+    key = doc.get_password("api_key") if hasattr(doc, "get_password") else doc.get("api_key")
+    if not isinstance(key, str) or not key.strip():
+        frappe.throw("Enter the provider API key.")
+    if len(key) > 8192 or "\n" in key or "\r" in key:
+        frappe.throw("Invalid API key.")
+    return title
+
+
 def save_provider(
     name=None,
     title="",
@@ -191,33 +275,10 @@ def save_provider(
     if shared:
         require_manager()
     base_url = _text(base_url or "", "API base URL", 1000, required=False)
-    if kind == "Custom":
-        parsed = urlsplit(base_url)
-        allowed = {
-            host.strip().lower()
-            for host in (get_settings().get("allowed_custom_hosts") or "").splitlines()
-            if host.strip()
-        }
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-            or parsed.hostname.lower() not in allowed
-        ):
-            frappe.throw("A manager must allowlist this HTTPS custom provider host in Intelligence Settings.")
-    elif base_url:
-        frappe.throw("Built-in providers use fixed API endpoints. Choose Custom for an approved endpoint.")
+    _check_endpoint(kind, base_url)
     if not isinstance(allowed_roles, str) or len(allowed_roles) > 4000:
         frappe.throw("Invalid provider role list.")
-    try:
-        max_tokens, timeout = int(max_tokens), int(timeout)
-    except (TypeError, ValueError):
-        frappe.throw("Invalid provider limits.")
-    if not 128 <= max_tokens <= 262144 or not 5 <= timeout <= 120:
-        frappe.throw("Provider limits must be 128–262144 tokens and 5–120 seconds.")
+    max_tokens, timeout = _check_limits(max_tokens, timeout)
     if api_key is not None and (
         not isinstance(api_key, str) or len(api_key) > 8192 or "\n" in api_key or "\r" in api_key
     ):

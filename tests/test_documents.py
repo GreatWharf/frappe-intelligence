@@ -129,6 +129,23 @@ def test_provider_form_save_rejects_protected_fields(documents, field, value):
         native_provider_edit(module, **{field: value}).validate()
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("title", ""),
+        ("max_tokens", 5),
+        ("max_tokens", 262145),
+        ("timeout", 1),
+        ("thinking_effort", "Extreme"),
+        ("models", "not a model id!"),
+    ],
+)
+def test_provider_form_save_rejects_out_of_range_operational_values(documents, field, value):
+    module, _ = documents
+    with pytest.raises(ValueError):
+        native_provider_edit(module, **{field: value}).validate()
+
+
 def test_provider_form_save_is_owner_only_for_personal_providers(documents):
     module, fake = documents
     fake.session.user = "other@example.test"
@@ -148,11 +165,125 @@ def test_shared_provider_form_save_requires_a_manager(documents):
     native_provider_edit(module, saved_fields={"is_shared": 1}, max_tokens=100000).validate()
 
 
-def test_provider_form_create_stays_api_only(documents):
+def test_provider_form_create_mirrors_the_api_rules(documents):
     module, _ = documents
-    doc = module.ManagedDocument(dict(PROVIDER_SAVED))  # no saved snapshot: an insert
+    # No saved snapshot: an insert. The service's create-time validation runs.
+    module.ManagedDocument(dict(PROVIDER_SAVED, api_key="secret")).validate()
+    with pytest.raises(ValueError, match="Enter the provider API key"):
+        module.ManagedDocument(dict(PROVIDER_SAVED, api_key="")).validate()
+    with pytest.raises(ValueError, match="model list"):
+        module.ManagedDocument(dict(PROVIDER_SAVED, api_key="secret", model="other-model")).validate()
+    with pytest.raises(ValueError, match="fixed API endpoints"):
+        module.ManagedDocument(
+            dict(PROVIDER_SAVED, api_key="secret", base_url="https://x.example")
+        ).validate()
+
+
+def test_provider_form_create_custom_host_must_be_allowlisted(documents):
+    module, _ = documents
+    custom = dict(PROVIDER_SAVED, kind="Custom", api_key="secret")
+    with pytest.raises(ValueError, match="allowlist"):
+        module.ManagedDocument(dict(custom, base_url="https://evil.example/v1")).validate()
+    with pytest.raises(ValueError, match="allowlist"):
+        module.ManagedDocument(dict(custom, base_url="http://models.example.test/v1")).validate()
+    module.ManagedDocument(dict(custom, base_url="https://models.example.test/v1")).validate()
+
+
+def test_provider_form_create_shared_requires_a_manager(documents):
+    module, fake = documents
+    shared = dict(PROVIDER_SAVED, api_key="secret", is_shared=1)
+    with pytest.raises(PermissionError, match="Managers may share"):
+        module.ManagedDocument(dict(shared)).validate()
+    fake.get_roles = lambda user=None: ["System Manager"]
+    module.ManagedDocument(dict(shared)).validate()
+
+
+MEMORY_SAVED = dict(
+    doctype="Intelligence Memory",
+    name="m",
+    owner="owner@example.test",
+    scope="personal",
+    conversation=None,
+    content="Use the fiscal year when comparing reports.",
+    enabled=1,
+)
+
+
+def native_memory_edit(module, saved_fields=None, **changes):
+    """A memory as the Desk form submits it, with its saved snapshot attached."""
+    saved = Row(dict(MEMORY_SAVED, **(saved_fields or {})))
+    doc = module.ManagedDocument(dict(saved, **changes))
+    doc["old"] = saved
+    return doc
+
+
+def test_memory_form_create_and_edit_by_the_owner(documents):
+    module, _ = documents
+    module.ManagedDocument(dict(MEMORY_SAVED)).validate()  # create
+    native_memory_edit(module, content="New content", enabled=0).validate()  # edit
+    with pytest.raises(ValueError, match="between 1 and 5000"):
+        module.ManagedDocument(dict(MEMORY_SAVED, content="  ")).validate()
+    with pytest.raises(ValueError, match="between 1 and 5000"):
+        module.ManagedDocument(dict(MEMORY_SAVED, content="x" * 5001)).validate()
+    with pytest.raises(ValueError, match="Select personal, conversation or site memory"):
+        module.ManagedDocument(dict(MEMORY_SAVED, scope="everywhere")).validate()
+    with pytest.raises(ValueError, match="Only conversation memory"):
+        module.ManagedDocument(dict(MEMORY_SAVED, conversation="conv-1")).validate()
+
+
+def test_memory_form_save_keeps_scope_immutable(documents):
+    module, _ = documents
+    with pytest.raises(ValueError, match="scope cannot be changed"):
+        native_memory_edit(module, scope="site").validate()
+    with pytest.raises(ValueError, match="scope cannot be changed"):
+        native_memory_edit(module, conversation="conv-1").validate()
+
+
+def test_memory_form_save_is_owner_only_for_personal_memories(documents):
+    module, fake = documents
+    fake.session.user = "other@example.test"
     with pytest.raises(PermissionError, match="Intelligence workspace"):
-        doc.validate()
+        native_memory_edit(module, content="Stolen").validate()
+
+
+def test_memory_form_site_scope_is_manager_curated(documents):
+    module, fake = documents
+    site = dict(MEMORY_SAVED, scope="site")
+    with pytest.raises(PermissionError, match="Intelligence workspace"):
+        module.ManagedDocument(dict(site)).validate()
+    fake.get_roles = lambda user=None: ["Intelligence Manager"]
+    module.ManagedDocument(dict(site)).validate()  # create by a manager
+    # Any manager may edit site memory, not only the one who created it.
+    fake.session.user = "manager@example.test"
+    native_memory_edit(module, saved_fields={"scope": "site"}, content="Updated").validate()
+
+
+def test_memory_form_conversation_scope_needs_conversation_access(documents, services):
+    module, _ = documents
+    _, store = services
+    store["conv-1"] = Row(doctype="Intelligence Conversation", name="conv-1", owner="owner@example.test")
+    store["conv-2"] = Row(
+        doctype="Intelligence Conversation", name="conv-2", owner="someone-else@example.test"
+    )
+    with pytest.raises(ValueError, match="Select a conversation"):
+        module.ManagedDocument(dict(MEMORY_SAVED, scope="conversation")).validate()
+    module.ManagedDocument(dict(MEMORY_SAVED, scope="conversation", conversation="conv-1")).validate()
+    with pytest.raises(PermissionError):
+        module.ManagedDocument(dict(MEMORY_SAVED, scope="conversation", conversation="conv-2")).validate()
+
+
+def test_memory_form_delete_follows_the_service_rules(documents, services):
+    module, fake = documents
+    module.ManagedDocument(dict(MEMORY_SAVED)).on_trash()  # own personal memory
+    with pytest.raises(PermissionError, match="Intelligence workspace"):
+        module.ManagedDocument(dict(MEMORY_SAVED, owner="someone-else@example.test")).on_trash()
+    with pytest.raises(PermissionError, match="Intelligence workspace"):
+        module.ManagedDocument(dict(MEMORY_SAVED, scope="site")).on_trash()
+    fake.get_roles = lambda user=None: ["Intelligence Manager"]
+    module.ManagedDocument(dict(MEMORY_SAVED, scope="site")).on_trash()
+    _, store = services
+    store["conv-1"] = Row(doctype="Intelligence Conversation", name="conv-1", owner="owner@example.test")
+    module.ManagedDocument(dict(MEMORY_SAVED, scope="conversation", conversation="conv-1")).on_trash()
 
 
 def test_provider_form_save_rejects_users_without_intelligence_access(documents, monkeypatch):

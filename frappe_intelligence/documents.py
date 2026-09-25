@@ -26,36 +26,96 @@ class ManagedDocument(Document):
             frappe.throw("Use the Intelligence workspace to change this record.", frappe.PermissionError)
 
     def _guard_save(self):
-        """Internal writes pass; native saves are limited to safe provider edits."""
+        """Internal writes pass; native saves are limited to safe provider and memory edits."""
         if frappe.flags.get("intelligence_internal"):
             return
-        if self.doctype != "Intelligence Provider" or not self._provider_form_save():
-            self._guard()
+        if self.doctype == "Intelligence Provider" and self._provider_form_save():
+            return
+        if self.doctype == "Intelligence Memory" and self._memory_form_save():
+            return
+        self._guard()
 
     def _provider_form_save(self):
-        """True for a Desk-form edit that save_provider's rules would also allow.
+        """True for a Desk-form save that save_provider's rules would also allow.
 
         The actor rules mirror provider_service.save_provider exactly: personal
         providers are owner-only (even against managers), shared providers
-        additionally require a manager. Only whitelisted operational fields may
-        differ from the saved record. Creates stay API-only: without a saved
-        record there is nothing to diff against.
+        additionally require a manager. Edits may only touch whitelisted
+        operational fields; creates run the service's own create-time
+        validation, so the native form and the API accept the same records.
         """
         old = self.get_doc_before_save()
-        if old is None:
-            return False
         from .access import MANAGER_ROLES, require_user
-        from .provider_service import can_manage
+        from .provider_service import can_manage, validate_new_provider, validate_operational_fields
 
         try:
             user = require_user()
         except frappe.PermissionError:
             return False
+        if old is None:
+            validate_new_provider(self, user)
+            return True
         if not can_manage(self, user):
             return False
         if self.get("is_shared") and not MANAGER_ROLES.intersection(frappe.get_roles(user)):
             return False
-        return all(old.get(field) == self.get(field) for field in PROVIDER_LOCKED_FIELDS)
+        if not all(old.get(field) == self.get(field) for field in PROVIDER_LOCKED_FIELDS):
+            return False
+        validate_operational_fields(self)
+        return True
+
+    def _memory_form_save(self):
+        """True for a Desk-form save that the memory service's rules would allow.
+
+        Mirrors memory.py: scope and conversation are immutable once saved, site
+        memory is manager-curated, conversation memory needs write access to the
+        conversation, and personal memory is owner-only. Content bounds match
+        the service exactly.
+        """
+        from .access import MANAGER_ROLES, get_conversation, require_user
+
+        try:
+            user = require_user()
+        except frappe.PermissionError:
+            return False
+        scope = self.get("scope") or "personal"
+        conversation = self.get("conversation") or None
+        if scope not in ("personal", "conversation", "site"):
+            frappe.throw("Select personal, conversation or site memory.")
+        old = self.get_doc_before_save()
+        if old and (old.get("scope") != scope or (old.get("conversation") or None) != conversation):
+            frappe.throw("A memory's scope cannot be changed. Create a new memory instead.")
+        if scope == "site":
+            if not MANAGER_ROLES.intersection(frappe.get_roles(user)):
+                return False
+        elif old is not None and old.owner != user:
+            return False
+        if scope == "conversation":
+            if not conversation:
+                frappe.throw("Select a conversation.")
+            get_conversation(conversation, write=True)
+        elif conversation:
+            frappe.throw("Only conversation memory may be linked to a conversation.")
+        content = self.get("content")
+        if not isinstance(content, str) or not content.strip() or len(content) > 5000:
+            frappe.throw("Memory must contain between 1 and 5000 characters.")
+        return True
+
+    def _memory_form_trash(self):
+        """Native deletes follow the same rules as the memory service's delete."""
+        from .access import MANAGER_ROLES, get_conversation, require_user
+
+        try:
+            user = require_user()
+        except frappe.PermissionError:
+            self._guard()
+        if self.get("scope") == "site":
+            if not MANAGER_ROLES.intersection(frappe.get_roles(user)):
+                self._guard()
+        elif self.owner != user:
+            self._guard()
+        if self.get("scope") == "conversation":
+            get_conversation(self.get("conversation"), write=True)
 
     def validate(self):
         self._guard_save()
@@ -68,7 +128,12 @@ class ManagedDocument(Document):
                     frappe.throw("Run identity cannot be changed.", frappe.PermissionError)
 
     def on_trash(self):
-        self._guard()
+        if frappe.flags.get("intelligence_internal"):
+            return
+        if self.doctype == "Intelligence Memory":
+            self._memory_form_trash()
+        else:
+            self._guard()
 
     def before_rename(self, *args, **kwargs):
         self._guard()

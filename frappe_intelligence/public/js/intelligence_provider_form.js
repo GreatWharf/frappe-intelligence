@@ -116,11 +116,18 @@
 		frappe.ui.form.on("Intelligence Provider", {
 			refresh(frm) {
 				applyEffortOptions(frm);
+				const isNew = typeof frm.is_new === "function" && frm.is_new();
+				// The key is write-only: visible and required while the record is
+				// unsaved (nothing exists to read back), hidden the moment it exists.
+				if (typeof frm.set_df_property === "function") {
+					frm.set_df_property("api_key", "hidden", isNew ? 0 : 1);
+					frm.set_df_property("api_key", "reqd", isNew ? 1 : 0);
+				}
 				if (typeof frm.set_intro === "function")
 					frm.set_intro(
-						__(
-							"The API key is stored server-side and is never displayed. Use Set API key to set or rotate it."
-						),
+						isNew
+							? __("The API key is stored server-side and is never displayed after saving.")
+							: __("The API key is stored server-side and is never displayed. Use Set API key to set or rotate it."),
 						"blue"
 					);
 				if (!canSave(frm) || typeof frm.add_custom_button !== "function") return;
