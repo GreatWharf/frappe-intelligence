@@ -7,22 +7,41 @@
   "issingle": 0,
   "fields": [
     {
+      "fieldname": "sb_about",
+      "label": "About",
+      "fieldtype": "Section Break"
+    },
+    {
       "fieldname": "title",
       "label": "Title",
       "fieldtype": "Data",
       "reqd": 1,
-      "in_list_view": 1
+      "in_list_view": 1,
+      "description": "Short name shown wherever this skill is suggested. Up to 140 characters."
     },
     {
       "fieldname": "description",
       "label": "Description",
-      "fieldtype": "Small Text"
+      "fieldtype": "Small Text",
+      "description": "One sentence on when the assistant should reach for this skill. Up to 500 characters."
+    },
+    {
+      "fieldname": "sb_instructions",
+      "label": "Instructions",
+      "fieldtype": "Section Break"
     },
     {
       "fieldname": "instructions",
       "label": "Instructions",
       "fieldtype": "Long Text",
-      "reqd": 1
+      "reqd": 1,
+      "description": "The playbook itself: steps, rules and examples the assistant follows when this skill applies. Up to 8000 characters."
+    },
+    {
+      "fieldname": "sb_scope",
+      "label": "Scope",
+      "fieldtype": "Section Break",
+      "description": "Blank scopes keep the skill inside the site's own read and write allowances."
     },
     {
       "fieldname": "scope_read",
@@ -31,22 +50,50 @@
       "description": "DocTypes this skill may read, one per line. Must stay inside the site's Allowed Read Doctypes."
     },
     {
+      "fieldname": "scope_read_chips",
+      "fieldtype": "HTML",
+      "hidden": 1
+    },
+    {
+      "fieldname": "cb_scope",
+      "fieldtype": "Column Break"
+    },
+    {
       "fieldname": "scope_write",
       "label": "Scope Write",
       "fieldtype": "Small Text",
       "description": "Subset of Scope Read that the skill may draft through the approval-gated write tools."
     },
     {
+      "fieldname": "scope_write_chips",
+      "fieldtype": "HTML",
+      "hidden": 1
+    },
+    {
+      "fieldname": "sb_publishing",
+      "label": "Publishing",
+      "fieldtype": "Section Break",
+      "description": "Sharing and provenance are curated by Intelligence Managers."
+    },
+    {
       "fieldname": "enabled",
       "label": "Enabled",
       "fieldtype": "Check",
-      "default": "0"
+      "default": "0",
+      "in_list_view": 1,
+      "description": "Only enabled skills are suggested to the assistant."
     },
     {
       "fieldname": "shared",
       "label": "Shared",
       "fieldtype": "Check",
-      "default": "0"
+      "default": "0",
+      "in_list_view": 1,
+      "description": "Shared skills are visible to every Intelligence user; only managers may share."
+    },
+    {
+      "fieldname": "cb_publishing",
+      "fieldtype": "Column Break"
     },
     {
       "fieldname": "origin",
@@ -54,23 +101,36 @@
       "fieldtype": "Select",
       "options": "Seeded\nLearned",
       "reqd": 1,
-      "default": "Learned"
+      "default": "Learned",
+      "read_only": 1,
+      "in_list_view": 1,
+      "description": "Seeded skills ship with the app; Learned skills are written by users or the assistant."
     },
     {
       "fieldname": "version",
       "label": "Version",
       "fieldtype": "Int",
-      "default": "1"
+      "default": "1",
+      "read_only": 1,
+      "description": "Revision number, bumped by the server when the skill is updated."
     }
   ],
   "field_order": [
+    "sb_about",
     "title",
     "description",
+    "sb_instructions",
     "instructions",
+    "sb_scope",
     "scope_read",
+    "scope_read_chips",
+    "cb_scope",
     "scope_write",
+    "scope_write_chips",
+    "sb_publishing",
     "enabled",
     "shared",
+    "cb_publishing",
     "origin",
     "version"
   ],

@@ -7,6 +7,11 @@
   "issingle": 0,
   "fields": [
     {
+      "fieldname": "sb_grant",
+      "fieldtype": "Section Break",
+      "description": "Grants are created when a user clicks Always on an approval in the chat. Each row lets the named tool run without asking again, inside its scope. Deleting a grant here is the off switch: the next matching call asks for approval again."
+    },
+    {
       "fieldname": "user",
       "label": "User",
       "fieldtype": "Link",
@@ -45,10 +50,13 @@
       "label": "Conversation",
       "fieldtype": "Link",
       "options": "Intelligence Conversation",
+      "depends_on": "eval:doc.scope=='This Conversation'",
+      "mandatory_depends_on": "eval:doc.scope=='This Conversation'",
       "description": "Required when Scope is This Conversation."
     }
   ],
   "field_order": [
+    "sb_grant",
     "user",
     "tool",
     "scope_doctype",

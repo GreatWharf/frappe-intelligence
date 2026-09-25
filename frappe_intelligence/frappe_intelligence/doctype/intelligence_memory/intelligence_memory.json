@@ -12,32 +12,46 @@
       "fieldtype": "Select",
       "options": "personal\nconversation\nsite",
       "reqd": 1,
-      "default": "personal"
+      "default": "personal",
+      "in_list_view": 1,
+      "description": "Personal memories are yours alone. Conversation memories apply to one conversation. Site memories are shared with every user; only managers can save them."
     },
     {
       "fieldname": "conversation",
       "label": "Conversation",
       "fieldtype": "Link",
-      "options": "Intelligence Conversation"
+      "options": "Intelligence Conversation",
+      "depends_on": "eval:doc.scope=='conversation'",
+      "mandatory_depends_on": "eval:doc.scope=='conversation'",
+      "description": "Required when Scope is conversation."
     },
     {
       "fieldname": "content",
       "label": "Content",
       "fieldtype": "Long Text",
-      "reqd": 1
+      "reqd": 1,
+      "description": "Up to 5000 characters. The assistant sees this text verbatim when the memory is recalled."
     },
     {
       "fieldname": "enabled",
       "label": "Enabled",
       "fieldtype": "Check",
-      "default": "1"
+      "default": "1",
+      "in_list_view": 1,
+      "description": "Disabled memories are kept but never recalled."
+    },
+    {
+      "fieldname": "secrets_note_html",
+      "fieldtype": "HTML",
+      "options": "<p class=\"small text-muted\" style=\"margin-bottom: 0;\">Never store passwords, API keys, or other secrets in memory.</p>"
     }
   ],
   "field_order": [
     "scope",
     "conversation",
     "content",
-    "enabled"
+    "enabled",
+    "secrets_note_html"
   ],
   "permissions": [
     {
@@ -61,5 +75,6 @@
   ],
   "track_changes": 0,
   "sort_field": "creation",
-  "sort_order": "DESC"
+  "sort_order": "DESC",
+  "title_field": "content"
 }

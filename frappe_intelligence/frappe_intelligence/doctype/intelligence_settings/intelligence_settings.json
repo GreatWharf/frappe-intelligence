@@ -7,10 +7,26 @@
  "issingle": 1,
  "fields": [
   {
+   "fieldname": "sb_assistant",
+   "label": "Assistant",
+   "fieldtype": "Section Break",
+   "description": "Master switch and approval behavior for every conversation on this site."
+  },
+  {
+   "fieldname": "rag_status_html",
+   "fieldtype": "HTML",
+   "hidden": 1
+  },
+  {
    "fieldname": "enabled",
    "label": "Enabled",
    "fieldtype": "Check",
-   "default": "1"
+   "default": "1",
+   "description": "Master switch. When off, the assistant answers no chats and runs no tools."
+  },
+  {
+   "fieldname": "cb_assistant",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "approval_mode",
@@ -21,9 +37,80 @@
    "description": "Approve Every Step asks before every tool call. Approve Writes Only auto-runs reads and asks before changes. Automatic runs the reviewed tool set without asking; every action is still recorded."
   },
   {
+   "fieldname": "sb_limits",
+   "label": "Limits",
+   "fieldtype": "Section Break",
+   "description": "Hard ceilings applied to every run. The server rejects values outside the allowed range."
+  },
+  {
+   "fieldname": "max_steps",
+   "label": "Max Steps",
+   "fieldtype": "Int",
+   "default": "30",
+   "description": "Most tool calls one message may chain. Allowed: 1 to 30."
+  },
+  {
+   "fieldname": "max_tokens",
+   "label": "Max Tokens",
+   "fieldtype": "Int",
+   "default": "16384",
+   "description": "OUTPUT token ceiling per model reply, not the context size. Allowed: 128 to 262144."
+  },
+  {
+   "fieldname": "max_run_seconds",
+   "label": "Max Run Seconds",
+   "fieldtype": "Int",
+   "default": "600",
+   "description": "Wall-clock budget for one run. Allowed: 30 to 1800 seconds."
+  },
+  {
+   "fieldname": "approval_expiry_minutes",
+   "label": "Approval Expiry Minutes",
+   "fieldtype": "Int",
+   "default": "1440",
+   "description": "A pending approval expires after this many minutes. Allowed: 5 to 10080."
+  },
+  {
+   "fieldname": "cb_limits",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "daily_run_limit",
+   "label": "Daily Run Limit",
+   "fieldtype": "Int",
+   "default": "100",
+   "description": "Most runs per user per day. Allowed: 1 to 10000."
+  },
+  {
+   "fieldname": "max_upload_mb",
+   "label": "Max Upload Mb",
+   "fieldtype": "Int",
+   "default": "10",
+   "description": "Largest single attachment in MB. Allowed: 1 to 20."
+  },
+  {
+   "fieldname": "max_file_chars",
+   "label": "Max File Chars",
+   "fieldtype": "Int",
+   "default": "30000",
+   "description": "Most characters read from one attached file. Allowed: 1000 to 100000."
+  },
+  {
+   "fieldname": "sb_scope",
+   "label": "Scope and Tools",
+   "fieldtype": "Section Break",
+   "description": "What the assistant may read, write and run. One entry per chip; the same values appear read-only without write permission."
+  },
+  {
    "fieldname": "allowed_read_doctypes",
    "label": "Allowed Read Doctypes",
-   "fieldtype": "Small Text"
+   "fieldtype": "Small Text",
+   "description": "DocTypes the read tools may search and read. Blank means nothing is readable."
+  },
+  {
+   "fieldname": "allowed_read_doctypes_chips",
+   "fieldtype": "HTML",
+   "hidden": 1
   },
   {
    "fieldname": "allowed_write_doctypes",
@@ -32,78 +119,75 @@
    "description": "Subset of Allowed Read Doctypes that create_document/update_document may target. Blank means no DocType is writable. Ledger, workflow and submittable DocTypes are never writable."
   },
   {
-   "fieldname": "allowed_reports",
-   "label": "Allowed Reports",
-   "fieldtype": "Small Text"
+   "fieldname": "allowed_write_doctypes_chips",
+   "fieldtype": "HTML",
+   "hidden": 1
+  },
+  {
+   "fieldname": "cb_scope",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "enabled_tools",
    "label": "Enabled Tools",
-   "fieldtype": "Small Text"
+   "fieldtype": "Small Text",
+   "description": "Reviewed tools the assistant may call. Blank disables every tool."
+  },
+  {
+   "fieldname": "enabled_tools_chips",
+   "fieldtype": "HTML",
+   "hidden": 1
+  },
+  {
+   "fieldname": "allowed_reports",
+   "label": "Allowed Reports",
+   "fieldtype": "Small Text",
+   "description": "Report names the run_report tool may execute. Blank means no reports."
+  },
+  {
+   "fieldname": "allowed_reports_chips",
+   "fieldtype": "HTML",
+   "hidden": 1
   },
   {
    "fieldname": "allowed_custom_hosts",
    "label": "Allowed Custom Hosts",
-   "fieldtype": "Small Text"
+   "fieldtype": "Small Text",
+   "description": "Exact hostnames that custom providers may call, for example api.example.com. No URLs, ports or wildcards."
   },
   {
-   "fieldname": "max_steps",
-   "label": "Max Steps",
-   "fieldtype": "Int",
-   "default": "30"
-  },
-  {
-   "fieldname": "max_tokens",
-   "label": "Max Tokens",
-   "fieldtype": "Int",
-   "default": "4096"
-  },
-  {
-   "fieldname": "max_run_seconds",
-   "label": "Max Run Seconds",
-   "fieldtype": "Int",
-   "default": "600"
-  },
-  {
-   "fieldname": "approval_expiry_minutes",
-   "label": "Approval Expiry Minutes",
-   "fieldtype": "Int",
-   "default": "1440"
-  },
-  {
-   "fieldname": "max_upload_mb",
-   "label": "Max Upload Mb",
-   "fieldtype": "Int",
-   "default": "10"
-  },
-  {
-   "fieldname": "max_file_chars",
-   "label": "Max File Chars",
-   "fieldtype": "Int",
-   "default": "30000"
-  },
-  {
-   "fieldname": "daily_run_limit",
-   "label": "Daily Run Limit",
-   "fieldtype": "Int",
-   "default": "100"
+   "fieldname": "allowed_custom_hosts_chips",
+   "fieldtype": "HTML",
+   "hidden": 1
   }
  ],
  "field_order": [
+  "sb_assistant",
+  "rag_status_html",
   "enabled",
+  "cb_assistant",
   "approval_mode",
-  "allowed_read_doctypes",
-  "allowed_write_doctypes",
-  "allowed_reports",
-  "enabled_tools",
-  "allowed_custom_hosts",
+  "sb_limits",
   "max_steps",
   "max_tokens",
   "max_run_seconds",
   "approval_expiry_minutes",
+  "cb_limits",
+  "daily_run_limit",
   "max_upload_mb",
   "max_file_chars",
-  "daily_run_limit"
+  "sb_scope",
+  "allowed_read_doctypes",
+  "allowed_read_doctypes_chips",
+  "allowed_write_doctypes",
+  "allowed_write_doctypes_chips",
+  "cb_scope",
+  "enabled_tools",
+  "enabled_tools_chips",
+  "allowed_reports",
+  "allowed_reports_chips",
+  "allowed_custom_hosts",
+  "allowed_custom_hosts_chips"
  ],
  "permissions": [
   {

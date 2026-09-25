@@ -28,8 +28,22 @@ app_include_css = [
 ]
 
 # Conversations are worked with on the chat page, not in Form views: list rows
-# link straight to it and any Form route (search hits) redirects there.
-doctype_js = {"Intelligence Conversation": "public/js/intelligence_conversation_form.js"}
+# link straight to it and any Form route (search hits) redirects there. The
+# managed record types get native form helpers: chip editors over the scoped
+# Small Text fields, provider model/key actions, and the memory counter.
+doctype_js = {
+    "Intelligence Conversation": "public/js/intelligence_conversation_form.js",
+    "Intelligence Provider": "public/js/intelligence_provider_form.js",
+    "Intelligence Settings": [
+        "public/js/intelligence_chips.js",
+        "public/js/intelligence_settings_form.js",
+    ],
+    "Intelligence Memory": "public/js/intelligence_memory_form.js",
+    "Intelligence Skill": [
+        "public/js/intelligence_chips.js",
+        "public/js/intelligence_skill_form.js",
+    ],
+}
 doctype_list_js = {"Intelligence Conversation": "public/js/intelligence_conversation_list.js"}
 
 add_to_apps_screen = [
