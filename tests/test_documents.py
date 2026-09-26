@@ -98,7 +98,7 @@ def native_provider_edit(module, saved_fields=None, **changes):
     "field,value",
     [
         ("title", "Renamed"),
-        ("max_tokens", 262144),
+        ("max_tokens", 1048576),
         ("timeout", 90),
         ("thinking_effort", "High"),
         ("enabled", 0),
@@ -134,7 +134,7 @@ def test_provider_form_save_rejects_protected_fields(documents, field, value):
     [
         ("title", ""),
         ("max_tokens", 5),
-        ("max_tokens", 262145),
+        ("max_tokens", 1048577),
         ("timeout", 1),
         ("thinking_effort", "Extreme"),
         ("models", "not a model id!"),
@@ -318,7 +318,7 @@ def test_settings_token_ceiling_allows_large_output_budgets(documents, monkeypat
     monkeypatch.setattr(module.SettingsDocument, "_validate_write_scope", lambda self: None)
     doc = module.SettingsDocument(
         max_steps=30,
-        max_tokens=262144,
+        max_tokens=1048576,
         max_run_seconds=600,
         approval_expiry_minutes=1440,
         max_upload_mb=10,
@@ -327,7 +327,7 @@ def test_settings_token_ceiling_allows_large_output_budgets(documents, monkeypat
         allowed_custom_hosts="",
     )
     doc.validate()
-    doc.max_tokens = 262145
+    doc.max_tokens = 1048577
     with pytest.raises(ValueError, match="max_tokens"):
         doc.validate()
 

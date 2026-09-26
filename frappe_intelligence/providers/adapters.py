@@ -31,6 +31,8 @@ _GEMINI_BUDGET = {"low": 1024, "medium": 8192, "high": 24576, "max": 24576}
 _NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 _CALL_ID = re.compile(r"[A-Za-z0-9_.:-]{1,256}\Z")
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}\Z")
+# Platform-wide output-token ceiling; advertised catalog ceilings clamp to it.
+_MAX_OUTPUT = 1048576
 
 
 def _config_error():
@@ -73,7 +75,7 @@ def _configuration(config):
         or len(config.api_key) > 4096
         or any(ord(char) < 33 or ord(char) > 126 for char in config.api_key)
         or type(config.max_tokens) is not int
-        or not 1 <= config.max_tokens <= 262144
+        or not 1 <= config.max_tokens <= _MAX_OUTPUT
         or type(config.timeout) is not int
         or not 1 <= config.timeout <= MAX_TIMEOUT
         or not isinstance(config.base_url, str)
@@ -577,7 +579,7 @@ def list_models(config):
 # Canonical efforts a model may advertise, minus the always-implied Auto.
 _CATALOG_EFFORTS = ("Low", "Medium", "High", "Max")
 # Kinds whose /models wire can carry OpenRouter-shaped capability metadata.
-_EFFORT_CATALOG_KINDS = frozenset({"openrouter", "custom"})
+_CAPABILITY_CATALOG_KINDS = frozenset({"openrouter", "custom"})
 
 
 def _advertised_efforts(row):
@@ -592,12 +594,43 @@ def _advertised_efforts(row):
     return []
 
 
-def list_catalog(config):
-    """Fetch model IDs plus the reasoning efforts each model advertises.
+def _advertised_output_limit(row):
+    """The row's tightest advertised output ceiling, or None when silent.
 
-    Returns (models, efforts) where efforts maps a model ID to canonical effort
-    labels. Providers whose catalog exposes no capability metadata yield an
-    empty map; capabilities are never invented.
+    OpenRouter rows carry the model's own max_completion_tokens and may add a
+    top_provider override whose serving cap is lower; the effective ceiling is
+    the smallest sane value advertised, clamped to the platform cap.
+    """
+    candidates = [row.get("max_completion_tokens")]
+    top_provider = row.get("top_provider")
+    if isinstance(top_provider, dict):
+        candidates.append(top_provider.get("max_completion_tokens"))
+    valid = [value for value in candidates if type(value) is int and value > 0]
+    if not valid:
+        return None
+    return min(min(valid), _MAX_OUTPUT)
+
+
+def _capabilities(row):
+    """Capability metadata one catalog row advertises; {} when the wire is silent."""
+    metadata = {}
+    advertised = _advertised_efforts(row)
+    if advertised:
+        metadata["efforts"] = advertised
+    ceiling = _advertised_output_limit(row)
+    if ceiling is not None:
+        metadata["max_output"] = ceiling
+    return metadata
+
+
+def list_catalog(config):
+    """Fetch model IDs plus the capability metadata each model advertises.
+
+    Returns (models, metadata) where metadata maps a model ID to an object
+    holding only the keys the catalog row advertised: "efforts" (canonical
+    effort labels) and/or "max_output" (the model's output-token ceiling).
+    Providers whose catalog exposes no capability metadata yield an empty map;
+    capabilities are never invented.
     """
     if not isinstance(config, ProviderConfig):
         raise _config_error()
@@ -628,10 +661,10 @@ def list_catalog(config):
         model = extract(row)
         if model and _MODEL.fullmatch(model) and model not in models:
             models.append(model)
-            if config.kind in _EFFORT_CATALOG_KINDS:
-                advertised = _advertised_efforts(row)
-                if advertised:
-                    efforts[model] = advertised
+            if config.kind in _CAPABILITY_CATALOG_KINDS:
+                metadata = _capabilities(row)
+                if metadata:
+                    efforts[model] = metadata
         if len(models) >= 500:
             break
     return sorted(models), efforts

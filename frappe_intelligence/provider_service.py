@@ -107,12 +107,15 @@ def _models_list(value):
 
 
 def _model_efforts(value):
-    """Normalize per-model effort metadata into its canonical JSON string.
+    """Normalize per-model capability metadata into its canonical JSON string.
 
-    The stored shape maps a model ID to the efforts that model's catalog row
-    advertised. Only canonical efforts survive, deduplicated in canonical
-    order; malformed claims are rejected rather than trusted. Auto is implied
-    everywhere, so it is never stored.
+    The stored shape maps a model ID to an object holding only the keys the
+    catalog advertised: "efforts" (canonical labels, deduplicated in canonical
+    order; Auto is implied everywhere and never stored) and/or "max_output"
+    (the model's output-token ceiling, at most the platform cap). The legacy
+    shape, a bare effort list per model, upgrades to the same object. Unknown
+    keys are dropped, malformed claims are rejected rather than trusted, and
+    capabilities are never invented.
     """
     if value in (None, ""):
         return ""
@@ -124,13 +127,30 @@ def _model_efforts(value):
     if not isinstance(value, dict) or len(value) > 500:
         frappe.throw("Invalid model effort data.")
     result = {}
-    for model, efforts in value.items():
-        if not isinstance(model, str) or not MODEL_ID.fullmatch(model) or not isinstance(efforts, list):
+    for model, metadata in value.items():
+        if not isinstance(model, str) or not MODEL_ID.fullmatch(model):
             frappe.throw("Invalid model effort data.")
-        chosen = [effort for effort in EFFORTS[1:] if effort in efforts]
-        if not chosen:
+        if isinstance(metadata, list):
+            metadata = {"efforts": metadata}
+        if not isinstance(metadata, dict):
             frappe.throw("Invalid model effort data.")
-        result[model] = chosen
+        canonical = {}
+        if "efforts" in metadata:
+            efforts = metadata["efforts"]
+            if not isinstance(efforts, list):
+                frappe.throw("Invalid model effort data.")
+            chosen = [effort for effort in EFFORTS[1:] if effort in efforts]
+            if not chosen:
+                frappe.throw("Invalid model effort data.")
+            canonical["efforts"] = chosen
+        if "max_output" in metadata:
+            ceiling = metadata["max_output"]
+            if type(ceiling) is not int or not 1 <= ceiling <= 1048576:
+                frappe.throw("Invalid model effort data.")
+            canonical["max_output"] = ceiling
+        if not canonical:
+            frappe.throw("Invalid model effort data.")
+        result[model] = canonical
     return json.dumps(result, sort_keys=True)
 
 
@@ -162,8 +182,8 @@ def _check_limits(max_tokens, timeout):
         max_tokens, timeout = int(max_tokens), int(timeout)
     except (TypeError, ValueError):
         frappe.throw("Invalid provider limits.")
-    if not 128 <= max_tokens <= 262144 or not 5 <= timeout <= 120:
-        frappe.throw("Provider limits must be 128–262144 tokens and 5–120 seconds.")
+    if not 128 <= max_tokens <= 1048576 or not 5 <= timeout <= 120:
+        frappe.throw("Provider limits must be 128–1048576 tokens and 5–120 seconds.")
     return max_tokens, timeout
 
 
@@ -178,7 +198,7 @@ def validate_operational_fields(doc):
     thinking_effort = doc.get("thinking_effort") or "Auto"
     if thinking_effort not in EFFORTS:
         frappe.throw("Select a supported thinking effort.")
-    _check_limits(doc.get("max_tokens") or 16384, doc.get("timeout") or 60)
+    _check_limits(doc.get("max_tokens") or 32768, doc.get("timeout") or 60)
     _, catalog = _models_list(doc.get("models") or "")
     if catalog and (doc.get("model") or "") not in catalog:
         frappe.throw("Choose a model from this provider's model list.")
@@ -210,7 +230,7 @@ def validate_new_provider(doc, user):
     allowed_roles = doc.get("allowed_roles") or ""
     if not isinstance(allowed_roles, str) or len(allowed_roles) > 4000:
         frappe.throw("Invalid provider role list.")
-    _check_limits(doc.get("max_tokens") or 16384, doc.get("timeout") or 60)
+    _check_limits(doc.get("max_tokens") or 32768, doc.get("timeout") or 60)
     _model_efforts(doc.get("model_efforts") or "")
     key = doc.get_password("api_key") if hasattr(doc, "get_password") else doc.get("api_key")
     if not isinstance(key, str) or not key.strip():
@@ -257,7 +277,7 @@ def save_provider(
     if allowed_roles is None:
         allowed_roles = (doc.get("allowed_roles") or "") if name else ""
     if max_tokens is None:
-        max_tokens = (doc.get("max_tokens") or 16384) if name else 16384
+        max_tokens = (doc.get("max_tokens") or 32768) if name else 32768
     if timeout is None:
         timeout = (doc.get("timeout") or 60) if name else 60
     if thinking_effort is None:
@@ -364,9 +384,11 @@ def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
     For a saved provider the stored key is used when no key is typed; for a new
     provider the key comes from the dialog input and is never stored here. When
     the provider is saved, the catalog is persisted so the dropdown works
-    offline afterwards. Providers whose catalog advertises per-model reasoning
-    support also return that metadata ({"model-id": [efforts]}); it is stored
-    on the saved provider so the form can narrow the effort choices.
+    offline afterwards. Providers whose catalog advertises per-model capability
+    metadata also return it ({"model-id": {"efforts": [...], "max_output": N}},
+    either key possibly absent); it is stored on the saved provider so the form
+    can narrow the effort choices and cap the output budget. A catalog that
+    advertises nothing clears the stored metadata.
     """
     user = require_user()
     settings = get_settings()
@@ -429,7 +451,7 @@ def fetch_provider_models(name=None, kind=None, base_url=None, api_key=None):
         frappe.throw("The provider returned no models for these credentials.")
     if doc is not None:
         doc.models = "\n".join(models)
-        doc.model_efforts = json.dumps(efforts, sort_keys=True) if efforts else ""
+        doc.model_efforts = _model_efforts(efforts) if efforts else ""
         with internal_write():
             doc.save()
     return {"models": models, "efforts": efforts}

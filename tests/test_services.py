@@ -270,15 +270,15 @@ def test_provider_update_preserves_omitted_role_restrictions_and_limits(services
 def test_provider_token_limit_supports_large_output_budgets(services):
     _, store = services
     module = importlib.import_module("frappe_intelligence.provider_service")
-    saved = module.save_provider(title="Big", kind="OpenAI", model="m", api_key="secret", max_tokens=262144)
-    assert store[saved["name"]].max_tokens == 262144
-    for value in (127, 262145, "many"):
+    saved = module.save_provider(title="Big", kind="OpenAI", model="m", api_key="secret", max_tokens=1048576)
+    assert store[saved["name"]].max_tokens == 1048576
+    for value in (127, 1048577, "many"):
         with pytest.raises(ValueError):
             module.save_provider(
                 title="Invalid", kind="OpenAI", model="m", api_key="secret", max_tokens=value
             )
     defaulted = module.save_provider(title="Default", kind="OpenAI", model="m", api_key="secret")
-    assert store[defaulted["name"]].max_tokens == 16384
+    assert store[defaulted["name"]].max_tokens == 32768
 
 
 def test_memory_cannot_cross_owners_or_conversations(services):

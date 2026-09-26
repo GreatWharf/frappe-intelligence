@@ -18,7 +18,7 @@ class ProviderConfig:
     model: str
     api_key: str = field(repr=False)
     base_url: str = ""
-    max_tokens: int = 16384
+    max_tokens: int = 32768
     timeout: int = 60
     allowed_hosts: tuple = ()
     # DocType Thinking Effort label (Low/Medium/High/Max); "" means Auto.

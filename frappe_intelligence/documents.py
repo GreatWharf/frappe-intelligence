@@ -155,7 +155,7 @@ class SettingsDocument(Document):
             )
         limits = {
             "max_steps": (1, 30),
-            "max_tokens": (128, 262144),
+            "max_tokens": (128, 1048576),
             "max_run_seconds": (30, 1800),
             "approval_expiry_minutes": (5, 10080),
             "max_upload_mb": (1, 20),
