@@ -655,8 +655,18 @@ def after_migrate():
         if settings.get(key) in (None, ""):
             settings.set(key, value)
             changed = True
+    # The pre-0.8 output-token default was 4096 everywhere. A site (or provider)
+    # still holding exactly that value never chose it: it was the old factory
+    # default, so it migrates to the new one. Any other value was chosen and stays.
+    if settings.get("max_tokens") == 4096:
+        settings.set("max_tokens", 16384)
+        changed = True
     if changed:
         settings.save(ignore_permissions=True)
+    for provider in frappe.get_all(
+        "Intelligence Provider", filters={"max_tokens": 4096}, pluck="name", limit_page_length=0
+    ):
+        frappe.db.set_value("Intelligence Provider", provider, "max_tokens", 16384)
     for doctype, fields, name in (
         ("Intelligence Message", ["conversation", "sequence"], "intelligence_message_order"),
         ("Intelligence Run", ["state", "lease_expires"], "intelligence_run_recovery"),

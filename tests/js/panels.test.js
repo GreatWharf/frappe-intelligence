@@ -189,3 +189,16 @@ test('the share dialog on Desk manages per-user read-only grants natively', asyn
   assert.equal(host.textContent.includes('New Person'), false, 'the revoked user leaves the list');
   assert.equal(app.snapshot.conversation.shared, 0);
 });
+
+test('the no-providers welcome routes to the native provider page', (t) => {
+  const { app, window } = harness(t);
+  const seen = [];
+  window.frappe.set_route = (...args) => seen.push(args);
+  app.boot = { enabled: true, is_manager: false, providers: [] };
+  app.snapshot = null;
+  app.render();
+  const cta = app.$('[data-action="providers-list"]');
+  assert.ok(cta, 'the welcome screen offers a provider setup CTA when none exist');
+  cta.click();
+  assert.deepEqual(seen, [['List', 'Intelligence Provider']], 'the CTA lands on the native provider list');
+});

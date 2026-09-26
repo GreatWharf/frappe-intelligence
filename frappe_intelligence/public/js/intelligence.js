@@ -27,8 +27,6 @@
 		chat: '<path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2V12a9 9 0 0 1 18-.5Z"/>',
 		close: '<path d="m6 6 12 12M6 18 18 6"/>', arrow: '<path d="M12 19V5m-6 6 6-6 6 6"/>',
 		chevron: '<path d="m9 5 7 7-7 7"/>', down: '<path d="m6 9 6 6 6-6"/>',
-		settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="16" cy="17" r="3"/>',
-		memory: '<path d="M6 3h12v18l-6-4-6 4Z"/><path d="M9 7h6m-6 4h4"/>',
 		lock: '<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
 		attach: '<path d="m9 12 6-6a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l10-10m-4 10 5-5"/>',
 		check: '<path d="m5 12 4 4L19 6"/>', archive: '<path d="M4 8h16v13H4Z"/><path d="M3 3h18v5H3Zm6 9h6"/>',
@@ -41,9 +39,7 @@
 		stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/>',
 		sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.3 11.3 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.3-11.3 1.4-1.4"/>',
 		grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
-		target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
-		wrench: '<path d="M14.5 6.5a4.2 4.2 0 0 1 5.6-4L17.5 5l1.5 1.5 2.6-2.6a4.2 4.2 0 0 1-5.7 5.6L7.6 18.7a2 2 0 0 1-2.9-2.9l8.2-8.2a4.2 4.2 0 0 1 1.6-1.1Z"/>',
-		menu: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>'
+		wrench: '<path d="M14.5 6.5a4.2 4.2 0 0 1 5.6-4L17.5 5l1.5 1.5 2.6-2.6a4.2 4.2 0 0 1-5.7 5.6L7.6 18.7a2 2 0 0 1-2.9-2.9l8.2-8.2a4.2 4.2 0 0 1 1.6-1.1Z"/>'
 	};
 	function icon(name) { return '<svg class="fi-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (icons[name] || icons.chat) + '</svg>'; }
 	function esc(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
@@ -333,6 +329,8 @@
 		action(action, target) {
 			if (action === "select") return this.select(target.dataset.name);
 			if (action === "new") return this.newConversation();
+			// The no-providers welcome CTA goes to the native provider page.
+			if (action === "providers-list") { if (global.frappe && global.frappe.set_route) global.frappe.set_route("List", "Intelligence Provider"); return; }
 			if (action === "starter") { this.draft().text = target.dataset.prompt; this.syncDraft(); this.$("textarea").focus(); return; }
 			if (action === "remove-context") { this.context = null; this.renderContext(); return; }
 			if (action === "remove-file") { this.draft().attachments = this.draft().attachments.filter((file) => file.name !== target.dataset.name); this.renderAttachments(); this.messageSignature = ""; this.renderMessages(); return; }

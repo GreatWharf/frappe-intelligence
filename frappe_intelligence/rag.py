@@ -396,11 +396,13 @@ def _delete_rows(conversation, source_name=None):
     for row in frappe.get_all(
         "Intelligence Embedding",
         filters=filters,
-        fields=["name", "conversation", "source_name"],
+        fields=["name", "conversation", "source_name", "source_type"],
         limit_page_length=MAX_CHUNKS + 50,
     ):
         if row.get("conversation") != conversation:
             continue
+        if row.get("source_type") == MEMORY_SOURCE:
+            continue  # memory vectors are owned by the memory lifecycle
         if source_name is not None and row.get("source_name") != source_name:
             continue
         with internal_write():
@@ -582,11 +584,13 @@ def index_memory(memory):
         existing = _source_rows(MEMORY_SOURCE, name, ["name", "source_type", "source_name", "content_hash"])
         if existing and {row.get("content_hash") for row in existing} == {digest}:
             return
-        if existing:
-            _delete_source_rows(MEMORY_SOURCE, name)
+        # Capability first: replacing rows only makes sense when new vectors can
+        # actually be embedded; a transient outage must not orphan good ones.
         access = _memory_access()
         if access is None:
             return
+        if existing:
+            _delete_source_rows(MEMORY_SOURCE, name)
         chunks = chunk_text(content, size=MEMORY_CHUNK_SIZE, overlap=MEMORY_CHUNK_OVERLAP)[:MAX_MEMORY_CHUNKS]
         if not chunks:
             return

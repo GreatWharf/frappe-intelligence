@@ -61,6 +61,39 @@
 		}
 	}
 
+	function canDelete(frm) {
+		if (!frm || !frm.doc || !frm.doc.name) return false;
+		if (typeof frm.is_new === "function" && frm.is_new()) return false;
+		if (typeof frm.has_perm === "function") return !!frm.has_perm("write");
+		const perm = frm.perm;
+		return !!(perm && perm.length && perm[0] && perm[0].write);
+	}
+
+	function deleteMemory(frm) {
+		const frappe = global.frappe;
+		if (!frappe || typeof frappe.call !== "function" || !frm || !frm.doc || !frm.doc.name) return;
+		const name = frm.doc.name;
+		const drop = function () {
+			frappe.call({
+				method: "frappe_intelligence.api.delete_memory",
+				args: { name: name },
+				callback() {
+					if (typeof frappe.set_route === "function") {
+						frappe.set_route("List", "Intelligence Memory");
+					}
+				},
+			});
+		};
+		/* Memory records carry no delete permission by design (generic REST must
+		   not remove them); the whitelisted endpoint applies the owner and
+		   manager rules, so the form offers exactly that path. */
+		if (typeof frappe.confirm === "function") {
+			frappe.confirm(__("Delete this memory permanently?"), drop);
+		} else {
+			drop();
+		}
+	}
+
 	function registerMemoryForm(g) {
 		const frappe = g && g.frappe;
 		if (!frappe || !frappe.ui || !frappe.ui.form || typeof frappe.ui.form.on !== "function") {
@@ -69,6 +102,11 @@
 		frappe.ui.form.on("Intelligence Memory", {
 			refresh(frm) {
 				setupCounter(frm);
+				if (canDelete(frm) && typeof frm.add_custom_button === "function") {
+					frm.add_custom_button(__("Delete"), function () {
+						deleteMemory(frm);
+					});
+				}
 			},
 			scope(frm) {
 				clearStaleConversation(frm);
@@ -87,6 +125,8 @@
 			contentNote: CONTENT_NOTE,
 			updateCounter: updateCounter,
 			clearStaleConversation: clearStaleConversation,
+			canDelete: canDelete,
+			deleteMemory: deleteMemory,
 			registerMemoryForm: registerMemoryForm,
 		},
 	});

@@ -179,7 +179,9 @@ def validate_operational_fields(doc):
     if thinking_effort not in EFFORTS:
         frappe.throw("Select a supported thinking effort.")
     _check_limits(doc.get("max_tokens") or 16384, doc.get("timeout") or 60)
-    _models_list(doc.get("models") or "")
+    _, catalog = _models_list(doc.get("models") or "")
+    if catalog and (doc.get("model") or "") not in catalog:
+        frappe.throw("Choose a model from this provider's model list.")
 
 
 def validate_new_provider(doc, user):

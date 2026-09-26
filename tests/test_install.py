@@ -45,6 +45,26 @@ def test_after_migrate_backfills_empty_defaults_and_keeps_chosen_values(migrator
     assert settings.get("max_steps") == module.DEFAULTS["max_steps"]
 
 
+def test_after_migrate_raises_only_the_old_factory_token_default(migrator):
+    module, fake, store = migrator
+    settings = fake.get_single("Intelligence Settings")
+    settings.set("max_tokens", 4096)  # the pre-0.8 factory default: never chosen
+    provider_old = fake.get_doc(
+        {"doctype": "Intelligence Provider", "title": "Old default", "max_tokens": 4096}
+    ).insert()
+    provider_chosen = fake.get_doc(
+        {"doctype": "Intelligence Provider", "title": "Chosen", "max_tokens": 8192}
+    ).insert()
+    module.after_migrate()
+    assert settings.get("max_tokens") == 16384
+    assert store[("Intelligence Provider", provider_old.name)].get("max_tokens") == 16384
+    assert store[("Intelligence Provider", provider_chosen.name)].get("max_tokens") == 8192
+    # A deliberately chosen settings value is never touched either.
+    settings.set("max_tokens", 8192)
+    module.after_migrate()
+    assert settings.get("max_tokens") == 8192
+
+
 EXPECTED_SKILLS = {
     "ingest-invoice": "Ingest a supplier invoice",
     "draft-email-reply": "Draft an email reply",
@@ -124,7 +144,18 @@ def migrator(monkeypatch):
         db_type="mariadb",
         exists=lambda doctype, name: (doctype, name) in store,
         add_index=lambda *args: None,
+        set_value=lambda doctype, name, field, value: store[(doctype, name)].set(field, value),
     )
+
+    def get_all(doctype, filters=None, fields=None, pluck=None, **kwargs):
+        rows = [doc for (dt, _), doc in store.items() if dt == doctype]
+        if filters:
+            rows = [doc for doc in rows if all(doc.get(key) == value for key, value in filters.items())]
+        if pluck:
+            return [doc.get(pluck) for doc in rows]
+        return rows
+
+    fake.get_all = get_all
     fake.enqueue = lambda method, **kwargs: jobs.append((method, kwargs))
     fake.jobs = jobs
 

@@ -102,7 +102,7 @@ def native_provider_edit(module, saved_fields=None, **changes):
         ("timeout", 90),
         ("thinking_effort", "High"),
         ("enabled", 0),
-        ("models", "a-model\nb-model"),
+        ("models", "test-model\nb-model"),
     ],
 )
 def test_provider_form_save_allows_whitelisted_operational_fields(documents, field, value):
@@ -138,6 +138,7 @@ def test_provider_form_save_rejects_protected_fields(documents, field, value):
         ("timeout", 1),
         ("thinking_effort", "Extreme"),
         ("models", "not a model id!"),
+        ("models", "a-model\nb-model"),
     ],
 )
 def test_provider_form_save_rejects_out_of_range_operational_values(documents, field, value):
@@ -329,3 +330,51 @@ def test_settings_token_ceiling_allows_large_output_budgets(documents, monkeypat
     doc.max_tokens = 262145
     with pytest.raises(ValueError, match="max_tokens"):
         doc.validate()
+
+
+def test_provider_form_and_locked_fields_cover_the_doctype(documents):
+    """Every provider field must be a deliberate guard decision, never a drift."""
+    import json
+    from pathlib import Path
+
+    module, _ = documents
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / "frappe_intelligence/frappe_intelligence/doctype/intelligence_provider/intelligence_provider.json"
+    )
+    fields = {
+        field["fieldname"]
+        for field in json.loads(schema_path.read_text())["fields"]
+        if field.get("fieldtype") not in ("Section Break", "Column Break", "HTML")
+    }
+    covered = set(module.PROVIDER_FORM_FIELDS) | set(module.PROVIDER_LOCKED_FIELDS) - {"owner"}
+    assert fields == covered
+
+
+def memory_controller(documents, monkeypatch):
+    module, _ = documents
+    name = "frappe_intelligence.frappe_intelligence.doctype.intelligence_memory.intelligence_memory"
+    monkeypatch.delitem(sys.modules, name, raising=False)
+    controller = importlib.import_module(name).IntelligenceMemory
+    rag = importlib.import_module("frappe_intelligence.rag")
+    calls = {"indexed": [], "dropped": []}
+    monkeypatch.setattr(rag, "index_memory", lambda doc: calls["indexed"].append(doc.get("name")))
+    monkeypatch.setattr(rag, "drop_memory", lambda name: calls["dropped"].append(name))
+    return controller, calls
+
+
+def test_native_memory_save_and_delete_join_the_embedding_lifecycle(documents, monkeypatch):
+    controller, calls = memory_controller(documents, monkeypatch)
+    doc = controller(dict(MEMORY_SAVED))
+    doc.on_update()
+    assert calls["indexed"] == ["m"]
+    doc.on_trash()
+    assert calls["dropped"] == ["m"]
+
+
+def test_memory_lifecycle_never_bypasses_the_trash_guard(documents, monkeypatch):
+    controller, calls = memory_controller(documents, monkeypatch)
+    doc = controller(dict(MEMORY_SAVED, owner="someone-else@example.test"))
+    with pytest.raises(PermissionError, match="Intelligence workspace"):
+        doc.on_trash()
+    assert calls["dropped"] == []
