@@ -73,8 +73,12 @@ _GROUND_RULES = (
     "- When asked to draft something that lives in ERPNext (an email reply, a note), create the "
     "draft record and answer with a link to it; never paste the full draft text.\n"
     "- Never retry a denied action unless the user asks.\n"
-    "- Before each tool call, write one short sentence on what you are doing and why; "
-    "never call a tool silently.\n"
+    '- Narrate a tool call with one short clause ("Checking suppliers"), never a paragraph; '
+    "when you propose several calls at once, add no narration at all, the grouped proposal "
+    "speaks for itself; never call a single tool silently.\n"
+    "- When a task needs several independent lookups, reads or searches, emit ALL of them in "
+    "one response instead of one per step; sequence only calls whose inputs depend on an "
+    "earlier result; never split independent searches across steps.\n"
     "- Financial posting, document submission, workflow changes and ledger or stock writes are "
     "always off-limits; propose drafts instead.\n"
     "- Reference records as markdown links with a human label, e.g. "
@@ -309,7 +313,7 @@ def get_provider_config(provider_name, user=None):
         api_key=key,
         base_url=doc.base_url or "",
         max_tokens=min(
-            _number(doc.max_tokens, 16384, 1, 262144), _number(settings.max_tokens, 16384, 1, 262144)
+            _number(doc.max_tokens, 32768, 1, 1048576), _number(settings.max_tokens, 32768, 1, 1048576)
         ),
         timeout=_number(doc.timeout, 60, 5, 120),
         allowed_hosts=allowed,
@@ -1432,7 +1436,9 @@ _TITLE_PROMPT = (
     "at most 100 characters, plain text, no quotes, no punctuation at the end. The title "
     "describes the user's request or task and is based on the user's first message; the "
     "assistant reply is context only. Never answer the user, never greet, never ask a "
-    "question back, never describe what the assistant can or cannot do."
+    "question back, never describe what the assistant can or cannot do. Never mention "
+    "ERPNext, Frappe, Intelligence or the assistant itself, and never invent topics that "
+    "are not in the user's message."
 )
 
 # Assistant openers and deflection phrases mean the model echoed its own reply
@@ -1442,6 +1448,8 @@ _TITLE_OPENERS = (
     "hi",
     "hello",
     "hey",
+    "greetings",
+    "welcome",
     "sure",
     "certainly",
     "of course",
@@ -1465,8 +1473,52 @@ _TITLE_DEFLECTIONS = (
     "i can't",
 )
 
+# Product framing the model invents when it has no real topic ("Greetings and
+# ERPNext assistance" titled a "hi" chat). A term the user's own first message
+# names is fine to echo; anything else is assistant slop.
+_TITLE_PRODUCT_TERMS = re.compile(r"\berpnext\b|\bfrappe\b|\bintelligence\b|\bassistan", re.I)
 
-def _clean_title(text):
+# Greeting and filler words that carry no topic to title.
+_SMALL_TALK_WORDS = frozenset(
+    {
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "sup",
+        "howdy",
+        "hiya",
+        "good",
+        "morning",
+        "afternoon",
+        "evening",
+        "night",
+        "thanks",
+        "thank",
+        "you",
+        "ok",
+        "okay",
+        "test",
+        "testing",
+        "ping",
+        "start",
+        "help",
+    }
+)
+
+
+def _small_talk(text):
+    """True when a first message is only greeting/filler words, with no topic.
+
+    At most five words, every one a common greeting or filler. False positives
+    are harmless: the title then keeps the user's own words, which is exactly
+    the placeholder behavior small talk wants.
+    """
+    words = re.sub(r"[^\w\s]", " ", text.lower()).split()
+    return 0 < len(words) <= 5 and all(word in _SMALL_TALK_WORDS for word in words)
+
+
+def _clean_title(text, user_text=""):
     """Clean and validate a generated title; an empty string keeps the placeholder."""
     line = re.sub(r"\s+", " ", str(text or "")).strip()
     line = line.strip("\"'`").strip()
@@ -1482,6 +1534,9 @@ def _clean_title(text):
     ):
         return ""
     if any(phrase in lowered for phrase in _TITLE_DEFLECTIONS):
+        return ""
+    user_lowered = user_text.lower()
+    if any(match.group(0).lower() not in user_lowered for match in _TITLE_PRODUCT_TERMS.finditer(line)):
         return ""
     return line
 
@@ -1517,6 +1572,13 @@ def _maybe_generate_title(run):
         )
         if not first_user:
             return
+        reply_text = (first_reply[0].get("content") or "").strip()[:300]
+        user_text = (first_user[0].get("content") or "").strip()[:2000]
+        if not user_text or _small_talk(user_text):
+            # A greeting carries no topic to name, and a provider call would only
+            # invent one ("Greetings and ERPNext assistance"). The first-message
+            # placeholder already shows the user's own words: the right title.
+            return
         config = _run_config(run)
         # A reasoning model burns a tiny budget on thinking before any visible
         # text, then finishes "length": the title silently never landed on
@@ -1525,10 +1587,6 @@ def _maybe_generate_title(run):
         # thinking off, so their budget stays small either way.
         effort = "low" if config.kind in ("openai", "custom", "xai", "openrouter") else ""
         config = replace(config, max_tokens=400, effort=effort)
-        reply_text = (first_reply[0].get("content") or "").strip()[:300]
-        user_text = (first_user[0].get("content") or "").strip()[:2000]
-        if not user_text:
-            return
         # Label both texts so the model titles the user's message and treats the
         # assistant reply as context only, never as the text to repeat.
         titled = f"User message:\n{user_text}"
@@ -1541,7 +1599,7 @@ def _maybe_generate_title(run):
         frappe.db.commit()  # the provider call never holds a transaction
         from frappe_intelligence.providers import complete
 
-        title = _clean_title(getattr(complete(config, messages, []), "text", ""))
+        title = _clean_title(getattr(complete(config, messages, []), "text", ""), user_text)
         if not title:
             return
         conversation = frappe.get_doc(CONVERSATION, run.conversation, for_update=True)

@@ -89,6 +89,8 @@ def test_clean_title_validation_rules(env):
     for slop in (
         "Hi there, how can I help you today?",
         "Hello! How may I assist?",
+        "Greetings, how can I help you today?",
+        "Welcome! What would you like to do?",
         "Sure, happy to help with that",
         "Of course, let me know what you need",
         "I'm afraid I don't have access to that",
@@ -103,3 +105,73 @@ def test_clean_title_validation_rules(env):
         assert clean(slop) == "", slop
     assert clean('  "Quarterly cash position review."\n') == "Quarterly cash position review"
     assert clean("T" * 150) == "T" * 100
+
+
+def test_clean_title_rejects_product_framing_the_user_never_named(env):
+    clean = env.engine._clean_title
+    # Invented product framing is assistant slop: reject it even when the
+    # candidate is otherwise well-formed.
+    assert clean("Greetings and ERPNext assistance", "hi") == ""
+    assert clean("ERPNext assistance overview", "What can you do?") == ""
+    assert clean("Your Frappe Intelligence briefing", "check my invoices") == ""
+    assert clean("Assistant capabilities summary", "hi") == ""
+    # A term the user's own first message names is fine to echo back.
+    assert clean("ERPNext invoice review", "Show my ERPNext invoices") == "ERPNext invoice review"
+    assert clean("Frappe upgrade plan", "plan the Frappe upgrade") == "Frappe upgrade plan"
+
+
+def test_small_talk_keeps_the_placeholder_and_never_calls_the_provider(env, monkeypatch):
+    use_real_config(env, monkeypatch)
+    name = submit_titled(env, "hi")
+    env.replies.append(reply(text="Hi there! How can I help you today?"))
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "completed"
+    doc = env.frappe.get_doc("Intelligence Conversation", "titled")
+    assert doc.title == "hi", "the user's own words stay as the title"
+    assert len(env.calls) == 1, "no provider round-trip is spent titling a greeting"
+
+
+def test_a_two_word_greeting_also_skips_the_title_call(env, monkeypatch):
+    use_real_config(env, monkeypatch)
+    name = submit_titled(env, "Good morning!")
+    env.replies.append(reply(text="Good morning! What can I do for you?"))
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "completed"
+    doc = env.frappe.get_doc("Intelligence Conversation", "titled")
+    assert doc.title == "Good morning!"
+    assert len(env.calls) == 1
+
+
+def test_invented_product_framing_is_rejected_even_when_returned(env, monkeypatch):
+    use_real_config(env, monkeypatch)
+    name = submit_titled(env, "What can you do?")
+    env.replies.append(reply(text="I can read records and draft changes you approve."))
+    env.replies.append(title_reply("Greetings and ERPNext assistance"))
+    env.engine.process_run(name)
+    assert env.engine.get_run(name)["state"] == "completed"
+    doc = env.frappe.get_doc("Intelligence Conversation", "titled")
+    assert doc.title == "What can you do?", "invented product framing never becomes the title"
+
+
+def test_a_product_term_the_user_named_may_stay_in_the_title(env, monkeypatch):
+    use_real_config(env, monkeypatch)
+    name = submit_titled(env, "Show my ERPNext invoices")
+    env.replies.append(reply(text="Here are your unpaid invoices."))
+    env.replies.append(title_reply("ERPNext invoice review"))
+    env.engine.process_run(name)
+    doc = env.frappe.get_doc("Intelligence Conversation", "titled")
+    assert doc.title == "ERPNext invoice review"
+
+
+def test_runtime_token_cap_is_1048576_with_a_32768_fallback(env):
+    # Runtime clamp in get_provider_config; test_engine_provider_config.py pins
+    # the wire boundary, so this lives with the engine-level title/config tests.
+    provider = env.frappe.get_doc("Intelligence Provider", "provider")
+    provider.max_tokens = 1048576
+    env.frappe.settings.max_tokens = 1048576
+    assert env.engine.get_provider_config("provider").max_tokens == 1048576
+    provider.max_tokens = 5000000
+    assert env.engine.get_provider_config("provider").max_tokens == 1048576, "the ceiling clamps"
+    provider.max_tokens = None
+    env.frappe.settings.max_tokens = None
+    assert env.engine.get_provider_config("provider").max_tokens == 32768, "unset limits fall back"

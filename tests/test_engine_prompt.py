@@ -377,10 +377,22 @@ def test_ground_rules_memory_and_adaptive_guidance_are_present(env):
     # Live runs showed the model confirming writes in text first and never
     # calling the tool; the rules must state the approval card IS the check.
     assert "call the write tool" in prompt
-    # Narration prose between steps is a 0.6.0 surface feature; it needs the
-    # model instructed to never act silently.
-    assert "never call a tool silently" in prompt
-    assert len(env.engine._GROUND_RULES) < 1400
+    # Narration prose between steps is a 0.6.0 surface feature; the rules keep
+    # it to one short clause, ban it entirely for grouped proposals, and never
+    # let a single call fire silently.
+    assert "never call a single tool silently" in prompt
+    assert len(env.engine._GROUND_RULES) < 1700
+
+
+def test_prompt_guides_batched_independent_calls_and_terse_narration(env):
+    prompt = system_prompt(env)[0]["content"]
+    # Independent lookups ship in one response, never one round-trip per call.
+    assert "emit ALL of them in one response instead of one per step" in prompt
+    assert "sequence only calls whose inputs depend on an earlier result" in prompt
+    assert "never split independent searches across steps" in prompt
+    # Narration is a short clause, and a grouped proposal speaks for itself.
+    assert 'one short clause ("Checking suppliers"), never a paragraph' in prompt
+    assert "add no narration at all" in prompt
 
 
 def test_skills_block_lists_only_enabled_own_and_shared_skills(env):
