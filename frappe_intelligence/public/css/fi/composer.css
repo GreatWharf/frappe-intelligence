@@ -56,6 +56,9 @@
 .fi-send {border: 0; border-radius: 7px; width: 31px; height: 31px; background: var(--fi-accent); color: var(--fi-on-accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0;}
 .fi-send:hover:not(:disabled) {background: var(--fi-accent-hover);}
 .fi-send:disabled {background: var(--fi-soft); color: var(--fi-muted); opacity: 1 !important; border: 1px solid var(--fi-border);}
+/* While a run is active, sending queues: the filled accent becomes a quiet outline with the hourglass glyph. */
+.fi-send.is-queueing {background: var(--fi-accent-soft); color: var(--fi-accent-text); border: 1px solid var(--fi-border);}
+.fi-send.is-queueing:hover:not(:disabled) {background: var(--fi-soft);}
 .fi-send .fi-icon {width: 16px; height: 16px;}
 .fi-composer-caption {display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; color: var(--fi-muted); font-size: 8px;}
 .fi-composer-caption > span {display: inline-flex; align-items: center; gap: 4px;}

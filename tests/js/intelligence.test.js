@@ -422,15 +422,76 @@ test('fitViewport pins the app to the remaining viewport in page mode and leaves
   app.root.getBoundingClientRect = () => rect;
   app.fitViewport();
   assert.equal(app.root.style.height, '983px', 'an overflowing app is pinned into view');
+  assert.equal(app.root.style.maxHeight, '983px', 'max-height backs the pin so the grid cannot outgrow it');
   rect.height = 400;
   app.fitViewport();
   assert.equal(app.root.style.height, '983px', 'a shorter app still fills the viewport so the page itself never scrolls');
   rect.top = 780;
   app.fitViewport();
   assert.equal(app.root.style.height, '', 'below the usable floor the CSS minimum takes over');
+  assert.equal(app.root.style.maxHeight, '', 'the max-height pin lifts with it');
   rect.top = 49; app.mode = 'drawer';
   app.fitViewport();
   assert.equal(app.root.style.height, '', 'the drawer keeps its CSS-owned height');
+  assert.equal(app.root.style.maxHeight, '');
+});
+
+test('fitViewport pins inside the Desk scroll container content box, not the raw viewport', (t) => {
+  const { app, window, document } = harness(t);
+  app.mode = 'page';
+  try { Object.defineProperty(window, 'innerHeight', { value: 960, configurable: true }); }
+  catch { window.innerHeight = 960; }
+  // Live Desk: the page sits inside .main-section (overflow-y:auto), and the
+  // onboarding panel sets an inline padding-bottom: 90px on it. Pinning to the
+  // raw viewport would overflow the container by exactly those 90px and the
+  // whole page would scroll next to the thread.
+  const host = document.createElement('div');
+  app.root.parentNode.insertBefore(host, app.root);
+  host.appendChild(app.root);
+  host.getBoundingClientRect = () => ({ top: 0 });
+  try { Object.defineProperty(host, 'clientHeight', { value: 960, configurable: true }); }
+  catch { host.clientHeight = 960; }
+  const native = typeof window.getComputedStyle === 'function' ? window.getComputedStyle : null;
+  // Restore the host's own getComputedStyle (or its absence) for other tests.
+  t.after(() => {
+    try { Object.defineProperty(window, 'getComputedStyle', { value: native, configurable: true, writable: true }); }
+    catch { window.getComputedStyle = native; }
+  });
+  const mockStyle = (node) => node === host ? { overflowY: 'auto', paddingBottom: '90px' } : { overflowY: 'visible', paddingBottom: '0px' };
+  try { Object.defineProperty(window, 'getComputedStyle', { value: mockStyle, configurable: true, writable: true }); }
+  catch { window.getComputedStyle = mockStyle; }
+  app.root.getBoundingClientRect = () => ({ top: 49 });
+  app.fitViewport();
+  assert.equal(app.root.style.height, '813px', '960 - 90 container padding - 49 app top - 8 slack: no scrollable overflow remains');
+  assert.equal(app.root.style.maxHeight, '813px');
+  // Without the injected padding the same container leaves the app full height.
+  const noPad = (node) => node === host ? { overflowY: 'auto', paddingBottom: '0px' } : { overflowY: 'visible', paddingBottom: '0px' };
+  try { Object.defineProperty(window, 'getComputedStyle', { value: noPad, configurable: true, writable: true }); }
+  catch { window.getComputedStyle = noPad; }
+  app.fitViewport();
+  assert.equal(app.root.style.height, '903px', 'an unpadded container keeps the full remaining viewport');
+});
+
+test('active runs show only the state label; warning states keep their explanation', (t) => {
+  const { app, snapshot } = harness(t); app.selected = 'c1';
+  for (const state of ['queued', 'running', 'awaiting_approval']) {
+    snapshot.run = { name: 'r1', state };
+    app.accept('c1', copy(snapshot));
+    const text = app.slot('run').textContent;
+    assert.ok(!text.includes('You can leave this page'), state + ' drops the background sentence');
+    assert.ok(!text.includes('waiting for your decision'), state + ' drops the explanatory note');
+  }
+  snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
+  assert.ok(app.slot('run').textContent.includes('Working'), 'the label stays');
+  assert.ok(app.$('[data-action="cancel"]'), 'the Stop button stays');
+  snapshot.run = { name: 'r1', state: 'failed', error: 'Provider timeout' }; app.accept('c1', copy(snapshot));
+  assert.ok(app.slot('run').textContent.includes('Provider timeout'), 'a failure keeps its error');
+  snapshot.run = { name: 'r1', state: 'failed' }; app.accept('c1', copy(snapshot));
+  assert.ok(app.slot('run').textContent.includes('saved with your conversation'), 'a bare failure keeps its fallback');
+  snapshot.run = { name: 'r1', state: 'needs_reconciliation' }; app.accept('c1', copy(snapshot));
+  assert.ok(app.slot('run').textContent.includes('Check the affected records'), 'review keeps its guidance');
+  snapshot.run = { name: 'r1', state: 'cancelled' }; app.accept('c1', copy(snapshot));
+  assert.ok(app.slot('run').textContent.includes('not reversed'), 'cancellation keeps its note');
 });
 
 test('the global pill stays available across Desk but never on the intelligence page', (t) => {

@@ -67,19 +67,53 @@ test('the header has no menu trigger; management lives in native Desk pages', (t
   for (const action of ['conversations-list', 'settings', 'memory', 'skills', 'scope', 'app-settings']) assert.equal(app.$('[data-action="' + action + '"]'), null, action + ' entry point is gone');
 });
 
-test('the header subtitle carries access state only, never provider, model or effort', (t) => {
+test('the header subtitle renders only for access states that matter', (t) => {
   const { app, snapshot } = harness(t);
-  assert.equal(app.slot('subtitle').textContent, 'Private · only you', 'no conversation selected');
+  assert.equal(app.slot('subtitle').textContent, '', 'no subtitle without a conversation');
+  assert.equal(app.slot('subtitle').hidden, true, 'the empty subtitle collapses');
   snapshot.conversation.model = 'configured-model'; snapshot.conversation.effort = 'High';
   app.selected = 'c1'; app.accept('c1', copy(snapshot));
   const subtitle = app.slot('subtitle').textContent;
-  assert.equal(subtitle, 'Private · only you', 'a selected conversation still shows state only');
+  assert.equal(subtitle, '', 'a plain private conversation has no subtitle');
+  assert.equal(app.slot('subtitle').hidden, true, 'and its space stays collapsed');
   assert.ok(!subtitle.includes('configured-model') && !subtitle.includes('effort') && !subtitle.includes('Work'), 'no provider title, model or effort leaks into the header');
   snapshot.conversation.archived = 1; app.accept('c1', copy(snapshot));
   assert.equal(app.slot('subtitle').textContent, 'Archived · read only');
+  assert.equal(app.slot('subtitle').hidden, false, 'a real state unhides the span');
   snapshot.conversation.archived = 0; snapshot.can_post = false; snapshot.conversation.owner = 'alex@example.test';
   app.accept('c1', copy(snapshot));
   assert.equal(app.slot('subtitle').textContent, 'Shared by alex@example.test · read only');
+  assert.equal(app.slot('subtitle').hidden, false);
+});
+
+test('the New button hides on an empty chat and shows once a conversation is open', (t) => {
+  const { app, snapshot } = harness(t);
+  assert.equal(app.$('[data-action="new"]').hidden, true, 'hidden with no conversation selected');
+  app.selected = 'c1'; app.accept('c1', copy(snapshot));
+  assert.equal(app.$('[data-action="new"]').hidden, false, 'visible with a conversation open');
+  app.newConversation();
+  assert.equal(app.$('[data-action="new"]').hidden, true, 'hidden again back on a fresh chat');
+});
+
+test('the Administration group pins to the sidebar bottom through native flex', (t) => {
+  const pin = cssRule(panelCSS, '.body-sidebar[data-title="Intelligence"] .sidebar-items > .sidebar-item-container[data-id="Administration"]');
+  assert.ok(pin.includes('margin-top: auto'), 'the group pins itself to the bottom of the column');
+  const layout = cssRule(panelCSS, '.body-sidebar[data-title="Intelligence"] .body-sidebar-top > .sidebar-items');
+  assert.ok(layout.includes('display: flex') && layout.includes('flex-direction: column'), 'the item list becomes the flex column the pin needs');
+  assert.ok(layout.includes('min-height: 100%'), 'min-height keeps native overflow scrolling intact');
+  assert.ok(!/(^|;)\s*height:/.test(layout), 'never a fixed height, which would break scrolling');
+  // The selector must match the markup the native v16 sidebar renders
+  // (section groups are plain .sidebar-item-container children of
+  // .sidebar-items, keyed by data-id; the rail keeps the same structure).
+  const { JSDOM } = process.env.FI_REAL_DOM === '1' ? require('jsdom') : require('./dom-harness.cjs');
+  const dom = new JSDOM('<!doctype html><html><body><div class="body-sidebar" data-title="Intelligence"><div class="body-sidebar-top"><div class="sidebar-items">'
+    + '<div class="sidebar-item-container" item-name="Chat" data-id="Chat" title="Chat"></div>'
+    + '<div class="sidebar-item-container section-item" item-name="Administration" data-id="Administration" title="Administration"></div>'
+    + '</div></div></div></body></html>');
+  t.after(() => dom.window.close());
+  const admin = dom.window.document.querySelector('.body-sidebar[data-title="Intelligence"] .sidebar-item-container[data-id="Administration"]');
+  assert.ok(admin, 'the selector matches the native sidebar markup');
+  assert.equal(admin.getAttribute('item-name'), 'Administration');
 });
 
 test('the drawer header actions form a single non-wrapping row', (t) => {

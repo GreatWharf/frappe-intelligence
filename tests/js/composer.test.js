@@ -350,6 +350,129 @@ test('the send button keeps its aria-label contract', (t) => {
   assert.equal(app.$('.fi-send').getAttribute('aria-label'), 'Send message');
 });
 
+test('sending while a run is active queues the draft and flushes oldest-first as runs settle', async (t) => {
+  const { app, window, snapshot, calls } = harness(t);
+  app.selected = 'c1'; snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
+  type(app, window, 'first queued');
+  assert.equal(app.$('.fi-send').disabled, false, 'send stays live while the run works');
+  assert.equal(app.$('.fi-send').getAttribute('aria-label'), 'Send message', 'the settle-signal label is kept');
+  assert.equal(app.$('.fi-send').classList.contains('is-queueing'), true, 'the queue affordance shows');
+  assert.equal(app.$('.fi-send').dataset.glyph, 'queue', 'the hourglass glyph replaces the arrow');
+  await app.send();
+  assert.equal(calls.filter((call) => call.method === 'send_message').length, 0, 'nothing posts mid-run');
+  assert.equal(app.draft().text, '', 'the composer clears for the next message');
+  assert.equal(app.$('textarea').value, '');
+  assert.ok(app.slot('queue').textContent.includes('Queued (1)'), 'the queue note shows');
+  assert.ok(app.slot('queue').textContent.includes('sends when the run finishes'));
+  type(app, window, 'second queued');
+  await app.send();
+  assert.ok(app.slot('queue').textContent.includes('Queued (2)'));
+  assert.equal(calls.filter((call) => call.method === 'send_message').length, 0, 'still nothing posted');
+  // The run settles: the oldest queued message sends through the normal path.
+  snapshot.run = { name: 'r1', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  await tick(); await tick();
+  let posted = calls.filter((call) => call.method === 'send_message');
+  assert.equal(posted.length, 1, 'one message per completed run');
+  assert.equal(posted[0].args.content, 'first queued', 'FIFO order');
+  assert.equal(posted[0].args.conversation, 'c1');
+  assert.ok(app.slot('queue').textContent.includes('Queued (1)'), 'the rest of the queue waits for its own run');
+  assert.equal(app.$('.fi-send').classList.contains('is-queueing'), true, 'the new run keeps the affordance');
+  // That run settles: the next queued message sends.
+  snapshot.run = { name: 'r1', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  await tick(); await tick();
+  posted = calls.filter((call) => call.method === 'send_message');
+  assert.equal(posted.length, 2);
+  assert.equal(posted[1].args.content, 'second queued');
+  assert.equal(app.slot('queue').hidden, true, 'the queue note collapses once drained');
+  // The final run settles with nothing left queued: the affordance clears.
+  snapshot.run = { name: 'r1', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  await tick();
+  assert.equal(app.$('.fi-send').classList.contains('is-queueing'), false, 'the affordance clears when the run settles and the queue is empty');
+  assert.equal(app.$('.fi-send').dataset.glyph, 'arrow');
+});
+
+test('empty drafts and read-only conversations never queue', async (t) => {
+  const { app, window, snapshot, calls } = harness(t);
+  app.selected = 'c1'; snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
+  await app.send();
+  assert.equal(app.slot('queue').hidden, true, 'an empty draft never queues');
+  snapshot.can_post = false; app.accept('c1', copy(snapshot));
+  type(app, window, 'should not queue');
+  await app.send();
+  assert.equal(app.slot('queue').hidden, true, 'read-only never queues');
+  assert.equal(calls.filter((call) => call.method === 'send_message').length, 0);
+});
+
+test('a failed auto-send surfaces the error and keeps the queue, then retries FIFO', async (t) => {
+  let fail = true;
+  const { app, window, snapshot, calls } = harness(t, {
+    send_message: (args, snap) => {
+      if (fail) throw { userMessage: 'Provider is disabled.' };
+      snap.run = { name: 'r9', state: 'running' }; snap.messages.push({ name: 'm' + calls.length, role: 'user', content: args.content });
+      return copy(snap.run);
+    }
+  });
+  app.selected = 'c1'; snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
+  type(app, window, 'queued then failing');
+  await app.send();
+  snapshot.run = { name: 'r1', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  await tick(); await tick();
+  assert.ok(app.slot('banner').textContent.includes('Provider is disabled.'), 'the failure surfaces in the banner');
+  assert.ok(app.slot('queue').textContent.includes('Queued (1)'), 'the queue is kept');
+  // The next user send drains the kept queue first, then sends the fresh text.
+  fail = false;
+  type(app, window, 'fresh text');
+  await app.send();
+  await tick(); await tick();
+  snapshot.run = { name: 'r9', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  await tick(); await tick();
+  const posted = calls.filter((call) => call.method === 'send_message').map((call) => call.args.content);
+  assert.deepEqual(posted.slice(-2), ['queued then failing', 'fresh text'], 'the kept queue goes first, FIFO');
+  assert.equal((app.outbox.get('c1') || []).length, 0, 'the queue drains fully');
+});
+
+test('queues are per conversation and survive switching', async (t) => {
+  const second = { conversation: { name: 'c2', title: 'Other chat', provider: 'p1', archived: 0, owner: 'owner@example.test', shared: 0 }, messages: [], approvals: [], files: [], run: null, can_post: true };
+  const { app, window, snapshot, calls } = harness(t, { get_conversation: (args) => copy(args.conversation === 'c2' ? second : snapshot) });
+  app.selected = 'c1'; snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
+  type(app, window, 'queued in c1');
+  await app.send();
+  assert.equal((app.outbox.get('c1') || []).length, 1);
+  // The run settles while the user is away in another conversation: the
+  // background queue waits for its conversation to be selected again.
+  await app.select('c2');
+  assert.equal(app.slot('queue').hidden, true, 'no queue note on the other conversation');
+  snapshot.run = { name: 'r1', state: 'completed' };
+  app.accept('c1', copy(snapshot));
+  await tick();
+  assert.equal(calls.filter((call) => call.method === 'send_message').length, 0, 'nothing sends in the background');
+  assert.equal((app.outbox.get('c1') || []).length, 1, 'the queue survives the switch');
+  await app.select('c1');
+  await tick(); await tick(); await tick();
+  const posted = calls.filter((call) => call.method === 'send_message');
+  assert.equal(posted.length, 1, 're-selecting the conversation flushes its queue');
+  assert.equal(posted[0].args.content, 'queued in c1');
+  assert.equal(posted[0].args.conversation, 'c1');
+});
+
+test('cancelling a run flushes the queue', async (t) => {
+  const { app, window, snapshot, calls } = harness(t, { cancel: (args, snap) => { snap.run = { name: 'r1', state: 'cancelled' }; return {}; } });
+  app.selected = 'c1'; snapshot.run = { name: 'r1', state: 'running' }; app.accept('c1', copy(snapshot));
+  type(app, window, 'send after cancel');
+  await app.send();
+  assert.equal(calls.filter((call) => call.method === 'send_message').length, 0);
+  await app.action('cancel', app.$('[data-action="cancel"]'));
+  await tick(); await tick(); await tick();
+  const posted = calls.filter((call) => call.method === 'send_message');
+  assert.equal(posted.length, 1, 'the queued message sends once the cancellation settles');
+  assert.equal(posted[0].args.content, 'send after cancel');
+});
+
 test('hostile attachment names stay inert text in chips', (t) => {
   const { app } = harness(t);
   const hostile = '<img src=x onerror="window.__fi_xss=1">.pdf';

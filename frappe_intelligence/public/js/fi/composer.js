@@ -291,8 +291,18 @@ App.prototype.renderControls = function () {
 		notice.innerHTML = showNotice ? icon("lock") + "<span>Shared by " + esc(this.snapshot.conversation.owner || "another user") + " · read only</span>" : "";
 		form.hidden = showNotice; caption.hidden = showNotice;
 		this.$("textarea").disabled = !!(unavailable || readOnly || this.pending.has("send"));
-		this.$(".fi-send").disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || !this.draft().text.trim());
-		this.$(".fi-send").setAttribute("aria-label", this.pending.has("send") ? "Sending message" : this.isActive() ? "Wait for this run to finish" : "Send message");
+		// While a run is active the composer stays live: sending queues the
+		// message into the conversation's outbox and the oldest entry auto-sends
+		// when the run settles. The button keeps its "Send message" aria-label
+		// (the settle signal other tooling watches) and shows the queue glyph.
+		const active = this.isActive();
+		const send = this.$(".fi-send");
+		send.disabled = !!(unavailable || busy || readOnly || !providerAvailable || !this.draft().text.trim());
+		send.setAttribute("aria-label", this.pending.has("send") ? "Sending message" : "Send message");
+		const glyph = active && !readOnly ? "queue" : "arrow";
+		if (send.dataset.glyph !== glyph) { send.dataset.glyph = glyph; send.innerHTML = icon(glyph); }
+		send.classList.toggle("is-queueing", glyph === "queue");
+		send.title = glyph === "queue" ? "Queue this message · sends when the run finishes" : "Send message";
 		this.$('[data-action="attach"]').disabled = !!(unavailable || busy || readOnly || this.isActive() || !providerAvailable || this.boot && this.boot.capabilities && this.boot.capabilities.attachments === false);
 		if (this.pickerState) for (const name of ["provider", "model", "effort"]) {
 			const button = this.$('[data-picker-btn="' + name + '"]');
@@ -305,6 +315,17 @@ App.prototype.renderControls = function () {
 		for (const element of this.root.querySelectorAll('[data-action="remove-file"], [data-action="remove-context"]')) element.disabled = this.pending.has("send");
 		const earlier = this.$('[data-action="earlier"]'); if (earlier) earlier.disabled = this.pending.has("earlier");
 		this.root.setAttribute("aria-busy", String(!!this.loading));
+		this.renderQueue();
+	}
+App.prototype.renderQueue = function () {
+		const slot = this.slot("queue");
+		if (!slot) return;
+		const count = ((this.selected && this.outbox.get(this.selected)) || []).length;
+		const signature = count + ":" + this.isActive();
+		if (signature === this.queueSignature) return;
+		this.queueSignature = signature;
+		slot.hidden = !count;
+		slot.innerHTML = count ? icon("queue") + "<span>" + esc("Queued (" + count + ")") + (this.isActive() ? ' <span aria-hidden="true">·</span> sends when the run finishes' : "") + "</span>" : "";
 	}
 App.prototype.syncDraft = function () { this.$("textarea").value = this.draft().text; this.resizeComposer(); this.renderAttachments(); this.renderProviders(); this.renderControls(); }
 App.prototype.resizeComposer = function () { const input = this.$("textarea"); input.style.height = "auto"; input.style.height = Math.min(180, Math.max(64, input.scrollHeight)) + "px"; }
@@ -314,8 +335,62 @@ App.prototype.ensureConversation = async function () {
 		if (!conversation || !conversation.name) throw { userMessage: "The server did not return a conversation. Refresh before trying again." };
 		this.selected = conversation.name; this.selectVersion++; this.drafts.set(conversation.name, draft); this.drafts.delete("new"); this.snapshot = { conversation, messages: [], approvals: [], files: [], run: null, can_post: true }; this.lastList = 0; this.navigate(conversation.name); this.render(); return conversation.name;
 	}
+App.prototype.enqueue = function () {
+		// Queueing is for active runs on a real, writable conversation; an empty
+		// draft never queues. Attachment File IDs are captured with the message
+		// (they already uploaded privately; the send payload references names).
+		if (!this.boot || !this.selected || this.readOnly()) return Promise.resolve();
+		const draft = this.draft(), content = draft.text.trim();
+		if (!content) return Promise.resolve();
+		const queue = this.outbox.get(this.selected) || [];
+		queue.push({ content, attachments: draft.attachments.map((file) => file.name), context: this.context ? Object.assign({}, this.context) : null });
+		this.outbox.set(this.selected, queue);
+		draft.text = ""; draft.attachments = [];
+		this.messageSignature = "";
+		this.syncDraft();
+		this.renderMessages();
+		return Promise.resolve();
+	}
+App.prototype.flushQueue = function (name) {
+		if (!name || name !== this.selected || !this.snapshot || this.pending.has("send")) return null;
+		if (this.isActive() || this.readOnly()) return null;
+		const queue = this.outbox.get(name) || [];
+		if (!queue.length) return null;
+		const entry = queue.shift();
+		if (!queue.length) this.outbox.delete(name);
+		// The oldest queued message goes through the same send pipeline as a
+		// typed one. On a send failure the error banner surfaces and the whole
+		// queue is kept for the next opportunity (a re-select or a fresh send).
+		return this.busy("send", async () => {
+			this.error = "";
+			let run;
+			try {
+				run = await this.api("send_message", { conversation: name, content: entry.content, context: entry.context ? JSON.stringify(entry.context) : null, attachments: JSON.stringify(entry.attachments) });
+			} catch (error) {
+				const kept = this.outbox.get(name) || [];
+				kept.unshift(entry); this.outbox.set(name, kept);
+				this.poller.start(0);
+				throw error;
+			}
+			if (!run || !run.name) {
+				const kept = this.outbox.get(name) || [];
+				kept.unshift(entry); this.outbox.set(name, kept);
+				throw { userMessage: "No run was returned. Refresh before trying again; your message may have been saved." };
+			}
+			this.watched.set(name, run); this.snapshot.run = run; this.renderRun(); this.renderMessages(); this.poller.start(0);
+			const data = await this.fetchConversation(name); this.accept(name, data); this.lastList = 0;
+		});
+	}
 App.prototype.send = function () {
-		if (this.$(".fi-send").disabled || this.pending.has("send")) return Promise.resolve();
+		if (this.pending.has("send")) return Promise.resolve();
+		// While a run is active, sending queues the message instead of posting.
+		if (this.isActive() && !this.readOnly()) return this.enqueue();
+		// A kept outbox (a failed auto-send) drains before any fresh text, FIFO.
+		if (this.selected && !this.readOnly() && (this.outbox.get(this.selected) || []).length) {
+			this.enqueue();
+			return this.flushQueue(this.selected) || Promise.resolve();
+		}
+		if (this.$(".fi-send").disabled) return Promise.resolve();
 		return this.busy("send", async () => {
 			this.error = ""; const draft = this.draft(), content = draft.text.trim(), attachments = draft.attachments.map((file) => file.name), context = this.context ? Object.assign({}, this.context) : null;
 			// A model or effort override rides along only for a brand-new

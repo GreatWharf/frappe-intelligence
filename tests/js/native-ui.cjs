@@ -31,13 +31,23 @@ let browser;
   // The header menu is gone: management lives in native Desk pages.
   expect(await page.locator('[data-action="menu"]').count() === 0, 'The three-dot header menu must not render');
   expect(await page.locator('.fi-menu-wrap').count() === 0, 'No menu wrapper may remain in the header');
-  // The subtitle carries access state only: no provider title, model or effort.
+  // The subtitle renders only for states that matter (archived, shared read
+  // only); a private new chat shows nothing and the empty span collapses.
   const subtitle = await page.locator('[data-slot="subtitle"]').textContent();
-  expect(subtitle.trim() === 'Private · only you', 'Subtitle shows access state only: ' + JSON.stringify(subtitle));
+  expect(subtitle.trim() === '', 'Subtitle stays empty for a private new chat: ' + JSON.stringify(subtitle));
+  expect(await page.locator('[data-slot="subtitle"]').isHidden(), 'The empty subtitle collapses its space');
+  expect(await page.locator('[data-action="new"]').isHidden(), 'The New button hides on an empty chat');
   // Page mode pins the app into the remaining viewport so only the thread scrolls.
-  const pin = await page.locator('.fi-app').evaluate((el) => ({ height: el.style.height, overflow: getComputedStyle(el).overflow }));
+  const pin = await page.locator('.fi-app').evaluate((el) => ({ height: el.style.height, maxHeight: el.style.maxHeight, overflow: getComputedStyle(el).overflow }));
   expect(/^\d+px$/.test(pin.height), 'The page app is pinned to the remaining viewport: ' + JSON.stringify(pin));
+  expect(pin.maxHeight === pin.height, 'The pin backs height with max-height: ' + JSON.stringify(pin));
   expect(pin.overflow === 'hidden', 'The pinned app clips to its own box: ' + pin.overflow);
+  // Wheeling at the thread's bottom edge must never chain to the document.
+  const threadEdge = await page.locator('.fi-thread').evaluate((el) => { el.scrollTop = el.scrollHeight; const rect = el.getBoundingClientRect(); return { x: rect.x + rect.width / 2, y: rect.bottom - 4, overscroll: getComputedStyle(el).overscrollBehavior }; });
+  expect(threadEdge.overscroll === 'contain', 'The thread contains overscroll chaining: ' + threadEdge.overscroll);
+  await page.mouse.move(threadEdge.x, threadEdge.y);
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 320);
+  expect(await page.evaluate(() => document.scrollingElement.scrollTop) === 0, 'Wheeling at the thread bottom edge never scrolls the page');
   await page.locator('.fi-composer textarea').click();
   const focus = await page.locator('.fi-composer').evaluate((el) => {
     const style = getComputedStyle(el); return { border: style.borderColor, shadow: style.boxShadow };
@@ -57,11 +67,17 @@ let browser;
   const composerLight = await readable('.fi-composer textarea');
   expect(ratio(composerLight.text, composerLight.bg) >= 4.5, 'Composer text must meet 4.5:1 contrast in light mode: ' + JSON.stringify(composerLight));
   // A selected conversation: the header stays one row and the subtitle still
-  // shows no provider title, model or effort.
+  // shows no provider title, model or effort (it is empty for a private chat).
   await page.goto(base + '/?scene=approval');
   await page.waitForSelector('[data-action="approve"]');
   const chatSubtitle = await page.locator('[data-slot="subtitle"]').textContent();
   expect(!/effort|gpt-4\.1|Work account/.test(chatSubtitle), 'Selected conversation subtitle hides provider, model and effort: ' + JSON.stringify(chatSubtitle));
+  expect(chatSubtitle.trim() === '', 'A private conversation has no subtitle: ' + JSON.stringify(chatSubtitle));
+  expect(await page.locator('[data-action="new"]').isVisible(), 'The New button returns with a conversation open');
+  // The active run banner is terse: the state label and Stop, no essay.
+  const runCopy = await page.locator('[data-slot="run"]').textContent();
+  expect(/Needs your approval/.test(runCopy) && !/waiting for your decision|leave this page|leave and return/i.test(runCopy), 'The active run banner carries only the state label: ' + JSON.stringify(runCopy));
+  expect(await page.locator('[data-slot="run"] [data-action="cancel"]').count() === 1, 'The Stop button survives the terse banner');
   // Buttons differ in height (icon buttons vs the labeled New button) and the
   // header center-aligns them, so "one row" means one shared vertical center,
   // not one shared top. A wrapped second line would split the centers wide.
@@ -105,5 +121,5 @@ let browser;
   await page.waitForSelector('.fi-welcome');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'The app must not overflow the phone viewport');
   assert.deepEqual(failures, [], failures.join('\n'));
-  console.log('Native Desk layout contracts passed: single page hierarchy, no header menu, state-only subtitle, page-mode pin, single-row page and drawer headers, title truncation, neutral theme/focus and text contrast in both themes.');
+  console.log('Native Desk layout contracts passed: single page hierarchy, no header menu, subtitle only for access states, page-mode pin with overscroll containment, single-row page and drawer headers, title truncation, neutral theme/focus and text contrast in both themes.');
 })().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => { if (browser) await browser.close(); server.kill('SIGTERM'); });

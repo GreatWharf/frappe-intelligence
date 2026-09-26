@@ -45,6 +45,16 @@
    letter avatar. The workspace nav itself stays exactly as Desk renders it. */
 body.fi-desk-active .body-sidebar .sidebar-header .icon-container {background-color: transparent !important; background-image: url("/assets/frappe_intelligence/images/intelligence.svg") !important; background-repeat: no-repeat !important; background-position: center !important; background-size: cover !important;}
 body.fi-desk-active .body-sidebar .sidebar-header .icon-container svg {display: none !important;}
+/* Pin the Administration group to the bottom of the Intelligence sidebar, the
+   spot the Getting Started onboarding used to hold. Desk renders .sidebar-items
+   as a plain block inside the flex-column .body-sidebar-top, so the list first
+   becomes a column flex box with min-height (never height: the native overflow
+   scrolling must keep working when the list outgrows the pane); margin-top:auto
+   on the group then pins it, and everything below it, whenever the list is
+   shorter than the pane. The collapsed rail keeps the same markup, so the pin
+   holds there without distorting the icon column. */
+.body-sidebar[data-title="Intelligence"] .body-sidebar-top > .sidebar-items {display: flex; flex-direction: column; min-height: 100%;}
+.body-sidebar[data-title="Intelligence"] .sidebar-items > .sidebar-item-container[data-id="Administration"] {margin-top: auto;}
 .fi-toggle-logo {width: 17px; height: 17px; border-radius: 5px; display: block;}
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) .fi-global-toggle, :root:not([data-theme="light"]) .fi-drawer-shell {--fi-bg: var(--fg-color, #1c2228); --fi-soft: var(--subtle-fg, #222930); --fi-ground: var(--bg-color, #161b21);

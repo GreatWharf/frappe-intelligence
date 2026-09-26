@@ -37,6 +37,7 @@
 		file: '<path d="M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h5"/>',
 		retry: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-2l2 3M4 16l2 3a7 7 0 0 0 12-2"/>',
 		stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/>',
+		queue: '<path d="M7 3h10M7 21h10M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4"/>',
 		sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.3 11.3 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.3-11.3 1.4-1.4"/>',
 		grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
 		wrench: '<path d="M14.5 6.5a4.2 4.2 0 0 1 5.6-4L17.5 5l1.5 1.5 2.6-2.6a4.2 4.2 0 0 1-5.7 5.6L7.6 18.7a2 2 0 0 1-2.9-2.9l8.2-8.2a4.2 4.2 0 0 1 1.6-1.1Z"/>'
@@ -89,7 +90,7 @@
 	class App {
 		constructor(options) {
 			this.api = options && options.api || request; this.doc = options && options.document || global.document;
-			this.boot = null; this.conversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map(); this.expandedTools = new Set();
+			this.boot = null; this.conversations = []; this.selected = null; this.snapshot = null; this.drafts = new Map(); this.watched = new Map(); this.pending = new Set(); this.inflight = new Map(); this.history = new Map(); this.expandedTools = new Set(); this.outbox = new Map();
 			this.visible = false; this.archived = false; this.provider = ""; this.context = null; this.loading = false; this.online = true; this.error = ""; this.notice = ""; this.selectVersion = 0; this.listVersion = 0; this.lastList = 0; this.failures = 0; this.messageSignature = ""; this.renaming = false;
 			this.poller = new fi.Poller(() => this.poll()); this.root = this.doc.createElement("section"); this.root.className = "fi-app"; this.root.setAttribute("aria-label", "Intelligence workspace");
 			this.root.innerHTML = this.shell(); this.bind(); this.render();
@@ -111,8 +112,8 @@
 				+ '<button type="button" class="fi-scroll-bottom" data-action="scroll-bottom" hidden aria-label="Scroll to the latest messages">' + icon("down") + "<span>Latest</span></button></div>"
 				+ '<div class="fi-bottom"><div class="fi-run" data-slot="run" aria-live="polite" hidden></div><div class="fi-context-list" data-slot="context"></div>'
 				+ '<div class="fi-readonly" data-slot="readonly" hidden></div>'
-				+ '<form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form>'
-				+ '<div class="fi-composer-caption"><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>';
+				+ '<form class="fi-composer" aria-label="Message composer"><textarea data-input="message" rows="2" maxlength="100000" aria-label="Message Intelligence" placeholder="Ask a question, explore your data, or get something done…"></textarea><div class="fi-attachments" data-slot="attachments"></div><div class="fi-composer-toolbar"><div class="fi-composer-tools">' + iconButton("attach", "Attach a private PDF or text file", "attach") + '<label class="fi-provider-label"><span class="fi-provider-dot" aria-hidden="true"></span><select data-input="provider" aria-label="Provider and model"></select>' + icon("down") + '</label></div><button type="submit" class="fi-send" data-glyph="arrow" aria-label="Send message" title="Send message">' + icon("arrow") + '</button></div></form>'
+				+ '<div class="fi-composer-caption"><span class="fi-queue-note" data-slot="queue" hidden></span><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span></div></div></div>';
 		}
 		$(selector) { return this.root.querySelector(selector); }
 		slot(name) { return this.$('[data-slot="' + name + '"]'); }
@@ -161,13 +162,44 @@
 		// scrolls. Drawer mode is a fixed overlay; CSS owns its height.
 		fitViewport() {
 			if (!this.root.isConnected || typeof this.root.getBoundingClientRect !== "function") return;
-			this.root.style.height = "";
+			this.root.style.height = ""; this.root.style.maxHeight = "";
 			if (this.mode !== "page") return;
 			const viewport = Number(global.innerHeight) || 0;
 			if (!viewport) return;
 			const rect = this.root.getBoundingClientRect();
-			const available = Math.floor(viewport - rect.top - 8);
-			if (available >= 320) this.root.style.height = available + "px";
+			let room = viewport - rect.top;
+			// The page lives inside Desk's own scroll container (.main-section),
+			// and floating Desk chrome pads that container's bottom inline (the
+			// onboarding panel sets padding-bottom: 90px). Pinning against the
+			// raw viewport overflows the container by exactly that padding, so
+			// the whole page grows a second scrollbar next to the thread's.
+			// Pin inside the container's usable content box instead; with no
+			// scrollable ancestor (tests, the mock preview) the viewport is the
+			// constraint, as before.
+			const host = this.scrollHost();
+			if (host && typeof host.getBoundingClientRect === "function") {
+				const style = global.getComputedStyle(host);
+				const padding = style ? parseFloat(style.paddingBottom) || 0 : 0;
+				room = Math.min(room, host.getBoundingClientRect().top + (Number(host.clientHeight) || 0) - padding - rect.top);
+			}
+			const available = Math.floor(room - 8);
+			// Pin height AND max-height: the grid can otherwise still outgrow the
+			// pin when inner content insists on a taller box.
+			if (available >= 320) { this.root.style.height = available + "px"; this.root.style.maxHeight = available + "px"; }
+		}
+		// The nearest ancestor that can actually scroll. Desk marks
+		// .main-section overflow-y:auto (its overflow-x:hidden promotes the
+		// visible axis), so this finds it without hard-coding Desk class names.
+		scrollHost() {
+			if (typeof global.getComputedStyle !== "function") return null;
+			let node = this.root.parentNode;
+			while (node && node !== this.doc && node !== this.doc.documentElement && node !== this.doc.body) {
+				const style = global.getComputedStyle(node);
+				const overflow = style && String(style.overflowY || "");
+				if (overflow === "auto" || overflow === "scroll") return node;
+				node = node.parentNode;
+			}
+			return null;
 		}
 		// On a hard reload Desk chrome is still laying out when show() measures, so
 		// the pin never applies and the whole document grows instead of the thread
@@ -205,7 +237,7 @@
 				// poll loop: fall back to the home view instead of retrying forever.
 				if (version === this.selectVersion) { this.selected = null; this.snapshot = null; this.navigate(null); this.watched.delete(name); this.error = userError(error); }
 			}
-			finally { if (version === this.selectVersion) { this.loadingConversation = false; this.render(); this.poller.start(0); this.refitViewport(); } }
+			finally { if (version === this.selectVersion) { this.loadingConversation = false; this.render(); this.poller.start(0); this.refitViewport(); this.flushQueue(name); } }
 		}
 		newConversation() {
 			if (this.pending.has("send") || this.pending.has("upload")) { this.navigate(this.selected); return; }
@@ -215,7 +247,10 @@
 			if (!data || !data.conversation) return;
 			const previous = this.watched.get(name), run = data.run;
 			if (run && ACTIVE.has(run.state)) this.watched.set(name, run); else this.watched.delete(name);
-			if (previous && run && !ACTIVE.has(run.state)) {
+			// The run just left its active states: the conversation's outbox, if
+			// it holds queued messages, starts draining (one send per run).
+			const settled = !!(previous && run && !ACTIVE.has(run.state));
+			if (settled) {
 				this.lastList = 0;
 				if (!this.visible || name !== this.selected) { this.notice = (data.conversation.title || "Conversation") + " · " + (LABELS[run.state] || run.state); if (this.onBackground) this.onBackground(name, this.notice); }
 			}
@@ -223,6 +258,7 @@
 				const history = this.history.get(name);
 				if (history) data = Object.assign({}, data, { messages: mergeMessages(history.messages, data.messages || []), has_earlier_messages: history.hasEarlier });
 				this.snapshot = data; this.provider = data.conversation.provider || this.provider; this.render();
+				if (settled) this.flushQueue(name);
 			}
 		}
 		async poll() {
@@ -259,18 +295,22 @@
 		renderHeader() {
 			const title = this.snapshot && this.snapshot.conversation.title || (this.selected ? "Conversation" : "New conversation");
 			if (!this.renaming) this.slot("title").textContent = title;
-			// The subtitle carries access state only; the provider and model live
-			// in the composer pickers, not in the header.
-			let subtitle;
+			// The subtitle carries access state only, and only when it matters:
+			// archived and shared-read-only. A plain private chat gets no
+			// subtitle, and the empty span collapses so the header stays tight.
+			let subtitle = "";
 			if (this.snapshot && Number(this.snapshot.conversation.archived)) subtitle = "Archived · read only";
 			else if (this.snapshot && this.snapshot.can_post === false) subtitle = "Shared by " + (this.snapshot.conversation.owner || "another user") + " · read only";
-			else subtitle = "Private · only you";
-			this.slot("subtitle").textContent = subtitle;
+			const subtitleSlot = this.slot("subtitle");
+			subtitleSlot.textContent = subtitle;
+			subtitleSlot.hidden = !subtitle;
 			const shared = !!(this.snapshot && Number(this.snapshot.conversation.shared));
 			const chip = this.slot("shared-chip");
 			chip.innerHTML = shared ? '<span class="fi-shared-chip">' + icon("share") + "<span>Shared</span></span>" : "";
 			const selected = !!this.selected;
-			for (const action of ["share", "archive"]) this.$('[data-action="' + action + '"]').hidden = !selected;
+			// New makes no sense on an empty chat (that IS a new chat); it
+			// appears once a conversation is open.
+			for (const action of ["share", "archive", "new"]) this.$('[data-action="' + action + '"]').hidden = !selected;
 			this.$('[data-action="rename-title"]').hidden = !selected || !!(this.snapshot && this.snapshot.can_post === false);
 			this.$('[data-action="share"]').hidden = !selected || !this.snapshot || this.snapshot.can_post === false;
 			this.$('[data-action="expand"]').hidden = this.mode !== "drawer"; this.$('[data-action="close"]').hidden = this.mode !== "drawer";
@@ -296,7 +336,16 @@
 			if (!run || quiet) { slot.innerHTML = ""; return; }
 			const active = ACTIVE.has(run.state), warning = ["failed", "needs_reconciliation"].includes(run.state);
 			slot.classList.toggle("is-warning", warning);
-			slot.innerHTML = '<span class="' + (active && run.state !== "awaiting_approval" ? "fi-spinner" : "fi-run-icon") + '">' + (active && run.state !== "awaiting_approval" ? "" : icon(warning ? "info" : run.state === "awaiting_approval" ? "lock" : "check")) + '</span><div class="fi-run-copy"><strong>' + esc(LABELS[run.state] || run.state) + "</strong><span>" + esc(run.error || (run.cancel_requested ? "Cancellation requested. An action already in progress may finish." : run.state === "awaiting_approval" ? "You can leave and return. This request is waiting for your decision." : active ? "You can leave this page. Your run is saved and continues in the background." : run.state === "cancelled" ? "Any previously completed actions are not reversed." : run.state === "needs_reconciliation" ? "Check the affected records before trying again." : "This run is saved with your conversation.")) + "</span></div>" + (active && !this.readOnly() ? button("cancel", run.cancel_requested ? "Stopping…" : "Stop", "stop", "fi-text-btn", run.cancel_requested || this.pending.has("cancel") ? "disabled" : "") : "");
+			// Active runs carry only the state label; the explanatory sentence is
+			// reserved for states that need context (failure, review, cancellation).
+			let note = run.error || "";
+			if (!note) {
+				if (run.cancel_requested) note = "Cancellation requested. An action already in progress may finish.";
+				else if (run.state === "cancelled") note = "Any previously completed actions are not reversed.";
+				else if (run.state === "needs_reconciliation") note = "Check the affected records before trying again.";
+				else if (run.state === "failed") note = "This run is saved with your conversation.";
+			}
+			slot.innerHTML = '<span class="' + (active && run.state !== "awaiting_approval" ? "fi-spinner" : "fi-run-icon") + '">' + (active && run.state !== "awaiting_approval" ? "" : icon(warning ? "info" : run.state === "awaiting_approval" ? "lock" : "check")) + '</span><div class="fi-run-copy"><strong>' + esc(LABELS[run.state] || run.state) + "</strong>" + (note ? "<span>" + esc(note) + "</span>" : "") + "</div>" + (active && !this.readOnly() ? button("cancel", run.cancel_requested ? "Stopping…" : "Stop", "stop", "fi-text-btn", run.cancel_requested || this.pending.has("cancel") ? "disabled" : "") : "");
 		}
 		renderContext() {
 			const context = this.context;
