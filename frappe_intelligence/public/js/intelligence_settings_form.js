@@ -132,21 +132,34 @@
 	}
 
 	function ragMessage(rag) {
+		/* Colors are form-message suffixes: green and blue carry styling, and
+		   text-muted renders the neutral grey used for every state that is a
+		   deliberate configuration rather than a problem. */
 		if (rag && rag.available) {
-			let text = __("Context retrieval (RAG) is available");
+			if (rag.mode === "lexical") {
+				return {
+					color: "blue",
+					text: __(
+						"Context retrieval is on: keyword matching (no embeddings endpoint on the configured providers)."
+					),
+				};
+			}
+			/* Payloads without a mode predate the split and only reported
+			   available when embeddings worked, so they mean semantic. */
+			let text = __("Context retrieval is on: semantic search");
 			if (rag.provider) text += " " + __("through {0}", [escapeHtml(rag.provider)]);
-			if (rag.model) text += " " + __("using {0}", [escapeHtml(rag.model)]);
+			if (rag.model) text += " (" + escapeHtml(rag.model) + ")";
 			return { color: "green", text: text + "." };
 		}
 		if (rag && rag.reason) {
 			return {
-				color: "yellow",
-				text: __("Context retrieval (RAG) is unavailable: {0}", [escapeHtml(rag.reason)]),
+				color: "text-muted",
+				text: __("Context retrieval is off: {0}", [escapeHtml(rag.reason)]),
 			};
 		}
 		return {
-			color: "blue",
-			text: __("Context retrieval (RAG) status could not be determined."),
+			color: "text-muted",
+			text: __("Context retrieval status could not be determined."),
 		};
 	}
 

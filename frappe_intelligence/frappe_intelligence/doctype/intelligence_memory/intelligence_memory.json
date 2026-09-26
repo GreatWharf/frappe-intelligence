@@ -75,6 +75,5 @@
   ],
   "track_changes": 0,
   "sort_field": "creation",
-  "sort_order": "DESC",
-  "title_field": "content"
+  "sort_order": "DESC"
 }

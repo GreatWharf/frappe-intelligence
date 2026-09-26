@@ -33,7 +33,10 @@ app_include_css = [
 # Small Text fields, provider model/key actions, and the memory counter.
 doctype_js = {
     "Intelligence Conversation": "public/js/intelligence_conversation_form.js",
-    "Intelligence Provider": "public/js/intelligence_provider_form.js",
+    "Intelligence Provider": [
+        "public/js/intelligence_chips.js",
+        "public/js/intelligence_provider_form.js",
+    ],
     "Intelligence Settings": [
         "public/js/intelligence_chips.js",
         "public/js/intelligence_settings_form.js",

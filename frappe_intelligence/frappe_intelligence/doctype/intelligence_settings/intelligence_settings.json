@@ -22,7 +22,7 @@
    "label": "Enabled",
    "fieldtype": "Check",
    "default": "1",
-   "description": "Master switch. When off, the assistant answers no chats and runs no tools."
+   "description": "Master switch: when off, the assistant answers no chats and runs no tools."
   },
   {
    "fieldname": "cb_assistant",
@@ -34,13 +34,13 @@
    "fieldtype": "Select",
    "options": "Approve Every Step\nApprove Writes Only\nAutomatic",
    "default": "Approve Writes Only",
-   "description": "Approve Every Step asks before every tool call. Approve Writes Only auto-runs reads and asks before changes. Automatic runs the reviewed tool set without asking; every action is still recorded."
+   "description": "Approve Every Step asks before every tool call; Approve Writes Only asks only before changes; Automatic asks nothing. Every action is recorded."
   },
   {
    "fieldname": "sb_limits",
    "label": "Limits",
    "fieldtype": "Section Break",
-   "description": "Hard ceilings applied to every run. The server rejects values outside the allowed range."
+   "description": "Hard ceilings applied to every run; the server rejects out-of-range values."
   },
   {
    "fieldname": "max_steps",
@@ -53,8 +53,8 @@
    "fieldname": "max_tokens",
    "label": "Max Tokens",
    "fieldtype": "Int",
-   "default": "16384",
-   "description": "OUTPUT token ceiling per model reply, not the context size. Allowed: 128 to 262144."
+   "default": "32768",
+   "description": "OUTPUT token ceiling per model reply, not the context size. Allowed: 128 to 1048576."
   },
   {
    "fieldname": "max_run_seconds",
@@ -99,13 +99,13 @@
    "fieldname": "sb_scope",
    "label": "Scope and Tools",
    "fieldtype": "Section Break",
-   "description": "What the assistant may read, write and run. One entry per chip; the same values appear read-only without write permission."
+   "description": "What the assistant may read, write and run; values stay read-only without write permission."
   },
   {
    "fieldname": "allowed_read_doctypes",
    "label": "Allowed Read Doctypes",
    "fieldtype": "Small Text",
-   "description": "DocTypes the read tools may search and read. Blank means nothing is readable."
+   "description": "DocTypes the read tools may search and read; blank means nothing is readable."
   },
   {
    "fieldname": "allowed_read_doctypes_chips",
@@ -116,7 +116,7 @@
    "fieldname": "allowed_write_doctypes",
    "label": "Allowed Write Doctypes",
    "fieldtype": "Small Text",
-   "description": "Subset of Allowed Read Doctypes that create_document/update_document may target. Blank means no DocType is writable. Ledger, workflow and submittable DocTypes are never writable."
+   "description": "Writable subset of the readable DocTypes; ledger, workflow and submittable DocTypes are never writable."
   },
   {
    "fieldname": "allowed_write_doctypes_chips",
@@ -131,7 +131,7 @@
    "fieldname": "enabled_tools",
    "label": "Enabled Tools",
    "fieldtype": "Small Text",
-   "description": "Reviewed tools the assistant may call. Blank disables every tool."
+   "description": "Reviewed tools the assistant may call; blank disables every tool."
   },
   {
    "fieldname": "enabled_tools_chips",
@@ -142,7 +142,7 @@
    "fieldname": "allowed_reports",
    "label": "Allowed Reports",
    "fieldtype": "Small Text",
-   "description": "Report names the run_report tool may execute. Blank means no reports."
+   "description": "Reports the run_report tool may execute; blank means none."
   },
   {
    "fieldname": "allowed_reports_chips",
@@ -153,7 +153,7 @@
    "fieldname": "allowed_custom_hosts",
    "label": "Allowed Custom Hosts",
    "fieldtype": "Small Text",
-   "description": "Exact hostnames that custom providers may call, for example api.example.com. No URLs, ports or wildcards."
+   "description": "Exact hostnames custom providers may call (for example api.example.com); no URLs, ports or wildcards."
   },
   {
    "fieldname": "allowed_custom_hosts_chips",

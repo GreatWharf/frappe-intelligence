@@ -3,7 +3,8 @@
 The engine, validation and API layers key off exact field names and types, so
 layout polish (sections, columns, HTML slots, descriptions) must never rename
 a field, change its fieldtype or drop it from field_order. These tests cover
-the four doctypes the Desk forms expose: Settings, Memory, Skill, Tool Grant.
+the five doctypes the Desk forms expose: Provider, Settings, Memory, Skill,
+Tool Grant.
 """
 
 import json
@@ -60,6 +61,7 @@ GRANT_FIELDS = {
 
 NEW_FORM_SCRIPTS = (
     "intelligence_chips.js",
+    "intelligence_provider_form.js",
     "intelligence_settings_form.js",
     "intelligence_memory_form.js",
     "intelligence_skill_form.js",
@@ -76,6 +78,7 @@ def fields(name):
 
 def test_field_order_matches_fields_exactly():
     for name in (
+        "intelligence_provider",
         "intelligence_settings",
         "intelligence_memory",
         "intelligence_skill",
@@ -130,10 +133,24 @@ def test_settings_layout_sections_and_editor_slots():
     assert "OUTPUT" in found["max_tokens"]["description"]
 
 
+def test_provider_layout_labels_chips_and_token_ceiling():
+    found = fields("intelligence_provider")
+    assert found["model"]["label"] == "Default Model"
+    assert found["thinking_effort"]["label"] == "Default Thinking Effort"
+    for fieldname in ("models_chips", "models_meta_html"):
+        assert found[fieldname]["fieldtype"] == "HTML", fieldname
+        assert found[fieldname]["hidden"], fieldname
+    assert found["models"]["fieldtype"] == "Small Text"
+    assert found["max_tokens"]["default"] == "32768"
+    assert "1048576" in found["max_tokens"]["description"]
+
+
 def test_memory_layout_flags_and_secret_note():
     doc = schema("intelligence_memory")
     found = fields("intelligence_memory")
-    assert doc["title_field"] == "content"
+    # List subjects stay the hash name: title_field pointed at content, which
+    # rendered whole memories as list rows. The form owns the content display.
+    assert "title_field" not in doc
     assert found["scope"]["in_list_view"] and found["enabled"]["in_list_view"]
     assert found["conversation"]["depends_on"] == "eval:doc.scope=='conversation'"
     assert "5000" in found["content"]["description"]
@@ -165,6 +182,7 @@ def test_no_em_dash_in_layouts_or_form_scripts():
     paths = [
         DOCTYPE_DIR / name / f"{name}.json"
         for name in (
+            "intelligence_provider",
             "intelligence_settings",
             "intelligence_memory",
             "intelligence_skill",

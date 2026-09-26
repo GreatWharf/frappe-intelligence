@@ -22,29 +22,41 @@
   },
   {
    "fieldname": "model",
-   "label": "Model",
+   "label": "Default Model",
    "fieldtype": "Data",
-   "reqd": 1
+   "reqd": 1,
+   "description": "Used when a chat does not pick another model from the catalog."
   },
   {
    "fieldname": "thinking_effort",
-   "label": "Thinking Effort",
+   "label": "Default Thinking Effort",
    "fieldtype": "Select",
    "options": "Auto\nLow\nMedium\nHigh\nMax",
-   "default": "Auto"
+   "default": "Auto",
+   "description": "Used when a chat does not pick another effort."
   },
   {
    "fieldname": "models",
    "label": "Available Models",
    "fieldtype": "Small Text",
-   "description": "Model IDs offered by this provider, one per line. Fetched from the provider API or entered by hand; the active Model must be one of these."
+   "description": "Model IDs this provider offers. Fetch models reads the catalog from the provider API; the default model must be one of them."
+  },
+  {
+   "fieldname": "models_chips",
+   "fieldtype": "HTML",
+   "hidden": 1
+  },
+  {
+   "fieldname": "models_meta_html",
+   "fieldtype": "HTML",
+   "hidden": 1
   },
   {
    "fieldname": "model_efforts",
    "label": "Model Efforts",
    "fieldtype": "Long Text",
    "hidden": 1,
-   "description": "JSON map of model ID to the thinking efforts that model advertises, captured from the provider API when the catalog is fetched."
+   "description": "JSON map of model ID to what the provider API reported for it: supported thinking efforts and, when known, the output token ceiling."
   },
   {
    "fieldname": "api_key",
@@ -55,13 +67,15 @@
   {
    "fieldname": "base_url",
    "label": "Base Url",
-   "fieldtype": "Data"
+   "fieldtype": "Data",
+   "description": "Custom kind only: the allowlisted https endpoint; built-in kinds use fixed endpoints."
   },
   {
    "fieldname": "is_shared",
    "label": "Is Shared",
    "fieldtype": "Check",
-   "default": "0"
+   "default": "0",
+   "description": "Shared providers are usable by every Intelligence user and editable only by managers."
   },
   {
    "fieldname": "enabled",
@@ -72,20 +86,22 @@
   {
    "fieldname": "allowed_roles",
    "label": "Allowed Roles",
-   "fieldtype": "Small Text"
+   "fieldtype": "Small Text",
+   "description": "Roles that may use a shared provider, one per line; blank allows every Intelligence user."
   },
   {
    "fieldname": "max_tokens",
    "label": "Max Output Tokens",
    "fieldtype": "Int",
-   "default": "16384",
-   "description": "Upper bound on the tokens the model may generate in a single reply (128 to 262144)."
+   "default": "32768",
+   "description": "Upper bound on the tokens the model may generate in a single reply (128 to 1048576)."
   },
   {
    "fieldname": "timeout",
    "label": "Timeout",
    "fieldtype": "Int",
-   "default": "60"
+   "default": "60",
+   "description": "Provider request budget in seconds (5 to 120)."
   }
  ],
  "field_order": [
@@ -94,6 +110,8 @@
   "model",
   "thinking_effort",
   "models",
+  "models_chips",
+  "models_meta_html",
   "model_efforts",
   "api_key",
   "base_url",
