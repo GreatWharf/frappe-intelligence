@@ -520,7 +520,13 @@ def submit_message(conversation, content, context=None, attachments=None, model=
     fresh = frappe.get_doc(CONVERSATION, conversation, for_update=True)
     updates = {"active_run": run.name}
     if fresh.title == "New chat":
-        title = re.sub(r"\s+", " ", content).strip()[:_TITLE_MAX]
+        title = re.sub(r"\s+", " ", content).strip()
+        if len(title) > _TITLE_MAX:
+            # Trim at the last full word inside the cap so the placeholder never
+            # ends mid-word; a single overlong word hard-cuts at the cap.
+            cut = title[:_TITLE_MAX]
+            title = cut[: cut.rfind(" ")] if " " in cut else cut
+        title = title.rstrip(" .")
         if title:
             updates["title"] = title
     _save(fresh, **updates)
@@ -1471,6 +1477,10 @@ _TITLE_DEFLECTIONS = (
     "let me know",
     "i cannot",
     "i can't",
+    "would you like",
+    "what can i",
+    "do you want",
+    "anything else",
 )
 
 # Product framing the model invents when it has no real topic ("Greetings and
@@ -1522,8 +1532,10 @@ def _clean_title(text, user_text=""):
     """Clean and validate a generated title; an empty string keeps the placeholder."""
     line = re.sub(r"\s+", " ", str(text or "")).strip()
     line = line.strip("\"'`").strip()
-    if line.endswith("?"):
-        return ""
+    # Trailing punctuation goes FIRST: a question-form candidate ("Which
+    # customers owe us the most?") is a fine title as a statement, while the
+    # assistant-offer kind ("How can I help you today?") still dies on the
+    # opener/deflection checks below.
     line = line.rstrip(".!?,;:").strip()[:_TITLE_MAX].rstrip(" .")
     lowered = line.lower()
     if len(line) < 3:

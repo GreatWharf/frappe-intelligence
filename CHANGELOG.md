@@ -2,6 +2,15 @@
 
 All notable changes to Intelligence are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the app versions with [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-09-26
+
+### Fixed
+
+- Question-form title candidates ("Which customers owe us the most?") are cleaned
+  to their statement form and land instead of being rejected wholesale, while
+  assistant-offer questions still die on the deflection checks; the first-message
+  placeholder trims at a word boundary instead of cutting mid-word.
+
 ## [0.9.0] - 2026-09-26
 
 ### Added

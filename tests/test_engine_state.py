@@ -992,8 +992,9 @@ def test_first_message_title_is_capped_at_one_hundred_characters(env):
     )
     env.engine.submit_message("titled", "word " * 30)
     doc = env.frappe.get_doc("Intelligence Conversation", "titled")
-    assert doc.title == ("word " * 30).strip()[:100]
-    assert len(doc.title) == 100
+    # The cap trims at the last full word inside 100 chars, never mid-word.
+    assert doc.title == " ".join(["word"] * 20)
+    assert len(doc.title) == 99
 
 
 def test_a_custom_titled_conversation_is_never_renamed(env):

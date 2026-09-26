@@ -163,6 +163,17 @@ def test_a_product_term_the_user_named_may_stay_in_the_title(env, monkeypatch):
     assert doc.title == "ERPNext invoice review"
 
 
+def test_a_question_form_candidate_lands_as_a_statement(env, monkeypatch):
+    """A title phrased as the user's question is fine once the '?' is stripped."""
+    use_real_config(env, monkeypatch)
+    name = submit_titled(env, "Which customers owe us the most?")
+    env.replies.append(reply(text="Acme Corp leads, followed by Northstar."))
+    env.replies.append(title_reply("Which customers owe us the most?"))
+    env.engine.process_run(name)
+    doc = env.frappe.get_doc("Intelligence Conversation", "titled")
+    assert doc.title == "Which customers owe us the most"
+
+
 def test_runtime_token_cap_is_1048576_with_a_32768_fallback(env):
     # Runtime clamp in get_provider_config; test_engine_provider_config.py pins
     # the wire boundary, so this lives with the engine-level title/config tests.
