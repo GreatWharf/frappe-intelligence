@@ -623,9 +623,12 @@ def _seed_onboarding():
                 "doctype": "Module Onboarding",
                 "name": MODULE,
                 "title": "Get started with Intelligence",
-                # v15 marks subtitle mandatory; v16 has no such field and
-                # ignores the extra dict key.
+                # v15 marks subtitle, success_message and documentation_url
+                # mandatory; v16 has none of these fields and ignores the
+                # extra dict keys.
                 "subtitle": "Set up the assistant in a few minutes",
+                "success_message": "You are all set. Ask anything in chat.",
+                "documentation_url": "https://github.com/GreatWharf/frappe-intelligence",
                 "module": MODULE,
                 "steps": [{"step": step["name"]} for step in ONBOARDING_STEPS],
                 "allow_roles": [{"role": role} for role in USER_ROLES],

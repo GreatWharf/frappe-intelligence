@@ -2,6 +2,14 @@
 
 All notable changes to Intelligence are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the app versions with [Semantic Versioning](https://semver.org/).
 
+## [0.8.2] - 2026-09-26
+
+### Fixed
+
+- v15 install, continued: the seeded Module Onboarding also carries the
+  success_message and documentation_url v15 requires, satisfying every
+  mandatory field of the v15 schema in one pass.
+
 ## [0.8.1] - 2026-09-26
 
 ### Fixed
