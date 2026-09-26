@@ -7,7 +7,7 @@ MODULE = "Frappe Intelligence"
 DEFAULTS = {
     "enabled": 1,
     "max_steps": 30,
-    "max_tokens": 16384,
+    "max_tokens": 32768,
     "max_run_seconds": 600,
     "approval_expiry_minutes": 1440,
     "max_upload_mb": 10,
@@ -305,11 +305,12 @@ def _v16_sidebar():
                 # module keeps the DocType grouping intact (no Module Def rename).
                 sidebar.set("module", MODULE)
                 changed = True
-            if sidebar.get("module_onboarding") != MODULE:
-                # Pins the Getting Started onboarding at the bottom of this
-                # sidebar (native setup_onboarding); rendering itself is gated
-                # by System Settings enable_onboarding.
-                sidebar.set("module_onboarding", MODULE)
+            if sidebar.get("module_onboarding"):
+                # 0.8.x pinned the Getting Started onboarding at the bottom of
+                # this sidebar; the link is removed, so an upgraded site loses
+                # it here. The Module Onboarding records stay: they carry
+                # per-site completion state and are harmless once unlinked.
+                sidebar.set("module_onboarding", None)
                 changed = True
             if changed:
                 sidebar.save(ignore_permissions=True)
@@ -319,7 +320,6 @@ def _v16_sidebar():
                 "doctype": "Workspace Sidebar",
                 "title": "Intelligence",
                 "module": MODULE,
-                "module_onboarding": MODULE,
                 "standard": 1,
                 "app": "frappe_intelligence",
                 "items": wanted,
@@ -564,78 +564,6 @@ def _seed_policies():
         _insert_seeded({"doctype": "Intelligence Policy", **policy})
 
 
-# Getting Started onboarding: the v16 Workspace Sidebar links the Module
-# Onboarding, and Desk renders it pinned at the bottom of the sidebar (native
-# setup_onboarding), gated by System Settings enable_onboarding. Actions use
-# the exact literals of the Onboarding Step doctype: "Create Entry" opens the
-# quick entry for reference_document, "Go to Page" routes to path.
-ONBOARDING_STEPS = (
-    {
-        "name": "Intelligence: Add a model provider",
-        "title": "Add a model provider",
-        "description": "Intelligence answers through a model provider. Add your first provider with its API key and default model so the assistant can start replying.",
-        "action": "Create Entry",
-        "reference_document": "Intelligence Provider",
-        "action_label": "Add a provider",
-    },
-    {
-        "name": "Intelligence: Start your first chat",
-        "title": "Start your first chat",
-        "description": "Open the Intelligence chat and ask your first question. Answers cite the records they used, and every write waits for your approval.",
-        "action": "Go to Page",
-        "path": "intelligence",
-        "action_label": "Open chat",
-    },
-    {
-        "name": "Intelligence: Save your first memory",
-        "title": "Save your first memory",
-        "description": "Memories let the assistant remember facts across chats, such as your reporting currency or house rules. Save one and watch it being recalled later.",
-        "action": "Create Entry",
-        "reference_document": "Intelligence Memory",
-        "action_label": "Save a memory",
-    },
-    {
-        "name": "Intelligence: Review the assistant skills",
-        "title": "Review the assistant skills",
-        "description": "Skills are the reviewed playbooks the assistant follows, from drafting replies to reconciling the bank. See which ones are enabled and tune them to your rules.",
-        "action": "Go to Page",
-        "path": "List/Intelligence Skill",
-        "action_label": "Review skills",
-    },
-)
-
-
-def _seed_onboarding():
-    """Insert the Getting Started onboarding once; never rewrite site state.
-
-    Steps carry per-site completion flags (is_complete/is_skipped) and the
-    Module Onboarding itself is editable by System Managers, so both records
-    are insert-only. The v16 sidebar link is app-owned and converges in
-    _v16_sidebar instead.
-    """
-    for step in ONBOARDING_STEPS:
-        if frappe.db.exists("Onboarding Step", step["name"]):
-            continue
-        frappe.get_doc({"doctype": "Onboarding Step", **step}).insert(ignore_permissions=True)
-    if not frappe.db.exists("Module Onboarding", MODULE):
-        frappe.get_doc(
-            {
-                "doctype": "Module Onboarding",
-                "name": MODULE,
-                "title": "Get started with Intelligence",
-                # v15 marks subtitle, success_message and documentation_url
-                # mandatory; v16 has none of these fields and ignores the
-                # extra dict keys.
-                "subtitle": "Set up the assistant in a few minutes",
-                "success_message": "You are all set. Ask anything in chat.",
-                "documentation_url": "https://github.com/GreatWharf/frappe-intelligence",
-                "module": MODULE,
-                "steps": [{"step": step["name"]} for step in ONBOARDING_STEPS],
-                "allow_roles": [{"role": role} for role in USER_ROLES],
-            }
-        ).insert(ignore_permissions=True)
-
-
 def before_install():
     check_versions()
     _roles()
@@ -661,18 +589,22 @@ def after_migrate():
         if settings.get(key) in (None, ""):
             settings.set(key, value)
             changed = True
-    # The pre-0.8 output-token default was 4096 everywhere. A site (or provider)
-    # still holding exactly that value never chose it: it was the old factory
-    # default, so it migrates to the new one. Any other value was chosen and stays.
-    if settings.get("max_tokens") == 4096:
-        settings.set("max_tokens", 16384)
+    # Output-token factory defaults were 4096 before 0.8 and 16384 through
+    # 0.8.x. A site (or provider) still holding exactly one of those values
+    # never chose it: it is factory-default lineage, so it migrates to the new
+    # default. Any other value was chosen and stays.
+    if settings.get("max_tokens") in (4096, 16384):
+        settings.set("max_tokens", 32768)
         changed = True
     if changed:
         settings.save(ignore_permissions=True)
     for provider in frappe.get_all(
-        "Intelligence Provider", filters={"max_tokens": 4096}, pluck="name", limit_page_length=0
+        "Intelligence Provider",
+        filters={"max_tokens": ["in", (4096, 16384)]},
+        pluck="name",
+        limit_page_length=0,
     ):
-        frappe.db.set_value("Intelligence Provider", provider, "max_tokens", 16384)
+        frappe.db.set_value("Intelligence Provider", provider, "max_tokens", 32768)
     for doctype, fields, name in (
         ("Intelligence Message", ["conversation", "sequence"], "intelligence_message_order"),
         ("Intelligence Run", ["state", "lease_expires"], "intelligence_run_recovery"),
@@ -685,7 +617,6 @@ def after_migrate():
         ("Intelligence Policy", ["enabled", "priority"], "intelligence_policy_priority"),
     ):
         frappe.db.add_index(doctype, fields, name)
-    _seed_onboarding()
     _navigation()
     _seed_skills()
     _seed_policies()

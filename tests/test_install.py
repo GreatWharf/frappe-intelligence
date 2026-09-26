@@ -45,21 +45,30 @@ def test_after_migrate_backfills_empty_defaults_and_keeps_chosen_values(migrator
     assert settings.get("max_steps") == module.DEFAULTS["max_steps"]
 
 
-def test_after_migrate_raises_only_the_old_factory_token_default(migrator):
+def test_after_migrate_raises_only_factory_lineage_token_defaults(migrator):
     module, fake, store = migrator
+    assert module.DEFAULTS["max_tokens"] == 32768
     settings = fake.get_single("Intelligence Settings")
     settings.set("max_tokens", 4096)  # the pre-0.8 factory default: never chosen
     provider_old = fake.get_doc(
         {"doctype": "Intelligence Provider", "title": "Old default", "max_tokens": 4096}
     ).insert()
+    provider_08x = fake.get_doc(
+        {"doctype": "Intelligence Provider", "title": "0.8.x default", "max_tokens": 16384}
+    ).insert()
     provider_chosen = fake.get_doc(
         {"doctype": "Intelligence Provider", "title": "Chosen", "max_tokens": 8192}
     ).insert()
     module.after_migrate()
-    assert settings.get("max_tokens") == 16384
-    assert store[("Intelligence Provider", provider_old.name)].get("max_tokens") == 16384
+    assert settings.get("max_tokens") == 32768
+    assert store[("Intelligence Provider", provider_old.name)].get("max_tokens") == 32768
+    assert store[("Intelligence Provider", provider_08x.name)].get("max_tokens") == 32768
     assert store[("Intelligence Provider", provider_chosen.name)].get("max_tokens") == 8192
-    # A deliberately chosen settings value is never touched either.
+    # The 0.8.x settings default is factory lineage too and migrates.
+    settings.set("max_tokens", 16384)
+    module.after_migrate()
+    assert settings.get("max_tokens") == 32768
+    # A deliberately chosen settings value is never touched.
     settings.set("max_tokens", 8192)
     module.after_migrate()
     assert settings.get("max_tokens") == 8192
@@ -147,10 +156,19 @@ def migrator(monkeypatch):
         set_value=lambda doctype, name, field, value: store[(doctype, name)].set(field, value),
     )
 
+    def matches(doc, filters):
+        for key, value in filters.items():
+            if isinstance(value, (list, tuple)) and value and value[0] == "in":
+                if doc.get(key) not in value[1]:
+                    return False
+            elif doc.get(key) != value:
+                return False
+        return True
+
     def get_all(doctype, filters=None, fields=None, pluck=None, **kwargs):
         rows = [doc for (dt, _), doc in store.items() if dt == doctype]
         if filters:
-            rows = [doc for doc in rows if all(doc.get(key) == value for key, value in filters.items())]
+            rows = [doc for doc in rows if matches(doc, filters)]
         if pluck:
             return [doc.get(pluck) for doc in rows]
         return rows
@@ -357,9 +375,7 @@ def test_navigation_creates_sidebar_and_desktop_icon_and_drops_the_legacy_worksp
         "sidebar title labels Desk; module stays the DocType group"
     )
     assert sidebar.items == EXPECTED_SIDEBAR
-    assert sidebar.module_onboarding == "Frappe Intelligence", (
-        "the Getting Started onboarding pins at the bottom of this sidebar"
-    )
+    assert sidebar.get("module_onboarding") is None, "the Getting Started onboarding is gone from the sidebar"
     sentinel = sidebars["Frappe Intelligence"]
     assert sentinel.items == [] and sentinel.app == "frappe_intelligence" and sentinel.standard == 1
     assert sentinel.get("module_onboarding") is None, "the empty sentinel carries no onboarding"
@@ -388,6 +404,8 @@ def test_navigation_converges_the_seeded_sidebar_in_place(migrator):
             "title": "Intelligence",
             "standard": 1,
             "app": "frappe_intelligence",
+            # A 0.8.x seed: the Getting Started onboarding link is cleared.
+            "module_onboarding": "Frappe Intelligence",
             "items": [
                 {"type": "Link", "label": "Conversations", "link_type": "Page", "link_to": "intelligence"}
             ],
@@ -398,21 +416,26 @@ def test_navigation_converges_the_seeded_sidebar_in_place(migrator):
     assert sidebar is old, "the seeded sidebar is updated in place, not replaced"
     assert sidebar.items == EXPECTED_SIDEBAR
     assert sidebar.module == "Frappe Intelligence"
-    assert sidebar.module_onboarding == "Frappe Intelligence", (
-        "a pre-onboarding seed gains the Getting Started link in place"
-    )
+    assert sidebar.get("module_onboarding") is None, "a 0.8.x sidebar loses the Getting Started link in place"
 
 
 def test_navigation_preserves_existing_and_user_owned_entries(migrator):
     module, fake, store = migrator
     sidebar = fake.get_doc(
-        {"doctype": "Workspace Sidebar", "name": "Intelligence", "title": "Customized"}
+        {
+            "doctype": "Workspace Sidebar",
+            "name": "Intelligence",
+            "title": "Customized",
+            "module_onboarding": "Frappe Intelligence",
+        }
     ).insert()
     fake.get_doc({"doctype": "Workspace", "name": "Intelligence", "for_user": "alice"}).insert()
     module.after_migrate()
     sidebars = navigation_docs(store, "Workspace Sidebar")
     assert sidebar in sidebars and sidebar.get("items") is None, "a site's own sidebar is untouched"
-    assert sidebar.get("module_onboarding") is None, "a site's own sidebar keeps its onboarding choice"
+    assert sidebar.get("module_onboarding") == "Frappe Intelligence", (
+        "a site's own sidebar keeps its onboarding choice"
+    )
     assert any(doc.title == "Frappe Intelligence" and not doc.items for doc in sidebars), (
         "the module-name sentinel still suppresses the auto-generated sidebar"
     )
@@ -476,8 +499,8 @@ def test_v15_workspace_links_chat_and_administration_groups(migrator):
     assert workspace.module == "Frappe Intelligence"
     assert workspace.links == EXPECTED_V15_LINKS
     assert not navigation_docs(store, "Workspace Sidebar"), "v15 has no Workspace Sidebar doctype"
-    assert ("Module Onboarding", "Frappe Intelligence") in store, (
-        "the Getting Started records exist on v15 too; only the sidebar link is v16-only"
+    assert ("Module Onboarding", "Frappe Intelligence") not in store, (
+        "no onboarding records are seeded anymore"
     )
 
 
@@ -551,55 +574,62 @@ def test_sidebar_groups_administration_under_a_native_section_break(migrator):
         assert row["child"] == 1 and row["indent"] == 0, "section rows nest as children"
 
 
-EXPECTED_ONBOARDING_STEPS = (
-    ("Intelligence: Add a model provider", "Create Entry", "reference_document", "Intelligence Provider"),
-    ("Intelligence: Start your first chat", "Go to Page", "path", "intelligence"),
-    ("Intelligence: Save your first memory", "Create Entry", "reference_document", "Intelligence Memory"),
-    ("Intelligence: Review the assistant skills", "Go to Page", "path", "List/Intelligence Skill"),
-)
+def onboarding_docs(store):
+    return {key: doc for key, doc in store.items() if key[0] in ("Onboarding Step", "Module Onboarding")}
 
 
-def onboarding_step_docs(store):
-    return {name: doc for (doctype, name), doc in store.items() if doctype == "Onboarding Step"}
-
-
-def test_onboarding_seeds_steps_and_module_onboarding_idempotently(migrator):
+def test_after_migrate_never_seeds_onboarding_records(migrator):
     module, _, store = migrator
     module.after_migrate()
     module.after_migrate()
-    steps = onboarding_step_docs(store)
-    assert set(steps) == {name for name, *_ in EXPECTED_ONBOARDING_STEPS}
-    onboarding = store[("Module Onboarding", "Frappe Intelligence")]
-    assert onboarding.title == "Get started with Intelligence"
-    assert onboarding.subtitle and onboarding.success_message and onboarding.documentation_url, (
-        "v15 marks Module Onboarding subtitle, success_message and documentation_url mandatory"
-    )
-    assert onboarding.module == "Frappe Intelligence"
-    assert onboarding.steps == [{"step": name} for name, *_ in EXPECTED_ONBOARDING_STEPS]
-    assert onboarding.allow_roles == [{"role": role} for role in module.USER_ROLES]
+    assert onboarding_docs(store) == {}, "no Module Onboarding or Onboarding Step is created"
+    assert not hasattr(module, "ONBOARDING_STEPS") and not hasattr(module, "_seed_onboarding")
 
 
-def test_onboarding_steps_use_native_actions_and_targets(migrator):
+def test_migrate_without_any_onboarding_records_does_not_raise(migrator):
     module, _, store = migrator
-    module.after_migrate()
-    steps = onboarding_step_docs(store)
-    for name, action, target_field, target in EXPECTED_ONBOARDING_STEPS:
-        doc = steps[name]
-        assert doc.title and doc.description and doc.action_label
-        assert doc.action == action, "exact action literal of the Onboarding Step doctype"
-        assert doc.get(target_field) == target
+    module.after_migrate()  # no Module Onboarding / Onboarding Step anywhere
+    sidebar = store[("Workspace Sidebar", "Intelligence")]
+    assert sidebar.get("module_onboarding") is None
 
 
-def test_onboarding_never_overwrites_step_progress_or_site_edits(migrator):
-    module, _, store = migrator
+def test_convergence_clears_the_onboarding_link_but_keeps_the_records(migrator):
+    """0.8.x sites: the sidebar loses Getting Started; the records stay.
+
+    Module Onboarding and Onboarding Step rows carry per-site completion
+    state, so migration unlinks them from the app-owned sidebar but never
+    deletes or rewrites them.
+    """
+    module, fake, store = migrator
+    step = fake.get_doc(
+        {
+            "doctype": "Onboarding Step",
+            "name": "Intelligence: Start your first chat",
+            "is_complete": 1,
+        }
+    ).insert()
+    onboarding = fake.get_doc(
+        {
+            "doctype": "Module Onboarding",
+            "name": "Frappe Intelligence",
+            "title": "Custom welcome",
+        }
+    ).insert()
+    sidebar = fake.get_doc(
+        {
+            "doctype": "Workspace Sidebar",
+            "title": "Intelligence",
+            "standard": 1,
+            "app": "frappe_intelligence",
+            "module_onboarding": "Frappe Intelligence",
+            "items": [],
+        }
+    ).insert()
     module.after_migrate()
-    chat = store[("Onboarding Step", "Intelligence: Start your first chat")]
-    chat.is_complete = 1
-    onboarding = store[("Module Onboarding", "Frappe Intelligence")]
-    onboarding.title = "Custom welcome"
-    onboarding.set("steps", [{"step": "Intelligence: Start your first chat"}])
+    assert sidebar.get("module_onboarding") is None, "the Getting Started link is cleared"
+    assert store[("Onboarding Step", "Intelligence: Start your first chat")] is step
+    assert step.is_complete == 1, "per-site completion state is never rewritten"
+    assert store[("Module Onboarding", "Frappe Intelligence")] is onboarding
+    assert onboarding.title == "Custom welcome", "site edits to the record survive"
     module.after_migrate()
-    assert chat.is_complete == 1, "per-site completion state is never rewritten"
-    assert onboarding.title == "Custom welcome", "a site's Module Onboarding edits survive"
-    assert onboarding.steps == [{"step": "Intelligence: Start your first chat"}]
-    assert len(onboarding_step_docs(store)) == len(EXPECTED_ONBOARDING_STEPS)
+    assert sidebar.get("module_onboarding") is None, "convergence is idempotent"
