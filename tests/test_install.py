@@ -571,6 +571,7 @@ def test_onboarding_seeds_steps_and_module_onboarding_idempotently(migrator):
     assert set(steps) == {name for name, *_ in EXPECTED_ONBOARDING_STEPS}
     onboarding = store[("Module Onboarding", "Frappe Intelligence")]
     assert onboarding.title == "Get started with Intelligence"
+    assert onboarding.subtitle, "v15 marks Module Onboarding subtitle mandatory"
     assert onboarding.module == "Frappe Intelligence"
     assert onboarding.steps == [{"step": name} for name, *_ in EXPECTED_ONBOARDING_STEPS]
     assert onboarding.allow_roles == [{"role": role} for role in module.USER_ROLES]

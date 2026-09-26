@@ -2,6 +2,12 @@
 
 All notable changes to Intelligence are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the app versions with [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-09-26
+
+### Fixed
+
+- Install and migrate on Frappe v15: the seeded Module Onboarding now carries the subtitle v15 marks mandatory (the field does not exist on v16, which ignores it), so the Getting Started seed no longer aborts site setup on v15.
+
 ## [0.8.0] - 2026-09-25
 
 ### Added

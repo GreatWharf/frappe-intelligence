@@ -623,6 +623,9 @@ def _seed_onboarding():
                 "doctype": "Module Onboarding",
                 "name": MODULE,
                 "title": "Get started with Intelligence",
+                # v15 marks subtitle mandatory; v16 has no such field and
+                # ignores the extra dict key.
+                "subtitle": "Set up the assistant in a few minutes",
                 "module": MODULE,
                 "steps": [{"step": step["name"]} for step in ONBOARDING_STEPS],
                 "allow_roles": [{"role": role} for role in USER_ROLES],
