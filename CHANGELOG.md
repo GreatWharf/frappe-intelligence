@@ -2,6 +2,28 @@
 
 All notable changes to Intelligence are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the app versions with [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-09-26
+
+### Added
+
+- Message queueing: while a run is working, typing and hitting send queues the message per conversation and auto-sends it when the run finishes, in order; the composer shows a quiet queued count and an hourglass on the send button.
+- Retrieval without embeddings: memory and conversation sources are always indexed, and a pure-python BM25 scorer ranks them when no provider offers an embeddings endpoint. The settings banner now reads "keyword matching" in that mode instead of reporting retrieval as broken; semantic search stays preferred whenever embeddings exist.
+
+### Changed
+
+- The Getting Started onboarding panel is removed: the seeded Module Onboarding is unlinked from the sidebar on migrate, and the Administration group (grants, providers, skills, memory, settings) pins to the bottom of the sidebar instead, using the native flex layout.
+- Output token limits: the default rises to 32768 (settings and providers on the factory defaults migrate automatically), the ceiling to 1048576, and model catalogs fetched from providers that advertise per-model output caps record them and show them under the model chips.
+- Small-talk titles: greetings like "hi" keep the user's own words as the title instead of inviting the model to invent one, and generated titles may no longer name ERPNext, Frappe or the assistant unless the user did.
+- The assistant batches independent lookups and searches into one response instead of one tool call per step, and keeps its narration to a short clause.
+- The provider form labels its defaults as Default Model and Default Thinking Effort, edits the model catalog as chips, and only shows the API key field while the record is unsaved.
+- Header polish: the New button hides on an empty chat, the "Private · only you" subtitle is gone (archived and shared states remain), and the working banner no longer narrates that you can leave the page.
+- The chat page pins into its actual scroll host, so frappe's own page padding can no longer push the whole page into a second scrollbar.
+- Saving a memory with identical content to an existing one updates it in place instead of creating duplicates; memory list rows no longer render the full content as their subject.
+
+### Fixed
+
+- Native provider edits can no longer shrink the model catalog below the active model, and the provider form's operational values are validated against the same bounds as the API.
+
 ## [0.8.2] - 2026-09-26
 
 ### Fixed
