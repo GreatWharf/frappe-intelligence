@@ -46,6 +46,30 @@ def test_cosine_scores_and_guards(services):
     assert module.cosine("nope", [1]) == 0.0
 
 
+def test_bm25_scores_rank_by_keyword_overlap(services):
+    module = importlib.import_module("frappe_intelligence.rag")
+    documents = {
+        "apple": "Apples are the best fruit for pies.",
+        "zebra": "Zebras roam the savanna in herds.",
+        "revenue": "Quarterly revenue grew steadily.",
+    }
+    # Case and punctuation are normalized away; only overlapping docs score.
+    scores = module.bm25_scores("tell me about APPLES!", documents)
+    assert set(scores) == {"apple"}
+    assert scores["apple"] > 0
+    # Length normalization: one hit in a short document beats one in a long one.
+    scores = module.bm25_scores("apples", {"short": "apples", "long": "apples " + "filler " * 200})
+    assert scores["short"] > scores["long"] > 0
+    # Guards: empty input and zero overlap score nothing, never divide by zero.
+    assert module.bm25_scores("", documents) == {}
+    assert module.bm25_scores(None, documents) == {}
+    assert module.bm25_scores("apples", {}) == {}
+    assert module.bm25_scores("kubernetes", documents) == {}
+    assert module.bm25_scores("apples", {"empty": ""}) == {}
+    single = module.bm25_scores("apples", {"only": "apples"})
+    assert single["only"] > 0
+
+
 def test_capability_without_provider(services):
     module = importlib.import_module("frappe_intelligence.rag")
     result = module.capability("missing")
@@ -90,7 +114,7 @@ def _secret_access(monkeypatch):
     )
 
 
-def test_status_reports_missing_embeddings_endpoint(services, monkeypatch):
+def test_status_reports_lexical_mode_when_the_endpoint_is_missing(services, monkeypatch):
     fake, store = services
     store["p"] = Row(
         doctype="Intelligence Provider",
@@ -111,8 +135,52 @@ def test_status_reports_missing_embeddings_endpoint(services, monkeypatch):
     monkeypatch.setattr("frappe_intelligence.providers.adapters.embed_documents", rejected)
     module = importlib.import_module("frappe_intelligence.rag")
     result = module.status()
-    assert result["available"] is False
+    # Retrieval still works on keyword scoring; the payload says so honestly.
+    assert result["available"] is True
+    assert result["mode"] == "lexical"
     assert "does not expose an embeddings endpoint" in result["reason"]
+
+
+def test_status_reports_lexical_mode_for_chat_only_providers(services):
+    fake, store = services
+    store["p"] = Row(
+        doctype="Intelligence Provider",
+        name="p",
+        owner=fake.session.user,
+        enabled=1,
+        is_shared=0,
+        kind="Anthropic",
+        api_key="secret",
+    )
+    module = importlib.import_module("frappe_intelligence.rag")
+    assert module.status() == {
+        "available": True,
+        "mode": "lexical",
+        "reason": "This provider's API does not support embeddings.",
+    }
+
+
+def test_status_reports_semantic_mode_when_embeddings_work(services, monkeypatch):
+    fake, store = services
+    store["p"] = Row(
+        doctype="Intelligence Provider",
+        name="p",
+        title="Fleet",
+        owner=fake.session.user,
+        enabled=1,
+        is_shared=0,
+        kind="OpenAI",
+        model="chat-model",
+        api_key="secret",
+    )
+    module = importlib.import_module("frappe_intelligence.rag")
+    monkeypatch.setattr(module, "capability", lambda name: {"available": True, "model": "embed-1", "dims": 2})
+    assert module.status() == {
+        "available": True,
+        "mode": "semantic",
+        "provider": "Fleet",
+        "model": "embed-1",
+    }
 
 
 def test_search_checks_conversation_access_first(services):
@@ -123,7 +191,7 @@ def test_search_checks_conversation_access_first(services):
         module.search("chat", "anything")
 
 
-def test_search_empty_when_provider_has_no_embeddings(services):
+def test_search_empty_when_there_is_nothing_to_index(services):
     fake, store = services
     store["p"] = Row(
         doctype="Intelligence Provider",
@@ -146,6 +214,28 @@ def _embedding_rows(store):
         for row in store.values()
         if isinstance(row, dict) and row.get("doctype") == "Intelligence Embedding"
     ]
+
+
+def _chat_with_messages(store, owner, provider="p"):
+    if provider:
+        store["chat"] = Row(doctype="Intelligence Conversation", name="chat", owner=owner, provider=provider)
+    else:
+        store["chat"] = Row(doctype="Intelligence Conversation", name="chat", owner=owner)
+    for index, content in enumerate(
+        [
+            "Apples are the best fruit for pies",
+            "Zebras roam the savanna in herds",
+            "Quarterly revenue grew steadily",
+        ]
+    ):
+        store[f"m{index}"] = Row(
+            doctype="Intelligence Message",
+            name=f"m{index}",
+            conversation="chat",
+            role="user",
+            content=content,
+            sequence=index,
+        )
 
 
 def test_index_and_search_ranks_and_is_idempotent(services, monkeypatch):
@@ -209,6 +299,111 @@ def test_index_and_search_ranks_and_is_idempotent(services, monkeypatch):
     assert any("Oranges" in (row.get("content") or "") for row in rows)
     assert not any("Apples" in (row.get("content") or "") for row in rows)
     assert any("Zebras" in (row.get("content") or "") for row in rows)
+
+
+def test_search_without_embeddings_endpoint_ranks_lexically(services, monkeypatch):
+    fake, store = services
+    store["p"] = Row(
+        doctype="Intelligence Provider",
+        name="p",
+        owner=fake.session.user,
+        enabled=1,
+        kind="Anthropic",
+        api_key="secret",
+    )
+    _chat_with_messages(store, fake.session.user)
+    module = importlib.import_module("frappe_intelligence.rag")
+    monkeypatch.setattr(module, "_embed", lambda *args: pytest.fail("no embeddings endpoint to call"))
+    hits = module.search("chat", "tell me about apples", top_k=2)
+    assert len(hits) == 1
+    assert "Apples" in hits[0]["content"]
+    assert hits[0]["source_type"] == "Message"
+    assert hits[0]["score"] > 0
+    # The content was indexed anyway, with the empty-vector sentinel.
+    rows = _embedding_rows(store)
+    assert len(rows) == 3
+    assert all(json.loads(row.get("vector")) == [] for row in rows)
+    assert all(not row.get("model") for row in rows)
+    # Lexical indexing is idempotent too: a second search adds no rows.
+    again = module.search("chat", "zebras")
+    assert again and "Zebras" in again[0]["content"]
+    assert len(_embedding_rows(store)) == 3
+
+
+def test_search_with_a_deleted_provider_still_ranks_lexically(services):
+    fake, store = services
+    _chat_with_messages(store, fake.session.user, provider="deleted-p")
+    module = importlib.import_module("frappe_intelligence.rag")
+    hits = module.search("chat", "apples")
+    assert len(hits) == 1
+    assert "Apples" in hits[0]["content"]
+
+
+def test_search_upgrades_vectorless_rows_once_embeddings_work(services, monkeypatch):
+    fake, store = services
+    store["p"] = Row(
+        doctype="Intelligence Provider",
+        name="p",
+        owner=fake.session.user,
+        enabled=1,
+        kind="OpenAI",
+        model="chat-model",
+        api_key="secret",
+        timeout=30,
+    )
+    _chat_with_messages(store, fake.session.user)
+    module = importlib.import_module("frappe_intelligence.rag")
+    # First the endpoint is down: rows index lexically and keyword rank.
+    monkeypatch.setattr(module, "capability", lambda name: {"available": False, "reason": "down"})
+    hits = module.search("chat", "apples")
+    assert len(hits) == 1
+    assert "Apples" in hits[0]["content"]
+    assert all(json.loads(row.get("vector")) == [] for row in _embedding_rows(store))
+    # Then the endpoint appears: unchanged content is re-embedded in place and
+    # semantic ranking takes over (this query shares no keywords with any row,
+    # so only real vectors can produce hits).
+    monkeypatch.setattr(module, "capability", lambda name: {"available": True, "model": "embed-1", "dims": 2})
+
+    def fake_embed(access, inputs):
+        return [[1.0, 0.0] if "zebra" in text.lower() else [0.0, 1.0] for text in inputs]
+
+    monkeypatch.setattr(module, "_embed", fake_embed)
+    hits = module.search("chat", "orchard")
+    assert hits
+    assert all("Zebras" not in hit["content"] for hit in hits)
+    rows = _embedding_rows(store)
+    assert len(rows) == 3
+    assert all(json.loads(row.get("vector")) != [] for row in rows)
+    assert all(row.get("model") == "embed-1" for row in rows)
+
+
+def test_search_falls_back_to_keyword_when_the_embed_call_fails(services, monkeypatch):
+    fake, store = services
+    store["p"] = Row(
+        doctype="Intelligence Provider",
+        name="p",
+        owner=fake.session.user,
+        enabled=1,
+        kind="OpenAI",
+        model="chat-model",
+        api_key="secret",
+        timeout=30,
+    )
+    _chat_with_messages(store, fake.session.user)
+    module = importlib.import_module("frappe_intelligence.rag")
+    monkeypatch.setattr(module, "capability", lambda name: {"available": True, "model": "embed-1", "dims": 2})
+
+    def flaky(access, inputs):
+        if inputs == ["tell me about apples"]:
+            raise ProviderError("request_rejected", "The provider rejected the request.")
+        return [[0.5, 0.25] for _ in inputs]
+
+    monkeypatch.setattr(module, "_embed", flaky)
+    hits = module.search("chat", "tell me about apples")
+    assert len(hits) == 1
+    assert "Apples" in hits[0]["content"]
+    # The rows were embedded fine; only the query vector failed.
+    assert all(json.loads(row.get("vector")) != [] for row in _embedding_rows(store))
 
 
 def _wire_embed(kind, body, status=200):

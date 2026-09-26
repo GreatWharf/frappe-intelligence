@@ -2,8 +2,10 @@
 
 The scoped service owns access/internal-write policy. No memory content is read
 while preparing an approval, and memory is never automatically injected into a
-prompt. Updating/deleting existing memory stays in the user-managed UI; the tool
-only creates new notes, avoiding unversioned overwrites.
+prompt. Updating/deleting existing memory stays in the user-managed UI; the
+tool only creates new notes (an identical re-save refreshes the existing note
+in place), avoiding unversioned overwrites. Recall ranks semantically when an
+embeddings endpoint exists and by keyword otherwise.
 """
 
 from . import ToolSpec
@@ -95,7 +97,7 @@ def specs(context):
     return [
         ToolSpec(
             "recall_memory",
-            "Explicitly recall personal, current-conversation, or site memory. Pass a focused query describing what you are looking for to rank the most relevant memories first; omit it to list the most recent. Never recall another user's memory.",
+            "Explicitly recall personal, current-conversation, or site memory. Pass a focused query describing what you are looking for to rank the most relevant memories first; ranking works semantically when an embeddings endpoint is available and by keyword matching otherwise. Omit the query to list the most recent. Never recall another user's memory.",
             _READ,
             recall_memory,
             preview_recall,
@@ -103,7 +105,7 @@ def specs(context):
         ),
         ToolSpec(
             "save_memory",
-            "Save a new memory note. Personal/current-conversation notes are owner scoped; site notes require manager authority. Does not overwrite existing memory.",
+            "Save a new memory note. Personal/current-conversation notes are owner scoped; site notes require manager authority. Saving identical content again refreshes the existing note instead of duplicating it; differing content never overwrites existing memory.",
             _SAVE,
             save_memory,
             preview_save,

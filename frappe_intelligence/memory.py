@@ -38,6 +38,27 @@ def _public(row):
     return {key: row.get(key) for key in ("name", "scope", "conversation", "content", "modified")}
 
 
+def _duplicate(user, scope, conversation, content):
+    """The same owner's enabled memory with identical content in this scope, if any.
+
+    Conversation scope also requires the same conversation; another user's
+    identical note is never matched.
+    """
+    filters = {"scope": scope, "enabled": 1}
+    if scope != "site":
+        filters["owner"] = user
+    if scope == "conversation":
+        filters["conversation"] = conversation
+    for row in frappe.get_all("Intelligence Memory", filters=filters, fields=FIELDS, limit_page_length=100):
+        if row.get("scope") != scope or not row.get("enabled") or row.get("owner") != user:
+            continue
+        if scope == "conversation" and (row.get("conversation") or None) != (conversation or None):
+            continue
+        if (row.get("content") or "").strip() == content:
+            return row
+    return None
+
+
 def list_memories(scope="personal", conversation=None):
     user = _scope(scope, conversation)
     filters = {"scope": scope, "enabled": 1}
@@ -55,6 +76,24 @@ def save_memory(content, scope="personal", conversation=None, name=None):
     user = _scope(scope, conversation, writing=True)
     if not isinstance(content, str) or not content.strip() or len(content) > 5000:
         frappe.throw("Memory must contain between 1 and 5000 characters.")
+    content = content.strip()
+    if not name:
+        duplicate = _duplicate(user, scope, conversation, content)
+        if duplicate is not None:
+            # An identical enabled note from the same owner in the same scope:
+            # refresh that row in place instead of stacking up copies.
+            doc = frappe.get_doc("Intelligence Memory", duplicate["name"], for_update=True)
+            doc.scope, doc.conversation, doc.content, doc.enabled = scope, conversation, content, 1
+            with internal_write():
+                doc.save()
+            try:
+                from . import rag
+
+                rag.index_memory(doc)
+            except Exception:
+                # Indexing is best-effort: saving a memory never fails on embeddings.
+                pass
+            return _public(doc)
     doc = (
         frappe.get_doc("Intelligence Memory", name, for_update=True)
         if name
@@ -67,7 +106,7 @@ def save_memory(content, scope="personal", conversation=None, name=None):
             frappe.throw("You cannot edit this memory.", frappe.PermissionError)
         if doc.scope != scope or (doc.get("conversation") or None) != (conversation or None):
             frappe.throw("A memory's scope cannot be changed. Create a new memory instead.")
-    doc.scope, doc.conversation, doc.content, doc.enabled = scope, conversation, content.strip(), 1
+    doc.scope, doc.conversation, doc.content, doc.enabled = scope, conversation, content, 1
     with internal_write():
         doc.save() if name else doc.insert()
     try:
@@ -101,9 +140,12 @@ def search_memories(scope="personal", conversation=None, query=None):
     """Visible memories ranked by similarity to query, or None to keep recency order.
 
     The candidate set is exactly what list_memories returns for this user and
-    scope; ranking only reorders it, so semantic recall can never widen
-    visibility. Any retrieval gap (no query, no usable provider, no scored
-    vectors) returns None so callers fall back to the honest recency list.
+    scope; ranking only reorders it, so recall can never widen visibility.
+    Semantic scoring is preferred; whenever it cannot score (no embeddings
+    endpoint, vectorless rows, model mismatch) the same candidates are ranked
+    by keyword instead. Only a complete absence of signal (no query, no
+    candidates, zero overlap) returns None so callers fall back to the honest
+    recency list.
     """
     if not isinstance(query, str) or not query.strip():
         return None

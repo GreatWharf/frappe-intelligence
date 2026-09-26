@@ -1,4 +1,5 @@
-"""Memory embeddings: best-effort save indexing, lifecycle cleanup, semantic recall."""
+"""Memory indexing: best-effort save indexing (vectorless when no embeddings
+endpoint exists), lifecycle cleanup, semantic and keyword recall, dedupe."""
 
 import hashlib
 import importlib
@@ -78,7 +79,7 @@ def test_memory_save_embeds_through_first_capable_provider(services, monkeypatch
     assert json.loads(row.get("vector")) == [0.5, 0.25]
 
 
-def test_memory_save_without_embeddings_provider_stores_no_vectors(services, monkeypatch):
+def test_memory_save_without_embeddings_provider_stores_lexical_rows(services, monkeypatch):
     fake, store = services
     _provider(store, "p-plain", fake.session.user, kind="Anthropic")
     rag = importlib.import_module("frappe_intelligence.rag")
@@ -89,7 +90,40 @@ def test_memory_save_without_embeddings_provider_stores_no_vectors(services, mon
     )
     saved = memory.save_memory("Keep this without vectors.")
     assert saved["name"]
-    assert _embedding_rows(store) == []
+    # The content is indexed even with no embeddings endpoint: keyword recall
+    # can score it now and a later capable provider can upgrade it in place.
+    rows = _embedding_rows(store)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.get("source_type") == "Memory"
+    assert row.get("source_name") == saved["name"]
+    assert row.get("source_label") == "Personal memory"
+    assert row.get("content") == "Keep this without vectors."
+    assert row.get("content_hash") == hashlib.sha256(b"Keep this without vectors.").hexdigest()
+    assert json.loads(row.get("vector")) == []
+    assert not row.get("model")
+    # An identical re-save refreshes the note instead of stacking up copies.
+    again = memory.save_memory("Keep this without vectors.")
+    assert again["name"] == saved["name"]
+    assert len(_embedding_rows(store)) == 1
+
+
+def test_memory_rows_upgrade_to_vectors_when_a_provider_appears(services, monkeypatch):
+    fake, store = services
+    _provider(store, "p-plain", fake.session.user, kind="Anthropic")
+    rag = importlib.import_module("frappe_intelligence.rag")
+    memory = importlib.import_module("frappe_intelligence.memory")
+    saved = memory.save_memory("Apples are the best fruit for pies.")
+    assert json.loads(_embedding_rows(store)[0].get("vector")) == []
+    _provider(store, "p-embed", fake.session.user)
+    _capable(rag, monkeypatch)
+    # Unchanged content still re-indexes: the rows were vectorless and an
+    # embeddings endpoint can now fill them in.
+    memory.save_memory("Apples are the best fruit for pies.", name=saved["name"])
+    rows = _embedding_rows(store)
+    assert len(rows) == 1
+    assert json.loads(rows[0].get("vector")) != []
+    assert rows[0].get("model") == "embed-1"
 
 
 def test_memory_embed_failure_never_breaks_save(services, monkeypatch):
@@ -139,6 +173,78 @@ def test_memory_edit_replaces_rows_and_unchanged_save_keeps_them(services, monke
     assert rows[0].get("source_name") == saved["name"]
     assert "Oranges" in rows[0].get("content")
     assert rows[0].get("content_hash") == hashlib.sha256(b"Oranges now win the fruit contest.").hexdigest()
+
+
+def test_save_memory_dedupes_identical_content_in_place(services, monkeypatch):
+    fake, store = services
+    _provider(store, "p-embed", fake.session.user)
+    rag = importlib.import_module("frappe_intelligence.rag")
+    memory = importlib.import_module("frappe_intelligence.memory")
+    _capable(rag, monkeypatch)
+    saved = memory.save_memory("Apples are the best fruit for pies.")
+    # Surrounding whitespace still counts as the same note.
+    again = memory.save_memory("  Apples are the best fruit for pies.  ")
+    assert again["name"] == saved["name"]
+    assert again["content"] == "Apples are the best fruit for pies."
+    assert set(again) == {"name", "scope", "conversation", "content", "modified"}
+    memories = [
+        row for row in store.values() if isinstance(row, dict) and row.get("doctype") == "Intelligence Memory"
+    ]
+    assert len(memories) == 1
+    # Indexing stays idempotent across the refresh: still one row.
+    assert len(_embedding_rows(store)) == 1
+    # Differing content is a new note, never an overwrite.
+    changed = memory.save_memory("Oranges now win the fruit contest.")
+    assert changed["name"] != saved["name"]
+
+
+def test_save_memory_dedupe_is_scoped_to_the_conversation(services):
+    fake, store = services
+    memory = importlib.import_module("frappe_intelligence.memory")
+    store["chat-a"] = Row(doctype="Intelligence Conversation", name="chat-a", owner=fake.session.user)
+    store["chat-b"] = Row(doctype="Intelligence Conversation", name="chat-b", owner=fake.session.user)
+    first = memory.save_memory("Prefer concise answers.", scope="conversation", conversation="chat-a")
+    again = memory.save_memory("Prefer concise answers.", scope="conversation", conversation="chat-a")
+    assert again["name"] == first["name"]
+    other = memory.save_memory("Prefer concise answers.", scope="conversation", conversation="chat-b")
+    assert other["name"] != first["name"]
+    personal = memory.save_memory("Prefer concise answers.")
+    assert personal["name"] not in (first["name"], other["name"])
+
+
+def test_save_memory_dedupe_never_matches_another_users_memory(services):
+    fake, store = services
+    memory = importlib.import_module("frappe_intelligence.memory")
+    store["foreign"] = Row(
+        doctype="Intelligence Memory",
+        name="foreign",
+        scope="personal",
+        owner="other@example.test",
+        content="Shared phrasing.",
+        enabled=1,
+    )
+    saved = memory.save_memory("Shared phrasing.")
+    assert saved["name"] != "foreign"
+    assert store["foreign"].get("content") == "Shared phrasing."
+    memories = [
+        row for row in store.values() if isinstance(row, dict) and row.get("doctype") == "Intelligence Memory"
+    ]
+    assert len(memories) == 2
+
+
+def test_save_memory_dedupe_skips_disabled_notes(services):
+    fake, store = services
+    memory = importlib.import_module("frappe_intelligence.memory")
+    store["off"] = Row(
+        doctype="Intelligence Memory",
+        name="off",
+        scope="personal",
+        owner=fake.session.user,
+        content="Old note.",
+        enabled=0,
+    )
+    saved = memory.save_memory("Old note.")
+    assert saved["name"] != "off"
 
 
 def test_semantic_recall_ranks_the_relevant_memory_first(services, monkeypatch):
@@ -192,7 +298,7 @@ def test_semantic_recall_never_returns_another_users_memory(services, monkeypatc
     assert all("Secret" not in row["content"] for row in result["memories"])
 
 
-def test_recall_without_query_or_provider_is_byte_identical_recency(services):
+def test_recall_without_query_is_byte_identical_recency(services):
     _, store = services
     memory = importlib.import_module("frappe_intelligence.memory")
     memory.save_memory("First note.")
@@ -206,13 +312,25 @@ def test_recall_without_query_or_provider_is_byte_identical_recency(services):
     plain = memory_tool.recall_memory(context, {"scope": "personal"})
     assert plain == {"memories": expected, "truncated": False, "untrusted_content": True}
     assert all("score" not in row for row in plain["memories"])
-    # A query with no embeddings-capable provider degrades to the same list.
-    queried = memory_tool.recall_memory(context, {"scope": "personal", "query": "first"})
-    assert queried == plain
     limited = memory_tool.recall_memory(context, {"scope": "personal", "limit": 1})
     assert limited["truncated"] is True
     assert len(limited["memories"]) == 1
-    assert _embedding_rows(store) == []
+
+
+def test_recall_with_a_query_ranks_by_keyword_without_any_provider(services):
+    _, store = services
+    memory = importlib.import_module("frappe_intelligence.memory")
+    memory.save_memory("First note about apples.")
+    memory.save_memory("Second note about zebras.")
+    context = SimpleNamespace(conversation="chat")
+    # No provider exists at all: the query still ranks, on keyword overlap.
+    queried = memory_tool.recall_memory(context, {"scope": "personal", "query": "apples"})
+    assert [row["content"] for row in queried["memories"]] == ["First note about apples."]
+    assert queried["memories"][0]["score"] > 0
+    assert queried["untrusted_content"] is True
+    rows = _embedding_rows(store)
+    assert len(rows) == 2
+    assert all(json.loads(row.get("vector")) == [] for row in rows)
 
 
 def test_semantic_recall_scores_only_a_bounded_candidate_set(services, monkeypatch):
@@ -235,24 +353,21 @@ def test_semantic_recall_scores_only_a_bounded_candidate_set(services, monkeypat
     assert ranked["memories"][0]["score"] > 0
 
 
-def test_semantic_recall_falls_back_when_vectors_cannot_score(services, monkeypatch):
+def test_recall_falls_back_to_keyword_when_vectors_cannot_score(services, monkeypatch):
     fake, store = services
     _provider(store, "p-embed", fake.session.user)
     rag = importlib.import_module("frappe_intelligence.rag")
     memory = importlib.import_module("frappe_intelligence.memory")
     _capable(rag, monkeypatch)
     memory.save_memory("Zebras roam the savanna in herds.")
-    memory.save_memory("Apples are the best fruit for pies.")
-    # A recaller whose embeddings live in another dimension scores nothing.
+    apple = memory.save_memory("Apples are the best fruit for pies.")
+    # A recaller whose embeddings live in another dimension scores nothing semantically.
     monkeypatch.setattr(rag, "_embed", lambda access, inputs: [[1.0, 0.0, 0.0] for _ in inputs])
     context = SimpleNamespace(conversation="chat")
     result = memory_tool.recall_memory(context, {"scope": "personal", "query": "apples"})
-    rows = memory.list_memories(scope="personal")
-    expected = [
-        {key: row.get(key) for key in ("name", "scope", "conversation", "content", "modified")}
-        for row in rows[:20]
-    ]
-    assert result == {"memories": expected, "truncated": False, "untrusted_content": True}
+    # Keyword scoring takes over instead of silently dropping to recency order.
+    assert [row["name"] for row in result["memories"]] == [apple["name"]]
+    assert result["memories"][0]["score"] > 0
 
 
 def test_site_memory_embeds_with_the_saving_managers_provider(services, monkeypatch):

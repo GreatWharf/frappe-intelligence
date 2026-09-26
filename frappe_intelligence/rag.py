@@ -4,19 +4,24 @@ Embeddings are requested lazily, only when a conversation asks for retrieval,
 and only through the provider already configured for that conversation. Every
 entry point checks conversation access first; index rows are internal server
 records and are never exposed as documents. When the configured provider has
-no embeddings endpoint the pipeline degrades to an honest, cached unavailable
-status and chat continues without retrieval.
+no embeddings endpoint the pipeline still indexes content (rows carry an empty
+vector sentinel) and ranks it with a pure-python BM25-style keyword scorer, so
+retrieval keeps working on chat-only gateways; the status payload says
+"lexical" honestly instead of claiming semantic.
 
 Saved memories are indexed best-effort through the same provider path. Their
 chunks never join conversation retrieval; they are read only by the explicitly
-approved memory recall flow, which falls back to the recency list whenever
-embeddings are unavailable.
+approved memory recall flow, which ranks semantically when embeddings work and
+by keyword otherwise, falling back to the recency list only when nothing can
+score at all.
 """
 
 import hashlib
 import io
 import json
 import math
+import re
+from collections import Counter
 
 import frappe
 
@@ -39,6 +44,16 @@ MEMORY_CHUNK_SIZE = 4000
 MEMORY_CHUNK_OVERLAP = 800
 MAX_MEMORY_CHUNKS = 4
 MAX_MEMORY_CANDIDATES = 200
+# BM25-style keyword scoring, used whenever vectors cannot score (no
+# embeddings endpoint, vectorless rows, model mismatch). Pure python and
+# bounded by the candidate caps above, so it stays cheap on any site.
+BM25_K1 = 1.5
+BM25_B = 0.75
+_TOKEN_PATTERN = re.compile(r"\w+")
+# Rows indexed without an embeddings endpoint store this sentinel instead of a
+# vector (the column is mandatory): it parses to an empty list, which cosine()
+# never scores, and _has_vector() recognizes it as "no embedding".
+_EMPTY_VECTOR = "[]"
 # OpenAI-compatible embedding models per wire; "custom" follows the OpenAI
 # convention because custom endpoints are OpenAI-compatible by definition.
 _EMBEDDING_MODEL = {
@@ -98,6 +113,58 @@ def cosine(left, right):
     if not norm_left or not norm_right:
         return 0.0
     return dot / (math.sqrt(norm_left) * math.sqrt(norm_right))
+
+
+def _tokens(text):
+    """Lowercase word tokens; punctuation and case are normalized away."""
+    if not isinstance(text, str):
+        return []
+    return _TOKEN_PATTERN.findall(text.lower())
+
+
+def bm25_scores(query, documents, k1=BM25_K1, b=BM25_B):
+    """BM25-style keyword scores {key: score} over a {key: text} mapping.
+
+    Only documents sharing a term with the query score; empty input, empty
+    documents and zero overlap all return {} rather than raising or dividing
+    by zero. Duplicate query terms count once.
+    """
+    terms = list(dict.fromkeys(_tokens(query)))
+    if not terms or not isinstance(documents, dict) or not documents:
+        return {}
+    frequencies = {}
+    lengths = {}
+    document_frequency = Counter()
+    for key, text in documents.items():
+        tokens = _tokens(text)
+        if not tokens:
+            continue
+        counts = Counter(tokens)
+        frequencies[key] = counts
+        lengths[key] = len(tokens)
+        document_frequency.update(counts.keys())
+    if not frequencies:
+        return {}
+    total = len(frequencies)
+    average_length = sum(lengths.values()) / total
+    scores = {}
+    for key, counts in frequencies.items():
+        score = 0.0
+        for term in terms:
+            frequency = counts.get(term, 0)
+            if not frequency:
+                continue
+            idf = math.log(1 + (total - document_frequency[term] + 0.5) / (document_frequency[term] + 0.5))
+            norm = k1 * (1 - b + b * lengths[key] / average_length)
+            score += idf * (frequency * (k1 + 1)) / (frequency + norm)
+        if score > 0:
+            scores[key] = score
+    return scores
+
+
+def _has_vector(row):
+    """True only when the row carries an embedded vector, not the sentinel."""
+    return (row.get("vector") or "").strip() not in ("", _EMPTY_VECTOR)
 
 
 def _cache():
@@ -214,7 +281,11 @@ def status():
     """Honest retrieval availability for the current user; safe for the boot payload.
 
     The first call per provider per cache window performs one tiny authenticated
-    embeddings request; later calls read the cached outcome. Never raises.
+    embeddings request; later calls read the cached outcome. "semantic" means an
+    embeddings endpoint answered; "lexical" means retrieval runs on keyword
+    scoring alone, with the reason carried alongside; unavailable is reserved
+    for when retrieval cannot run at all. Never raises, never claims semantic
+    when only lexical is possible.
     """
     unavailable = lambda reason: {"available": False, "reason": reason}  # noqa: E731
     try:
@@ -235,12 +306,17 @@ def status():
         if result.get("available"):
             return {
                 "available": True,
+                "mode": "semantic",
                 "provider": provider.get("title") or provider["name"],
                 "model": result.get("model"),
             }
         if result.get("reason"):
             reasons.append(result["reason"])
-    return unavailable(reasons[0] if reasons else "No configured provider offers embeddings.")
+    return {
+        "available": True,
+        "mode": "lexical",
+        "reason": reasons[0] if reasons else "No configured provider offers embeddings.",
+    }
 
 
 def _retrieval_access(chat):
@@ -433,7 +509,32 @@ def _delete_source_rows(source_type, source_name):
     return deleted
 
 
+def _insert_chunk(conversation, source, digest, index, chunk, vector, model):
+    frappe.get_doc(
+        {
+            "doctype": "Intelligence Embedding",
+            "conversation": conversation,
+            "source_type": source["type"],
+            "source_name": source["name"],
+            "source_label": str(source["label"])[:140],
+            "chunk_index": index,
+            "content": chunk,
+            "vector": vector,
+            "content_hash": digest,
+            "model": model,
+        }
+    ).insert(ignore_permissions=True)
+
+
 def _index_chunks(conversation, access, source, digest, chunks):
+    if access is None:
+        # No embeddings endpoint: the content is indexed with an empty-vector
+        # sentinel so keyword retrieval works now and a later capable provider
+        # can upgrade the rows in place.
+        with internal_write():
+            for offset, chunk in enumerate(chunks):
+                _insert_chunk(conversation, source, digest, offset, chunk, _EMPTY_VECTOR, "")
+        return
     for start in range(0, len(chunks), EMBEDDING_BATCH):
         batch = chunks[start : start + EMBEDDING_BATCH]
         try:
@@ -445,26 +546,29 @@ def _index_chunks(conversation, access, source, digest, chunks):
             return
         except Exception:
             return
+        model = access["state"].get("model") or ""
         with internal_write():
             for offset, (chunk, vector) in enumerate(zip(batch, vectors)):
-                frappe.get_doc(
-                    {
-                        "doctype": "Intelligence Embedding",
-                        "conversation": conversation,
-                        "source_type": source["type"],
-                        "source_name": source["name"],
-                        "source_label": str(source["label"])[:140],
-                        "chunk_index": start + offset,
-                        "content": chunk,
-                        "vector": json.dumps(vector, separators=(",", ":")),
-                        "content_hash": digest,
-                        "model": access["state"].get("model") or "",
-                    }
-                ).insert(ignore_permissions=True)
+                _insert_chunk(
+                    conversation,
+                    source,
+                    digest,
+                    start + offset,
+                    chunk,
+                    json.dumps(vector, separators=(",", ":")),
+                    model,
+                )
 
 
 def _ensure_indexed(chat, access):
-    """Idempotently embed new and changed sources, bounded to MAX_CHUNKS rows."""
+    """Idempotently index new and changed sources, bounded to MAX_CHUNKS rows.
+
+    Rows are written with or without vectors depending on what the provider
+    offers; rows whose content is unchanged are kept, except vectorless rows
+    earned before an embeddings endpoint became available, which are re-embedded
+    so semantic retrieval can take over. Rows with real vectors are never
+    dropped just because embeddings are temporarily unavailable.
+    """
     grouped = {}
     for row in _rows(chat.name):
         grouped.setdefault(row.get("source_name"), []).append(row)
@@ -483,7 +587,11 @@ def _ensure_indexed(chat, access):
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         keep.add(source["name"])
         existing = grouped.get(source["name"]) or []
-        if existing and {row.get("content_hash") for row in existing} == {digest}:
+        if (
+            existing
+            and {row.get("content_hash") for row in existing} == {digest}
+            and (access is None or any(_has_vector(row) for row in existing))
+        ):
             continue
         if existing:
             _delete_rows(chat.name, source["name"])
@@ -501,8 +609,23 @@ def _ensure_indexed(chat, access):
     return total
 
 
+def _hit(score, row):
+    return {
+        "content": row.get("content"),
+        "source_type": row.get("source_type"),
+        "source_label": row.get("source_label"),
+        "score": round(score, 4),
+    }
+
+
 def search(conversation, query, top_k=5):
-    """Top matching private chunks for a conversation, or [] when unavailable."""
+    """Top matching private chunks for a conversation, or [] when nothing matches.
+
+    Semantic cosine is preferred; when it cannot score (no embeddings endpoint,
+    a failed embed call, or chunks indexed without vectors) the same chunks are
+    ranked by BM25 keyword scoring instead of vanishing, so retrieval works on
+    chat-only providers too.
+    """
     chat = get_conversation(conversation)
     if not isinstance(query, str) or not query.strip():
         frappe.throw("Enter a retrieval query.")
@@ -513,35 +636,39 @@ def search(conversation, query, top_k=5):
         top_k = 5
     top_k = min(max(top_k, 1), 20)
     access = _retrieval_access(chat)
-    if access is None:
-        return []
     _ensure_indexed(chat, access)
-    try:
-        query_vector = _embed(access, [query])[0]
-    except ProviderError:
-        _forget(access["provider"].name)
+    rows = _rows(chat.name)
+    if not rows:
         return []
-    except Exception:
-        return []
-    scored = []
-    for row in _rows(chat.name):
+    if access is not None:
         try:
-            vector = json.loads(row.get("vector") or "[]")
-        except ValueError:
-            continue
-        score = cosine(query_vector, vector)
-        if score > 0:
-            scored.append((score, row))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [
-        {
-            "content": row.get("content"),
-            "source_type": row.get("source_type"),
-            "source_label": row.get("source_label"),
-            "score": round(score, 4),
-        }
-        for score, row in scored[:top_k]
-    ]
+            query_vector = _embed(access, [query])[0]
+        except ProviderError:
+            _forget(access["provider"].name)
+        except Exception:
+            pass
+        else:
+            vector_rows = [row for row in rows if _has_vector(row)]
+            scored = []
+            for row in vector_rows:
+                try:
+                    vector = json.loads(row.get("vector"))
+                except ValueError:
+                    continue
+                score = cosine(query_vector, vector)
+                if score > 0:
+                    scored.append((score, row))
+            if scored or len(vector_rows) == len(rows):
+                # Semantic is authoritative once every chunk could score; an
+                # empty result then honestly means "nothing similar".
+                scored.sort(key=lambda item: item[0], reverse=True)
+                return [_hit(score, row) for score, row in scored[:top_k]]
+            # Some chunks carry no vectors: rank everything lexically so they
+            # stay retrievable instead of silently dropping out.
+    scores = bm25_scores(query, {row.get("name"): row.get("content") or "" for row in rows})
+    by_name = {row.get("name"): row for row in rows}
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    return [_hit(score, by_name[name]) for name, score in ranked[:top_k]]
 
 
 def context_block(conversation, query, top_k=5, max_chars=4000):
@@ -569,11 +696,14 @@ def drop_conversation(conversation):
 
 
 def index_memory(memory):
-    """Best-effort vector index for one saved memory; never raises, never blocks the save.
+    """Best-effort index for one saved memory; never raises, never blocks the save.
 
-    Unchanged content keeps its rows (content_hash match); changed content has
-    its rows replaced. When no provider offers embeddings the memory is stored
-    without vectors and the recency fallback in the recall flow keeps working.
+    Rows are always written, even with no embeddings endpoint anywhere: the
+    content lands with an empty-vector sentinel so keyword recall works and a
+    later capable provider can upgrade the rows in place. Unchanged content
+    keeps its rows (content_hash match) unless the rows lack vectors an
+    available provider can now supply; changed content replaces its rows.
+    Capability is resolved before any delete, so an outage never orphans rows.
     """
     try:
         name = memory.get("name")
@@ -581,14 +711,13 @@ def index_memory(memory):
         if not name or not content:
             return
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        existing = _source_rows(MEMORY_SOURCE, name, ["name", "source_type", "source_name", "content_hash"])
-        if existing and {row.get("content_hash") for row in existing} == {digest}:
-            return
-        # Capability first: replacing rows only makes sense when new vectors can
-        # actually be embedded; a transient outage must not orphan good ones.
+        existing = _source_rows(
+            MEMORY_SOURCE, name, ["name", "source_type", "source_name", "content_hash", "vector"]
+        )
         access = _memory_access()
-        if access is None:
-            return
+        if existing and {row.get("content_hash") for row in existing} == {digest}:
+            if access is None or any(_has_vector(row) for row in existing):
+                return
         if existing:
             _delete_source_rows(MEMORY_SOURCE, name)
         chunks = chunk_text(content, size=MEMORY_CHUNK_SIZE, overlap=MEMORY_CHUNK_OVERLAP)[:MAX_MEMORY_CHUNKS]
@@ -608,37 +737,9 @@ def drop_memory(name):
     return _delete_source_rows(MEMORY_SOURCE, name)
 
 
-def score_memories(candidates, query):
-    """Cosine scores {memory name: score} over visible candidates, or None when unavailable.
-
-    Candidates must already be visibility-filtered by the caller; scoring only
-    reorders that set. Only chunks embedded with the recaller's current
-    embedding model can score; anything else leaves the memory unranked so the
-    caller keeps its recency order. Read-only, bounded to MAX_MEMORY_CANDIDATES.
-    """
-    if not isinstance(query, str) or not query.strip():
-        return None
-    access = _memory_access()
-    if access is None:
-        return None
-    names = []
-    for row in candidates:
-        if len(names) >= MAX_MEMORY_CANDIDATES:
-            break
-        name = row.get("name")
-        if name and name not in names:
-            names.append(name)
-    if not names:
-        return None
-    try:
-        query_vector = _embed(access, [query.strip()[:MAX_QUERY_CHARS]])[0]
-    except ProviderError:
-        _forget(access["provider"].name)
-        return None
-    except Exception:
-        return None
+def _vector_memory_scores(names, query_vector, model):
+    """Cosine scores over the candidates' chunks embedded with the current model."""
     wanted = set(names)
-    model = access["state"].get("model") or ""
     scores = {}
     for row in frappe.get_all(
         "Intelligence Embedding",
@@ -653,11 +754,56 @@ def score_memories(candidates, query):
             continue
         if model and (row.get("model") or "") != model:
             continue
+        if not _has_vector(row):
+            continue
         try:
-            vector = json.loads(row.get("vector") or "[]")
+            vector = json.loads(row.get("vector"))
         except ValueError:
             continue
         score = cosine(query_vector, vector)
         if score > scores.get(source_name, 0.0):
             scores[source_name] = score
-    return {name: round(score, 4) for name, score in scores.items() if score > 0}
+    return scores
+
+
+def score_memories(candidates, query):
+    """Scores {memory name: score} over visible candidates, or None to keep recency order.
+
+    Candidates must already be visibility-filtered by the caller; scoring only
+    reorders that set. Semantic cosine over chunks embedded with the recaller's
+    current model is preferred; whenever it cannot score (no embeddings
+    endpoint, a failed embed call, vectorless rows, model mismatch) the same
+    candidates are ranked by BM25 keyword scoring over their content, so recall
+    keeps working with no embeddings at all. Read-only, bounded to
+    MAX_MEMORY_CANDIDATES.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return None
+    query = query.strip()
+    names = []
+    contents = {}
+    for row in candidates:
+        if len(names) >= MAX_MEMORY_CANDIDATES:
+            break
+        name = row.get("name")
+        if name and name not in names:
+            names.append(name)
+            contents[name] = row.get("content") or ""
+    if not names:
+        return None
+    access = _memory_access()
+    if access is not None:
+        try:
+            query_vector = _embed(access, [query[:MAX_QUERY_CHARS]])[0]
+        except ProviderError:
+            _forget(access["provider"].name)
+        except Exception:
+            pass
+        else:
+            scores = _vector_memory_scores(names, query_vector, access["state"].get("model") or "")
+            if scores:
+                return {name: round(score, 4) for name, score in scores.items()}
+    scores = bm25_scores(query, contents)
+    if not scores:
+        return None
+    return {name: round(score, 4) for name, score in scores.items()}
