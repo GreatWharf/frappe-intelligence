@@ -1594,11 +1594,13 @@ def _maybe_generate_title(run):
         config = _run_config(run)
         # A reasoning model burns a tiny budget on thinking before any visible
         # text, then finishes "length": the title silently never landed on
-        # kimi-k3 (24 tokens, default thinking). Give the call room and ask for
+        # kimi-k3 (24 tokens, default thinking). 400 proved marginal under load
+        # on muse-spark-1.3 (think-first models finish "length" with no visible
+        # text); 1200 leaves room for the thought and the sentence. Ask for
         # minimal reasoning where the wire takes it; Anthropic/Gemini keep
         # thinking off, so their budget stays small either way.
         effort = "low" if config.kind in ("openai", "custom", "xai", "openrouter") else ""
-        config = replace(config, max_tokens=400, effort=effort)
+        config = replace(config, max_tokens=1200, effort=effort)
         # Label both texts so the model titles the user's message and treats the
         # assistant reply as context only, never as the text to repeat.
         titled = f"User message:\n{user_text}"
@@ -1623,6 +1625,7 @@ def _maybe_generate_title(run):
     except Exception:
         try:
             frappe.db.rollback()
+            frappe.log_error(title="Intelligence title generation failed")
         except Exception:
             pass
 

@@ -258,7 +258,7 @@ def test_the_first_completed_run_replaces_the_placeholder_title(env, monkeypatch
     doc = env.frappe.get_doc("Intelligence Conversation", "titled")
     assert doc.title == "Unpaid invoice review", "quotes, punctuation and whitespace are stripped"
     assert len(seen) == 2, "the run turn, then the tiny title call"
-    assert seen[-1].max_tokens == 400 and seen[-1].effort == "low", (
+    assert seen[-1].max_tokens == 1200 and seen[-1].effort == "low", (
         "reasoning models need room for thinking plus the few visible words"
     )
     assert env.calls[-1][0]["role"] == "system" and "at most 100 characters" in env.calls[-1][0]["content"]
@@ -275,7 +275,7 @@ def test_the_title_call_keeps_thinking_off_for_anthropic_and_gemini(env, monkeyp
     env.replies.append(title_reply("Quiet review"))
     env.engine.process_run(name)
     assert env.engine.get_run(name)["state"] == "completed"
-    assert seen[-1].max_tokens == 400 and seen[-1].effort == "", (
+    assert seen[-1].max_tokens == 1200 and seen[-1].effort == "", (
         "Anthropic thinking budgets must exceed max_tokens, so thinking stays off"
     )
 

@@ -2,6 +2,16 @@
 
 All notable changes to Intelligence are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the app versions with [Semantic Versioning](https://semver.org/).
 
+## [0.9.2] - 2026-09-26
+
+### Fixed
+
+- The title call's token budget rises from 400 to 1200: think-first models at
+  minimal reasoning could burn the whole budget on reasoning and finish with no
+  visible text, silently keeping the placeholder on some conversations. Title
+  generation failures also log an Error Log row now instead of vanishing
+  silently (the run itself still never fails on a title).
+
 ## [0.9.1] - 2026-09-26
 
 ### Fixed
