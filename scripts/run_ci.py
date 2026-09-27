@@ -7,7 +7,11 @@ from collections import deque
 
 def main():
     tail = deque(maxlen=100)
-    with subprocess.Popen(sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as run:
+    # CI-only wrapper: argv is the test command the workflow itself supplies, a static
+    # list authored in the workflow file; nothing user-controlled is interpolated.
+    with subprocess.Popen(
+        sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    ) as run:  # nosemgrep: frappe-subprocess-exec
         for line in run.stdout:
             print(line, end="", flush=True)
             tail.append(line)

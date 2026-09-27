@@ -136,7 +136,9 @@ def _lock(doctype, name):
     # Only constants from this module are accepted; values are always bound.
     if doctype not in {RUN, CONVERSATION, APPROVAL, EXECUTION, "User"}:
         raise ValueError("Unsupported lock target")
-    if not frappe.db.sql(f"SELECT name FROM `tab{doctype}` WHERE name=%s FOR UPDATE", (name,)):
+    if not frappe.db.sql(
+        f"SELECT name FROM `tab{doctype}` WHERE name=%s FOR UPDATE", (name,)
+    ):  # nosemgrep: frappe-sql-format-injection -- doctype is allowlisted two lines up; the value is bound
         frappe.throw("Intelligence resource not found.", frappe.DoesNotExistError)
 
 
@@ -915,7 +917,7 @@ def _children(doctype, run):
     # Locking reads see the latest committed state even on REPEATABLE READ sites.
     # The run lock serializes inserts, including empty child sets.
     rows = frappe.db.sql(
-        f"SELECT name FROM `tab{doctype}` WHERE run=%s ORDER BY creation, name FOR UPDATE",
+        f"SELECT name FROM `tab{doctype}` WHERE run=%s ORDER BY creation, name FOR UPDATE",  # nosemgrep: frappe-sql-format-injection -- doctype is allowlisted above; run name is bound
         (run.name,),
         as_dict=True,
     )
@@ -1327,7 +1329,7 @@ def _provider_turn(run_name, token):
     prompt = _system_prompt(run, context)
     tool_schemas = schemas(context)
     _save(run, step_count=int(run.step_count or 0) + 1)
-    frappe.db.commit()  # no write OR read transaction is held across network I/O
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit -- no write OR read transaction is held across network I/O
     # The system message is prepended transiently and never persisted as a Message row.
     reply = _complete_with_retry(config, [{"role": "system", "content": prompt}] + history, tool_schemas)
     run = _locked_run(run_name)
@@ -1337,7 +1339,7 @@ def _provider_turn(run_name, token):
     error = _budget(run, get_settings())
     if error:
         _finish(run, "failed", error)
-        frappe.db.commit()
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the failed state must persist before the job returns
         return
     calls = _normal_calls(reply)
     available = get_tools(context)
@@ -1430,7 +1432,7 @@ def _provider_turn(run_name, token):
         _release(run)
     else:
         _finish(run, "completed")
-    frappe.db.commit()
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit -- end of a worker job: the settled state must persist for polling clients and recovery
     if not (pending or proposals or calls):
         _maybe_generate_title(run)
 
@@ -1610,7 +1612,7 @@ def _maybe_generate_title(run):
             {"role": "system", "content": _TITLE_PROMPT},
             {"role": "user", "content": titled},
         ]
-        frappe.db.commit()  # the provider call never holds a transaction
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the provider call never holds a transaction
         from frappe_intelligence.providers import complete
 
         title = _clean_title(getattr(complete(config, messages, []), "text", ""), user_text)
@@ -1621,7 +1623,7 @@ def _maybe_generate_title(run):
             return  # the user renamed it while the provider answered
         _save(conversation, title=title)
         _event(run)
-        frappe.db.commit()
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the title lands after the provider round-trip, past the run's own commit
     except Exception:
         try:
             frappe.db.rollback()
@@ -1704,7 +1706,7 @@ def _execute_approval(run_name, token, approval_name):
         started_at=_now(),
     )
     if spec.external:
-        frappe.db.commit()  # durable intent before any non-transactional effect
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit -- durable intent before any non-transactional effect
     try:
         with _unprivileged_tool():
             result = execute(context, approval.tool_name, arguments)
@@ -1784,7 +1786,7 @@ def process_run(run_name):
         _assert_active(run)
         if run.cancel_requested:
             _finish(run, "cancelled")
-            frappe.db.commit()
+            frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the cancelled state must persist before the job returns
             return
         settings = get_settings()
         outstanding = []
@@ -1794,7 +1796,7 @@ def process_run(run_name):
         error = _budget(run, settings, provider_step=not outstanding)
         if error:
             _finish(run, "failed", error)
-            frappe.db.commit()
+            frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the failed state must persist before the job returns
             return
         get_provider_config(run.provider)
         token = uuid.uuid4().hex
@@ -1810,7 +1812,7 @@ def process_run(run_name):
         )
         _run_event(run, "started")
         _event(run)
-        frappe.db.commit()
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the running state must be visible before the provider call starts
         if outstanding:
             # One tool per job keeps each receipt, cancellation point and lease small.
             _execute_approval(run_name, token, outstanding[0])
@@ -1818,7 +1820,7 @@ def process_run(run_name):
             if run.state == "running":
                 _fence(run, token)
                 _release(run)
-            frappe.db.commit()
+            frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the fenced release must persist before the next job picks the run up
         else:
             _provider_turn(run_name, token)
     except LostLease:
@@ -1829,7 +1831,7 @@ def process_run(run_name):
             # The user-facing message stays sanitized, but without the real
             # traceback a production failure is undiagnosable.
             frappe.log_error(title="Intelligence run failed", message=frappe.get_traceback())
-            frappe.db.commit()  # the diagnostic survives the bookkeeping below
+            frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the diagnostic survives the bookkeeping below
         except Exception:
             frappe.db.rollback()  # diagnostics must never mask the real failure
         if token:
@@ -1854,7 +1856,7 @@ def process_run(run_name):
                                 error="Tool execution failed and local changes were rolled back.",
                             )
                     _finish(run, "failed", _failure_message(exc))
-                frappe.db.commit()
+                frappe.db.commit()  # nosemgrep: frappe-manual-commit -- failure state and tool rollback settle before the job ends
         elif verified_site:
             # Revoked user/provider access is terminal, not an endlessly requeued
             # poison job. Only app bookkeeping runs under the original RQ identity.
@@ -1866,7 +1868,7 @@ def process_run(run_name):
                     "failed",
                     "The initiating user or provider is no longer authorized, or run configuration is invalid.",
                 )
-                frappe.db.commit()
+                frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the failed state must persist before the job returns
             else:
                 frappe.db.rollback()
                 raise
@@ -1942,7 +1944,7 @@ def recover_runs():
                             _save(approval, status="failed")
                         _finish(run, "failed", "The initiating user or provider is no longer authorized.")
                     recovered += 1
-                    frappe.db.commit()
+                    frappe.db.commit()  # nosemgrep: frappe-manual-commit -- each recovered run settles independently of the rest of the sweep
                     continue
                 if run.state == "running" and (not run.lease_expires or _date(run.lease_expires) <= _now()):
                     if _started_receipts(run):
@@ -1967,7 +1969,7 @@ def recover_runs():
                 elif run.state == "queued":
                     _save(run, heartbeat_at=_now())  # rotate this cohort fairly via modified
                     _enqueue(run)  # repairs failed enqueue-after-commit / Redis loss
-                frappe.db.commit()
+                frappe.db.commit()  # nosemgrep: frappe-manual-commit -- heartbeats persist between sweep iterations on long sweeps
             except Exception:
                 frappe.db.rollback()
                 # No exception payloads/credentials in logs. Surface recovery failure

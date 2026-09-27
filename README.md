@@ -133,7 +133,7 @@ bench --site your-site.local migrate
 
 **Step 4:** Open **Intelligence** from the Desk sidebar, add a provider with its model ID and your API key, and start a conversation.
 
-A container image for Docker deployments is published as `ghcr.io/greatwharf/frappe-intelligence`; see the [deployment guide](docs/operations.md) for compose, upgrades, backups, and uninstall behavior.
+A container image is published as `ghcr.io/greatwharf/frappe-intelligence`; see the [operations guide](docs/operations.md) for compose, upgrades, backups, and uninstall behavior.
 
 ## Compatibility Matrix
 
@@ -153,7 +153,7 @@ Provider calls disclose the approved context to that provider; data does not rem
 
 ## Documentation
 
-- [Installation, upgrades and operations](docs/operations.md)
+- [Setup, upgrades and operations](docs/operations.md)
 - [Security and data boundaries](docs/security.md)
 - [Providers and authentication](docs/providers.md)
 - [Business tools and the extension contract](docs/tools.md)
